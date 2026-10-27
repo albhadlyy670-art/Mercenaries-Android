@@ -1,0 +1,84 @@
+name: Android
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Locate the Android project
+        run: |
+          P=$(find . -type d -path "*ports/mercenaries-android" | head -1)
+          if [ -z "$P" ]; then echo "ports/mercenaries-android not found - is the zip unzipped?"; exit 1; fi
+          echo "PROJECT=$P" >> "$GITHUB_ENV"
+          echo "Project: $P"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install Android SDK, NDK and CMake
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+            "platforms;android-34" "build-tools;34.0.0" "ndk;26.3.11579264" "cmake;3.22.1"
+          echo "sdk.dir=$ANDROID_HOME" > "$PROJECT/local.properties"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+
+      - name: Build debug APK
+        shell: bash
+        run: |
+          cd "$PROJECT"
+          set -o pipefail
+          gradle assembleDebug --stacktrace 2>&1 | tee "$GITHUB_WORKSPACE/build.log"
+
+      - name: List ALL native compile errors (keeps going past the first failure)
+        if: failure()
+        run: |
+          B=$(ls -d "$PROJECT"/app/.cxx/Debug/*/arm64-v8a 2>/dev/null | head -1)
+          if [ -n "$B" ]; then
+            "$ANDROID_HOME/cmake/3.22.1/bin/ninja" -C "$B" -k 0 mercrecomp > all-errors.log 2>&1 || true
+            {
+              echo "### All native compile / link errors"
+              echo '```'
+              grep -E "error:|undefined (reference|symbol)" all-errors.log | sed -E 's#/home/runner/work/[^/]+/[^/]+/##' | sort -u | head -150
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Show the errors (if any) in the run summary
+        if: always()
+        run: |
+          {
+            echo "### First errors"
+            echo '```'
+            grep -E "error:|fatal error|undefined reference|undefined symbol|FAILED:|What went wrong" -A3 build.log | head -80 || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload APK
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mercenaries-debug-apk
+          path: ${{ env.PROJECT }}/app/build/outputs/apk/debug/*.apk
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: |
+            build.log
+            all-errors.log
+            ${{ env.PROJECT }}/app/.cxx/**/*.txt
+          if-no-files-found: ignore
