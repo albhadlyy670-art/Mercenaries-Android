@@ -21,6 +21,8 @@ gcc -O1 -w -I$CPP/compat/include -I$CPP/compat -I$CPP/d3d11_gles/include -I$S -I
 echo "== Case-insensitive file names (importer lower-cases; path translator folds requests)"
 echo 'void xbox_log(int l,int c,const char*f,...){}' > $T/logstub.c
 gcc -O1 -w -DXBOX_ANDROID=1 -D__ANDROID__ -I$CPP/d3d11_gles/include -I$CPP/compat -I$S -I$S/kernel -I$S/platform test_path_fold.c $S/kernel/kernel_path.c $T/logstub.c $S/platform/win32_compat.c $CPP/compat/winapi_extra.c -lpthread -lm -o $T/fold && $T/fold
+echo "== Shell build link (no recompiler output): every symbol resolves"
+python3 check_shell_link.py
 echo "== Whole Android source set: CMake lists, NDK-strict compile, every symbol accounted for"
 python3 check_android_sources.py
 if ldconfig -p | grep -q libGLESv2 && ldconfig -p | grep -q libEGL; then
