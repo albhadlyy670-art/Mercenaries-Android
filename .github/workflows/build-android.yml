@@ -1,0 +1,52 @@
+# Put this file at .github/workflows/build-android.yml in a PRIVATE copy of the repo.
+# Also add your own default.xbe at game_files/mercenaries-retail/default.xbe
+# Then: Actions tab -> "Build Android APK" -> Run workflow -> download the "mercenaries-apk" artifact.
+name: Build Android APK
+on: workflow_dispatch
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '17' }
+      - uses: android-actions/setup-android@v3
+      - name: Install NDK + platform
+        shell: pwsh
+        run: |
+          sdkmanager "ndk;26.3.11579264" "platforms;android-34" "build-tools;34.0.0" "cmake;3.22.1"
+      - name: Check XBE
+        shell: pwsh
+        run: |
+          $p = "game_files/mercenaries-retail/default.xbe"
+          if (-not (Test-Path $p)) { throw "Add your default.xbe at $p" }
+          (Get-FileHash $p -Algorithm SHA256).Hash
+      - name: Python env
+        shell: pwsh
+        run: ./ports/mercenaries/scripts/Setup-Python.ps1
+      - name: Recompile (generates the game C code)
+        shell: pwsh
+        run: ./ports/mercenaries/scripts/Recompile.ps1
+      - name: Confirm generated code
+        shell: pwsh
+        run: |
+          $n = (Get-ChildItem ports/mercenaries/src/recomp/gen -Filter *.c).Count
+          echo "generated C files: $n"
+          if ($n -lt 1) { throw "recompile produced nothing" }
+      - uses: gradle/actions/setup-gradle@v4
+        with: { gradle-version: '8.9' }
+      - name: Build APK
+        working-directory: ports/mercenaries-android
+        run: gradle assembleDebug --stacktrace
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mercenaries-apk
+          path: ports/mercenaries-android/app/build/outputs/apk/debug/*.apk
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: build-logs
+          path: |
+            ports/mercenaries-android/app/.cxx/**/*.log
+            ports/mercenaries-android/app/build/reports/**
