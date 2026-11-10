@@ -78,8 +78,11 @@ static void read_launch_cfg(struct android_app *app)
     fclose(f);
 }
 
+void android_trace(const char *fmt, ...);
+
 static void on_cmd(struct android_app *app, int32_t cmd)
 {
+    android_trace("[app] lifecycle cmd=%d (1=init_window 2=term_window 4=gain_focus 5=lose_focus 11=pause 15=destroy)", (int)cmd);
     switch (cmd) {
     case APP_CMD_INIT_WINDOW:
         pthread_mutex_lock(&g_win_lock);
@@ -134,5 +137,6 @@ void android_main(struct android_app *app)
     atomic_store(&g_android_quit, 1);
     /* The guest runs inside xbe_entry_point() and never unwinds; ending the
      * process is the supported way out of NativeActivity. */
+    android_trace("[app] activity destroyed -> _exit(0)");
     _exit(0);
 }
