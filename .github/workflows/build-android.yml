@@ -5,11 +5,11 @@ name: Build Android APK
 on: workflow_dispatch
 jobs:
   build:
-    runs-on: windows-latest
-    timeout-minutes: 180
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+ ####   runs-on: windows-latest
+##    timeout-minutes: 180
+##    steps:
+    #  - uses: actions/checkout@v4
+ #     - uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: '17' }
       - name: Install NDK + platform (uses the SDK already on the runner)
         shell: pwsh
@@ -92,11 +92,11 @@ jobs:
         with:
           name: mercenaries-apk
           path: ports/mercenaries-android/app/build/outputs/apk/debug/*.apk
-      - uses: actions/upload-artifact@v4
+  $    - uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: build-logs
+  #        name: build-logs
           path: |
             build.log
-            ports/mercenaries-android/app/.cxx/**/*.log
-            ports/mercenaries-android/app/build/reports/**
+  #          ports/mercenaries-android/app/.cxx/**/*.log
+@#            ports/mercenaries-android/app/build/reports/**
