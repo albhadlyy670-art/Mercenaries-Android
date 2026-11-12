@@ -1,0 +1,104 @@
+# Put this file at .github/workflows/build-android.yml in a PRIVATE copy of the repo.
+# Also add your own default.xbe at game_files/mercenaries-retail/default.xbe
+# Then: Actions tab -> "Build Android APK" -> Run workflow -> download the "mercenaries-apk" artifact.
+name: Build Android APK
+on: workflow_dispatch
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '17' }
+      - name: Install NDK + platform (uses the SDK already on the runner)
+        shell: pwsh
+        run: |
+          $sdk = $env:ANDROID_HOME; if (-not $sdk) { $sdk = $env:ANDROID_SDK_ROOT }
+          if (-not $sdk) { $sdk = "C:\Android\android-sdk" }
+          echo "SDK: $sdk"
+          $sm = Get-ChildItem -Path $sdk\cmdline-tools -Recurse -Filter sdkmanager.bat | Select-Object -First 1
+          if (-not $sm) { throw "sdkmanager not found under $sdk" }
+          "y`n" * 30 | & $sm.FullName "--sdk_root=$sdk" --licenses | Out-Null
+          & $sm.FullName "--sdk_root=$sdk" "ndk;26.3.11579264" "platforms;android-34" "build-tools;34.0.0" "cmake;3.22.1"
+          if ($LASTEXITCODE -ne 0) { throw "sdkmanager failed" }
+          "ANDROID_HOME=$sdk" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "ANDROID_NDK_HOME=$sdk\ndk\26.3.11579264" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - name: Check XBE
+        shell: pwsh
+        run: |
+          $p = "game_files/mercenaries-retail/default.xbe"
+          if (-not (Test-Path $p)) { throw "Add your default.xbe at $p" }
+          (Get-FileHash $p -Algorithm SHA256).Hash
+      - name: Python env
+        shell: pwsh
+        run: ./ports/mercenaries/scripts/Setup-Python.ps1
+      - name: Recompile (generates the game C code)
+        shell: pwsh
+        run: ./ports/mercenaries/scripts/Recompile.ps1
+      - name: Confirm generated code
+        shell: pwsh
+        run: |
+          $n = (Get-ChildItem ports/mercenaries/src/recomp/gen -Filter *.c).Count
+          echo "generated C files: $n"
+          if ($n -lt 1) { throw "recompile produced nothing" }
+      - name: Extract the functions the game spins in
+        shell: pwsh
+        run: python tools/android_dump_funcs.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: loop-functions
+          path: loop_functions.c
+      - name: Apply Android fix (wait on invalid handles)
+        shell: pwsh
+        run: |
+          python tools/android_fix_wait.py
+          python tools/android_fix_stack.py
+          python tools/android_fix_trace.py
+          python tools/android_fix_threads.py
+          python tools/android_fix_dirflag.py
+          python tools/android_fix_pathlen.py
+          python tools/android_fix_kring.py
+          python tools/android_fix_assetflow.py
+          python tools/android_fix_glcrumbs.py
+          python tools/android_fix_linkguard.py
+      - uses: gradle/actions/setup-gradle@v4
+        with: { gradle-version: '8.9' }
+      - name: Build APK
+        id: build
+        working-directory: ports/mercenaries-android
+        shell: pwsh
+        run: |
+          gradle assembleDebug --console=plain 2>&1 | Tee-Object -FilePath ../../build.log
+          exit $LASTEXITCODE
+      - name: Symbolize crash addresses
+        if: always()
+        shell: pwsh
+        run: |
+          $so = Get-ChildItem -Recurse ports/mercenaries-android/app/build/intermediates/cxx -Filter libmercrecomp.so -ErrorAction SilentlyContinue | Select-Object -First 1
+          $tool = Get-ChildItem "$env:ANDROID_NDK_HOME/toolchains/llvm/prebuilt/windows-x86_64/bin" -Filter llvm-addr2line.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $so -or -not $tool) { echo "library or tool not found"; exit 0 }
+          $addrs = @("0x1b50114","0x1b3c7f0","0x160aebc")
+          $out = & $tool.FullName -f -i -C -p -e $so.FullName @addrs 2>&1 | Out-String
+          echo $out
+          "### Crash addresses`n``````n$out`n``````" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+      - name: Show compiler errors (only runs if the build failed)
+        if: failure()
+        shell: pwsh
+        run: |
+          $hits = Select-String -Path build.log -Pattern 'error:|error LNK|undefined symbol|ld.lld: error|fatal error|FAILED:' | Select-Object -First 60 | ForEach-Object { $_.Line.Trim() }
+          $text = ($hits -join "`n")
+          echo $text
+          "### First compiler errors`n``````n$text`n``````" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mercenaries-apk
+          path: ports/mercenaries-android/app/build/outputs/apk/debug/*.apk
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: build-logs
+          path: |
+            build.log
+            ports/mercenaries-android/app/.cxx/**/*.log
+            ports/mercenaries-android/app/build/reports/**
