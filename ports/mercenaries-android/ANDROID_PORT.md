@@ -55,3 +55,12 @@ SHA-256 (NIST vectors) · case folding · whole-source-set check · HLSL transla
 Run `tools/recomp` on a PC with your disc image, open this folder in Android Studio (NDK 26.3), then
 `./gradlew assembleDebug`. arm64-v8a only. Needs Python 3 on the build machine (header generation).
 Install, tap *Import*, choose your `.iso`, tap *Play*. Logs: `adb logcat -s MercRecomp MercGame d3d11gles`.
+
+## Android performance diagnostics
+The shared game log includes `[perf]` samples every ten seconds while rendering, with observed FPS and
+average `eglSwapBuffers` wait time. Long background/stalled gaps reset the sample. These numbers alone
+do not distinguish CPU from GPU bottlenecks.
+
+The thread-sampling watchdog is disabled by default to avoid interrupting gameplay. For a hang investigation,
+create a file named `watchdog.enable` in the app's cache directory before starting the game. Remove it to
+turn sampling off. Crash reporting remains enabled without the watchdog.

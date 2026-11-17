@@ -121,7 +121,16 @@ int android_game_run(const char *game_dir, const char *save_dir, const char *tmp
 #ifdef MERC_HAVE_GAME
     g_game_tid = pthread_self();
     android_install_hang_sampler();
-    { pthread_t w; if (pthread_create(&w, NULL, watchdog_thread, NULL) == 0) pthread_detach(w); }
+    /* Sampling every game thread with signals is expensive on mobile and is
+     * only useful when diagnosing a hang. Opt in with <cache>/watchdog.enable. */
+    { char marker[1024];
+      snprintf(marker, sizeof(marker), "%s/watchdog.enable", tmp_dir);
+      if (access(marker, F_OK) == 0) {
+          pthread_t w;
+          if (pthread_create(&w, NULL, watchdog_thread, NULL) == 0) pthread_detach(w);
+          android_trace("[app] diagnostic watchdog enabled");
+      }
+    }
     trace_memory();
     atexit(on_exit_trace);
     android_trace("[app] entering mercenaries_android_main");

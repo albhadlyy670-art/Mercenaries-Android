@@ -11,10 +11,11 @@ const android_touch_btn_t k_buttons[ANDROID_TOUCH_BUTTONS] = {
     {"STA",.54f,.90f,.04f,100}, {"BCK",.46f,.90f,.04f,101}
 };
 const float k_stick_cx=.16f, k_stick_cy=.70f, k_stick_r=.13f;
-int android_input_overlay_pressed(int id) { (void)id; return 0; }
+static int pressed;
+int android_input_overlay_pressed(int id) { return pressed && id == 0; }
 
 static int depth=1, stencil=1, cull=1, scissor=1, discard=1, coverage=1, offset=1, blend;
-static int color_ok, equation_ok, viewport_ok, draws;
+static int color_ok, equation_ok, viewport_ok, draws, uploads;
 static GLuint bound_vao, used_program;
 void glDisable(GLenum e) {
     switch(e) {
@@ -31,17 +32,29 @@ void glUseProgram(GLuint p) { used_program=p; }
 void glBindVertexArray(GLuint a) { bound_vao=a; }
 void glBlendEquationSeparate(GLenum a, GLenum b) { equation_ok = a==GL_FUNC_ADD && b==GL_FUNC_ADD; }
 void glBlendFunc(GLenum a, GLenum b) { assert(a==GL_SRC_ALPHA && b==GL_ONE_MINUS_SRC_ALPHA); }
-void glUniform4f(GLint l, GLfloat a, GLfloat b, GLfloat c, GLfloat d) { (void)l; (void)a; (void)b; (void)c; (void)d; }
+void glBindBuffer(GLenum target, GLuint buffer) { assert(target == GL_ARRAY_BUFFER && buffer == 43); }
+void glBufferData(GLenum target, GLsizeiptr bytes, const void *data, GLenum usage) {
+    assert(target == GL_ARRAY_BUFFER && data && usage == GL_DYNAMIC_DRAW);
+    assert(bytes > (GLsizeiptr)((ANDROID_TOUCH_BUTTONS + 1) * 6 * sizeof(OverlayVertex)));
+    ++uploads;
+}
 void glDrawArrays(GLenum mode, GLint first, GLsizei count) {
-    assert(mode==GL_TRIANGLE_STRIP && first==0 && count==4);
+    assert(mode==GL_TRIANGLES && first==0 && count>(ANDROID_TOUCH_BUTTONS + 1)*6 && count%6==0);
     assert(!depth && !stencil && !cull && !scissor && !discard && !coverage && !offset);
     assert(blend && color_ok && equation_ok && viewport_ok && bound_vao==41 && used_program==42);
     ++draws;
 }
 int main(void) {
-    g_w=1920; g_h=1080; g_overlay_vao=41; g_prog=42;
+    g_w=1920; g_h=1080; g_overlay_vao=41; g_prog=42; g_vbo=43;
     draw_overlay();
-    assert(draws > ANDROID_TOUCH_BUTTONS + 1); /* labels in addition to button/stick backgrounds */
-    puts("touch overlay: independent VAO and state, labels rendered");
+    assert(draws == 1 && uploads == 1);
+    assert(g_overlay_vertices[0].a == 0.32f);
+    draw_overlay();
+    assert(draws == 2 && uploads == 1); /* no upload when state is unchanged */
+    pressed = 1;
+    draw_overlay();
+    assert(draws == 3 && uploads == 2); /* pressed color updates */
+    assert(g_overlay_vertices[0].a == 0.65f);
+    puts("touch overlay: one draw, cached geometry and isolated GL state");
     return 0;
 }
