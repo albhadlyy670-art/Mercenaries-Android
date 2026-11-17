@@ -40,6 +40,11 @@ void xbox_preview_log_eventv(const char *category, const char *format, va_list a
     char msg[1024];
     vsnprintf(msg, sizeof(msg), format, args);
     __android_log_print(ANDROID_LOG_INFO, TAG, "[%s] %s", category ? category : "log", msg);
+    /* Keep per-frame telemetry from pushing startup/crash events out of the shared log. */
+    static const char *const noisy[] = { "frame-history", "gpu-state", "faction-standing", "scene", "audio-sources",
+                                         "music-state", "world-loading", "options", "performance", "frame-times", NULL };
+    for (int i = 0; noisy[i]; ++i)
+        if (category && !strcmp(category, noisy[i])) return;
     android_trace("[%s] %s", category ? category : "log", msg);
 }
 

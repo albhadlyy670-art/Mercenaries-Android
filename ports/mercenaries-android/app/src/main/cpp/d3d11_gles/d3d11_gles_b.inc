@@ -133,6 +133,10 @@ HRESULT d3dgl_Device_CreateInputLayout(ID3D11Device *dev, const D3D11_INPUT_ELEM
 }
 
 /* ---- programs ------------------------------------------------------------------------------------------------ */
+#ifdef __ANDROID__
+/* LINK_GUARD: guarded driver compilation/linking is built in, not patched at build time. */
+#include "android_shader_guard.h"
+#endif
 static GLuint compile_stage(GLenum type, const char *src, const char *what)
 {
     GLuint s = glCreateShader(type); glShaderSource(s, 1, &src, NULL); glCompileShader(s);
@@ -175,9 +179,30 @@ static Program *get_program(Shader *vs, Shader *ps, uint32_t bgra_mask)
     if (G.nprogs >= MAX_PROGRAMS) { D3DGL_LOG("program cache full"); return NULL; }
     Program *p = (Program *)calloc(1, sizeof(Program)); if (!p) return NULL;
     char *vsrc = build_vs_source(vs, ps, bgra_mask);
-    GLuint v = vsrc ? compile_stage(GL_VERTEX_SHADER, vsrc, "vertex") : 0, f = compile_stage(GL_FRAGMENT_SHADER, ps->glsl, "fragment"); free(vsrc);
+#ifdef __ANDROID__
+    uint64_t pair_hash = android_shader_pair_hash(vsrc, ps->glsl);
+    if (android_shader_pair_bad(pair_hash)) { free(vsrc); free(p); return NULL; }
+    android_shader_guard_begin(pair_hash, "vertex-compile");
+#endif
+    GLuint v = vsrc ? compile_stage(GL_VERTEX_SHADER, vsrc, "vertex") : 0;
+#ifdef __ANDROID__
+    android_shader_guard_end();
+    if (v) android_shader_guard_begin(pair_hash, "fragment-compile");
+#endif
+    GLuint f = v ? compile_stage(GL_FRAGMENT_SHADER, ps->glsl, "fragment") : 0;
+#ifdef __ANDROID__
+    if (v) android_shader_guard_end();
+#endif
+    free(vsrc);
     if (!v || !f) { if (v) glDeleteShader(v); if (f) glDeleteShader(f); free(p); return NULL; }
-    p->prog = glCreateProgram(); glAttachShader(p->prog, v); glAttachShader(p->prog, f); glLinkProgram(p->prog);
+    p->prog = glCreateProgram(); glAttachShader(p->prog, v); glAttachShader(p->prog, f);
+#ifdef __ANDROID__
+    android_shader_guard_begin(pair_hash, "link");
+#endif
+    glLinkProgram(p->prog);
+#ifdef __ANDROID__
+    android_shader_guard_end();
+#endif
     glDeleteShader(v); glDeleteShader(f);
     GLint ok = 0; glGetProgramiv(p->prog, GL_LINK_STATUS, &ok);
     if (!ok) { char log[2048]; glGetProgramInfoLog(p->prog, sizeof(log), NULL, log); D3DGL_LOG("program link failed: %s", log); glDeleteProgram(p->prog); free(p); return NULL; }
