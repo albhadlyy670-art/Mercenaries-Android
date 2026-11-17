@@ -61,7 +61,8 @@ The shared game log includes `[perf]` samples every ten seconds while rendering,
 average `eglSwapBuffers` wait time and game-thread CPU time as a percentage of one core. Long background/stalled gaps reset the sample. These numbers alone
 do not distinguish CPU from GPU bottlenecks. `[perf-gles]` reports per-interval draw,
 buffer map/unmap and readback counts, sampled CPU-side call times (one in 64 calls),
-and the current shader-program cache size. These samples can miss occasional spikes
+and the current shader-program cache size. Transient vertex-ring map/unmap calls
+are reported separately as `ring_maps` and `ring_unmaps`. These samples can miss occasional spikes
 and do not measure GPU execution time.
 
 The thread-sampling watchdog is disabled by default to avoid interrupting gameplay. For a hang investigation,

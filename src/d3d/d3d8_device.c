@@ -3736,7 +3736,9 @@ static void up_ring_shutdown(void)
 /* Upload vertex data to ring buffer, returns offset. Returns (UINT)-1 on failure. */
 static UINT up_ring_upload(const void *data, UINT size)
 {
+#ifndef XBOX_ANDROID
     D3D11_MAPPED_SUBRESOURCE mapped;
+#endif
     D3D11_MAP map_type;
     HRESULT hr;
     UINT offset;
@@ -3755,15 +3757,19 @@ static UINT up_ring_upload(const void *data, UINT size)
         map_type = D3D11_MAP_WRITE_NO_OVERWRITE;
     }
 
+    offset = g_up_ring_offset;
+#ifdef XBOX_ANDROID
+    hr = d3d11gles_upload_vertex_range(g_up_ring_buffer, offset, data, size,
+                                       map_type == D3D11_MAP_WRITE_DISCARD);
+    if (FAILED(hr)) return (UINT)-1;
+#else
     hr = ID3D11DeviceContext_Map(g_device_state.d3d11_context,
         (ID3D11Resource *)g_up_ring_buffer, 0, map_type, 0, &mapped);
     if (FAILED(hr)) return (UINT)-1;
-
-    offset = g_up_ring_offset;
     memcpy((BYTE *)mapped.pData + offset, data, size);
-
     ID3D11DeviceContext_Unmap(g_device_state.d3d11_context,
         (ID3D11Resource *)g_up_ring_buffer, 0);
+#endif
 
     g_up_ring_offset = (offset + size + 15) & ~15;  /* 16-byte align */
     return offset;
