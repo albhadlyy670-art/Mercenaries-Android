@@ -372,9 +372,9 @@ static int prepare_draw(Ctx *c, int base_vertex, Program **out_prog)
         if (shader_int && f.is_int) glVertexAttribIPointer(loc, f.size, f.type, (GLsizei)vb->stride, ptr);
         else glVertexAttribPointer(loc, f.size, f.type, f.norm, (GLsizei)vb->stride, ptr);
         glVertexAttribDivisor(loc, e->InputSlotClass == D3D11_INPUT_PER_INSTANCE_DATA ? (e->InstanceDataStepRate ? e->InstanceDataStepRate : 1u) : 0u);
-        glEnableVertexAttribArray(loc); used |= 1u << loc;
+        used |= 1u << loc;
     }
-    for (GLuint a = 0; a < 16; ++a) if (!(used & (1u << a))) { glDisableVertexAttribArray(a); glVertexAttrib4f(a, 0.f, 0.f, 0.f, 1.f); }
+    sync_vertex_attribs(used, &G.enabled_attribs, &G.attribs_initialized);
     *out_prog = p; return 1;
 }
 static GLenum gl_topology(D3D11_PRIMITIVE_TOPOLOGY t)

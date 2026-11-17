@@ -851,9 +851,9 @@ void d3d8_shaders_prepare_draw(DWORD fvf)
     if (!ctx || !g_vs || !g_ps) return;
 
     rs = d3d8_GetRenderStates();
-    /* Bind shaders */
+    /* Bind the fixed-function vertex shader. Pixel selection happens after
+     * vertex preparation so an active combiner never builds unused FFP data. */
     ID3D11DeviceContext_VSSetShader(ctx, g_vs, NULL, 0);
-    ID3D11DeviceContext_PSSetShader(ctx, g_ps, NULL, 0);
 
     /* Bind input layout */
     layout = get_or_create_layout(fvf);
@@ -997,13 +997,9 @@ void d3d8_shaders_prepare_draw(DWORD fvf)
                                      sizeof(*lb), &g_last_light_valid);
     }
 
-    /* The same pixel constants are used by both fixed and programmable VS. */
-    d3d8_shaders_prepare_pixel();
-
     /* Bind constant buffers */
     {
         ID3D11Buffer *vs_cbs[2] = { g_vs_cb, g_vs_light_cb };
         ID3D11DeviceContext_VSSetConstantBuffers(ctx, 0, 2, vs_cbs);
     }
-    ID3D11DeviceContext_PSSetConstantBuffers(ctx, 0, 1, &g_ps_cb);
 }

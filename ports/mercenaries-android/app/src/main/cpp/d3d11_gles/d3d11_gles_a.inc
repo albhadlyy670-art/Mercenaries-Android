@@ -1,6 +1,7 @@
 /* ===== part A: objects, formats, conversions, textures, buffers =========== */
 #include "d3d11_gles_types.h"
 #include "gles_gl.h"
+#include "vertex_attrib_state.h"
 #include "hlsl2glsl.h"
 #include <stdarg.h>
 #include <stdio.h>
@@ -237,6 +238,7 @@ typedef struct {
     int inited; Ctx *ctx; D3d11GlesHost host; int dbg;
     GLuint vao, fbo, read_fbo, draw_fbo; GLuint att_tex[MAX_RT + 1], att_target[MAX_RT + 1]; GLint att_level[MAX_RT + 1]; int fbo_dirty;
     ProgKey progs[MAX_PROGRAMS]; int nprogs; int errors; int max_units;
+    uint32_t enabled_attribs; int attribs_initialized;
 } Global;
 static Global G;
 

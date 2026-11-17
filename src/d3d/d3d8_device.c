@@ -16,6 +16,7 @@
  */
 
 #include "d3d8_internal.h"
+#include "d3d8_pixel_selection.h"
 #include <dxgi1_6.h>
 #include "kernel/preview_log.h"
 #include "d3d8_scaled_lines.h"
@@ -3790,9 +3791,7 @@ static HRESULT __stdcall dev_DrawPrimitive(IDirect3DDevice8 *self, D3DPRIMITIVET
     const BOOL programmable_vsh = d3d8_vsh_prepare_draw(g_device_state.vertex_shader);
     if (!programmable_vsh)
         d3d8_shaders_prepare_draw(g_device_state.vertex_shader);
-    else
-        d3d8_shaders_prepare_pixel();
-    d3d8_combiners_prepare_draw(); /* overrides PS if combiner shader is active */
+    d3d8_prepare_selected_pixel();
     if (d3d8_cached_getenv("MERCENARIES_DEBUG_SOLID_PIXEL") != NULL)
         d3d8_shaders_bind_debug_pixel();
     d3d8_states_apply();
@@ -3830,9 +3829,7 @@ static HRESULT __stdcall dev_DrawIndexedPrimitive(IDirect3DDevice8 *self, D3DPRI
     const BOOL programmable_vsh = d3d8_vsh_prepare_draw(g_device_state.vertex_shader);
     if (!programmable_vsh)
         d3d8_shaders_prepare_draw(g_device_state.vertex_shader);
-    else
-        d3d8_shaders_prepare_pixel();
-    d3d8_combiners_prepare_draw(); /* overrides PS if combiner shader is active */
+    d3d8_prepare_selected_pixel();
     if (d3d8_cached_getenv("MERCENARIES_DEBUG_SOLID_PIXEL") != NULL)
         d3d8_shaders_bind_debug_pixel();
     d3d8_states_apply();
@@ -3903,11 +3900,9 @@ static HRESULT __stdcall dev_DrawPrimitiveUP(IDirect3DDevice8 *self, D3DPRIMITIV
     const BOOL programmable_vsh = d3d8_vsh_prepare_draw(g_device_state.vertex_shader);
     if (!programmable_vsh)
         d3d8_shaders_prepare_draw(g_device_state.vertex_shader);
-    else
-        d3d8_shaders_prepare_pixel();
     if (trace_perf)
         QueryPerformanceCounter(&perf_after_vertex);
-    d3d8_combiners_prepare_draw(); /* overrides PS if combiner shader is active */
+    d3d8_prepare_selected_pixel();
     if (trace_perf)
         QueryPerformanceCounter(&perf_after_pixel);
     if (d3d8_cached_getenv("MERCENARIES_DEBUG_SOLID_PIXEL") != NULL)
@@ -4004,9 +3999,7 @@ static HRESULT __stdcall dev_DrawIndexedPrimitiveUP(IDirect3DDevice8 *self, D3DP
     const BOOL programmable_vsh = d3d8_vsh_prepare_draw(g_device_state.vertex_shader);
     if (!programmable_vsh)
         d3d8_shaders_prepare_draw(g_device_state.vertex_shader);
-    else
-        d3d8_shaders_prepare_pixel();
-    d3d8_combiners_prepare_draw(); /* overrides PS if combiner shader is active */
+    d3d8_prepare_selected_pixel();
     if (d3d8_cached_getenv("MERCENARIES_DEBUG_SOLID_PIXEL") != NULL)
         d3d8_shaders_bind_debug_pixel();
     d3d8_states_apply();
