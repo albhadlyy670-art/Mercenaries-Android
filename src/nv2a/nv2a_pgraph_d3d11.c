@@ -7988,7 +7988,15 @@ static void submit_array_draw(void)
             free(expanded_elements);
             return;
         }
-        expanded_quads = (uint8_t *)_alloca(expanded_size);
+        /* Vertex counts originate in guest commands; do not put this
+         * potentially large temporary on the host thread stack. */
+        if (!draw_stride || quad_count > UINT32_MAX / 6u ||
+            (size_t)quad_count > SIZE_MAX / 6u / draw_stride ||
+            !(expanded_quads = (uint8_t *)malloc(expanded_size))) {
+            free(out);
+            free(expanded_elements);
+            return;
+        }
         for (q = 0u; q < quad_count; ++q) {
             const uint8_t *src = packed_vertices +
                                  (size_t)q * 4u * draw_stride;
@@ -8010,8 +8018,14 @@ static void submit_array_draw(void)
         draw_data = expanded_quads;
         submitted_vertex_count = quad_count * 6u;
     } else if (g_pg.draw_mode == 3u) {
-        const size_t expanded_size = (size_t)(count + 1u) * draw_stride;
-        expanded_line_loop = (uint8_t *)_alloca(expanded_size);
+        const size_t expanded_size = ((size_t)count + 1u) * draw_stride;
+        if (!draw_stride || count == UINT32_MAX ||
+            (size_t)count + 1u > SIZE_MAX / draw_stride ||
+            !(expanded_line_loop = (uint8_t *)malloc(expanded_size))) {
+            free(out);
+            free(expanded_elements);
+            return;
+        }
         memcpy(expanded_line_loop, draw_data, (size_t)count * draw_stride);
         memcpy(expanded_line_loop + (size_t)count * draw_stride,
                draw_data, draw_stride);
@@ -8910,6 +8924,8 @@ static void submit_array_draw(void)
                 g_pg.inline_element_count ? "yes" : "no",
                 tex ? "yes" : "no");
     }
+    free(expanded_quads);
+    free(expanded_line_loop);
     free(out);
     free(expanded_elements);
 }

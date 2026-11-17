@@ -59,15 +59,29 @@ static void dump_state(const char *tag, int flags, int sig, siginfo_t *si, void 
 #if defined(__aarch64__)
     ucontext_t *uc = (ucontext_t *)ucv;
     uintptr_t pc = uc->uc_mcontext.pc, lr = uc->uc_mcontext.regs[30], fp = uc->uc_mcontext.regs[29];
+    snprintf(b, sizeof(b), "sp %p fp %p\n", (void *)(uintptr_t)uc->uc_mcontext.sp, (void *)fp);
+    cw(fd, b);
+    for (int i = 0; i < 29; i += 2) {
+        snprintf(b, sizeof(b), "x%-2d %016lx x%-2d %016lx\n", i,
+                 (unsigned long)uc->uc_mcontext.regs[i], i + 1,
+                 (unsigned long)uc->uc_mcontext.regs[i + 1]);
+        cw(fd, b);
+    }
     cw_addr(fd, "pc ", pc);
     cw_addr(fd, "lr ", lr);
-    for (int i = 0; i < 24 && fp && !(fp & 7); ++i) {          /* frame-pointer walk */
-        uintptr_t *f = (uintptr_t *)fp; uintptr_t ret = f[1], next = f[0];
+    /* A corrupt frame pointer must not fault again inside the crash handler.
+     * pread on /proc/self/mem fails instead of dereferencing a bad pointer. */
+    int memfd = open("/proc/self/mem", O_RDONLY | O_CLOEXEC);
+    for (int i = 0; memfd >= 0 && i < 24 && fp && !(fp & 7); ++i) {
+        uintptr_t frame[2];
+        if (pread(memfd, frame, sizeof(frame), (off_t)fp) != sizeof(frame)) break;
+        uintptr_t next = frame[0], ret = frame[1];
         if (!ret) break;
         cw_addr(fd, "bt ", ret);
         if (next <= fp || next - fp > 0x100000) break;
         fp = next;
     }
+    if (memfd >= 0) close(memfd);
 #else
     (void)ucv;
 #endif
