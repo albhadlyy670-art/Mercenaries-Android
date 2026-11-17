@@ -18,6 +18,7 @@
 
 #include "d3d8_internal.h"
 #include "d3d8_compiler.h"
+#include "d3d8_constant_cache.h"
 #include <string.h>
 #include <stdio.h>
 #include <math.h>
@@ -439,6 +440,12 @@ typedef struct {
     UINT  stage_alpha[4][4];     /* [stage][x=alphaarg1, y=alphaarg2, z=0, w=0] */
 } PSConstants;
 
+static VSTransformConstants g_last_vs_constants;
+static VSLightingConstants g_last_light_constants;
+static PSConstants g_last_ps_constants;
+static BOOL g_last_vs_valid, g_last_light_valid, g_last_ps_valid;
+
+
 /* ================================================================
  * Input layout cache (FVF → ID3D11InputLayout)
  * ================================================================ */
@@ -651,6 +658,8 @@ HRESULT d3d8_shaders_init(void)
     D3D11_BUFFER_DESC cbd;
     HRESULT hr;
 
+    g_last_vs_valid = g_last_light_valid = g_last_ps_valid = FALSE;
+
     /* Compile vertex shader */
     hr = d3d8_compile_shader(g_vs_source, strlen(g_vs_source), "vs_ffp",
                     NULL, NULL, "main", "vs_5_0", 0, 0, &g_vs_blob, &errors);
@@ -727,6 +736,7 @@ HRESULT d3d8_shaders_init(void)
 void d3d8_shaders_shutdown(void)
 {
     int i;
+    g_last_vs_valid = g_last_light_valid = g_last_ps_valid = FALSE;
     for (i = 0; i < g_layout_cache_count; i++) {
         if (g_layout_cache[i].layout)
             ID3D11InputLayout_Release(g_layout_cache[i].layout);
@@ -756,9 +766,7 @@ void d3d8_shaders_bind_debug_pixel(void)
 void d3d8_shaders_prepare_pixel(void)
 {
     ID3D11DeviceContext *ctx = d3d8_GetD3D11Context();
-    D3D11_MAPPED_SUBRESOURCE mapped;
     const DWORD *rs;
-    HRESULT hr;
 
     if (!ctx || !g_ps || !g_ps_cb)
         return;
@@ -766,10 +774,9 @@ void d3d8_shaders_prepare_pixel(void)
     rs = d3d8_GetRenderStates();
     ID3D11DeviceContext_PSSetShader(ctx, g_ps, NULL, 0);
 
-    hr = ID3D11DeviceContext_Map(ctx, (ID3D11Resource *)g_ps_cb, 0,
-                                 D3D11_MAP_WRITE_DISCARD, 0, &mapped);
-    if (SUCCEEDED(hr)) {
-        PSConstants *pc = (PSConstants *)mapped.pData;
+    {
+        PSConstants snapshot;
+        PSConstants *pc = &snapshot;
         UINT stage;
         memset(pc, 0, sizeof(*pc));
 
@@ -828,7 +835,8 @@ void d3d8_shaders_prepare_pixel(void)
                 pc->ps_flags |= 8u << stage;
         }
 
-        ID3D11DeviceContext_Unmap(ctx, (ID3D11Resource *)g_ps_cb, 0);
+        d3d8_upload_cached_constants(ctx, g_ps_cb, pc, &g_last_ps_constants,
+                                     sizeof(*pc), &g_last_ps_valid);
     }
 
     ID3D11DeviceContext_PSSetConstantBuffers(ctx, 0, 1, &g_ps_cb);
@@ -837,17 +845,12 @@ void d3d8_shaders_prepare_draw(DWORD fvf)
 {
     ID3D11DeviceContext *ctx = d3d8_GetD3D11Context();
     ID3D11InputLayout *layout;
-    D3D11_MAPPED_SUBRESOURCE mapped;
     const D3DMATRIX *world, *view, *proj;
     const DWORD *rs;
-    HRESULT hr;
-    UINT tex_count;
 
     if (!ctx || !g_vs || !g_ps) return;
 
     rs = d3d8_GetRenderStates();
-    tex_count = (fvf & D3DFVF_TEXCOUNT_MASK) >> D3DFVF_TEXCOUNT_SHIFT;
-
     /* Bind shaders */
     ID3D11DeviceContext_VSSetShader(ctx, g_vs, NULL, 0);
     ID3D11DeviceContext_PSSetShader(ctx, g_ps, NULL, 0);
@@ -858,9 +861,9 @@ void d3d8_shaders_prepare_draw(DWORD fvf)
         ID3D11DeviceContext_IASetInputLayout(ctx, layout);
 
     /* ---- VS Transform CB (b0) ---- */
-    hr = ID3D11DeviceContext_Map(ctx, (ID3D11Resource *)g_vs_cb, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped);
-    if (SUCCEEDED(hr)) {
-        VSTransformConstants *cb = (VSTransformConstants *)mapped.pData;
+    {
+        VSTransformConstants snapshot;
+        VSTransformConstants *cb = &snapshot;
         memset(cb, 0, sizeof(*cb));
 
         if (fvf & D3DFVF_XYZRHW) {
@@ -924,13 +927,14 @@ void d3d8_shaders_prepare_draw(DWORD fvf)
             cb->fog_params[3] = (float)rs[D3DRS_FOGTABLEMODE];
         }
 
-        ID3D11DeviceContext_Unmap(ctx, (ID3D11Resource *)g_vs_cb, 0);
+        d3d8_upload_cached_constants(ctx, g_vs_cb, cb, &g_last_vs_constants,
+                                     sizeof(*cb), &g_last_vs_valid);
     }
 
     /* ---- VS Lighting CB (b1) ---- */
-    hr = ID3D11DeviceContext_Map(ctx, (ID3D11Resource *)g_vs_light_cb, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped);
-    if (SUCCEEDED(hr)) {
-        VSLightingConstants *lb = (VSLightingConstants *)mapped.pData;
+    {
+        VSLightingConstants snapshot;
+        VSLightingConstants *lb = &snapshot;
         const D3DMATERIAL8 *mat = d3d8_GetMaterial();
         UINT i, active_count = 0;
         memset(lb, 0, sizeof(*lb));
@@ -989,71 +993,12 @@ void d3d8_shaders_prepare_draw(DWORD fvf)
         }
         lb->num_lights = active_count;
 
-        ID3D11DeviceContext_Unmap(ctx, (ID3D11Resource *)g_vs_light_cb, 0);
+        d3d8_upload_cached_constants(ctx, g_vs_light_cb, lb, &g_last_light_constants,
+                                     sizeof(*lb), &g_last_light_valid);
     }
 
-    /* ---- PS Constant Buffer ---- */
-    hr = ID3D11DeviceContext_Map(ctx, (ID3D11Resource *)g_ps_cb, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped);
-    if (SUCCEEDED(hr)) {
-        PSConstants *pc = (PSConstants *)mapped.pData;
-        UINT stage;
-        memset(pc, 0, sizeof(*pc));
-
-        /* Texture factor */
-        if (rs) {
-            DWORD tf = rs[D3DRS_TEXTUREFACTOR];
-            pc->tex_factor[0] = ((tf >> 16) & 0xFF) / 255.0f;
-            pc->tex_factor[1] = ((tf >>  8) & 0xFF) / 255.0f;
-            pc->tex_factor[2] = ((tf >>  0) & 0xFF) / 255.0f;
-            pc->tex_factor[3] = ((tf >> 24) & 0xFF) / 255.0f;
-        }
-
-        /* Fog color */
-        if (rs && rs[D3DRS_FOGENABLE]) {
-            DWORD fc = rs[D3DRS_FOGCOLOR];
-            pc->fog_color[0] = ((fc >> 16) & 0xFF) / 255.0f;
-            pc->fog_color[1] = ((fc >>  8) & 0xFF) / 255.0f;
-            pc->fog_color[2] = ((fc >>  0) & 0xFF) / 255.0f;
-            pc->fog_color[3] = 1.0f;
-            pc->ps_flags |= 2; /* fog enabled */
-        }
-
-        /* Alpha test */
-        if (rs && rs[D3DRS_ALPHATESTENABLE]) {
-            pc->alpha_ref = rs[D3DRS_ALPHAREF] & 0xFFu;
-            pc->alpha_func = rs[D3DRS_ALPHAFUNC];
-            pc->ps_flags |= 1;
-        }
-
-        /* Specular add */
-        if (rs && rs[D3DRS_SPECULARENABLE])
-            pc->ps_flags |= 4;
-
-        /* Per-stage texture state */
-        for (stage = 0; stage < 4; stage++) {
-            const DWORD *tss = d3d8_GetTSS(stage);
-            if (!tss) {
-                pc->stage_color[stage][0] = D3DTOP_DISABLE;
-                continue;
-            }
-
-            DWORD colorop = tss[D3DTSS_COLOROP];
-            if (colorop == 0) colorop = (stage == 0) ? D3DTOP_MODULATE : D3DTOP_DISABLE;
-
-            pc->stage_color[stage][0] = colorop;
-            pc->stage_color[stage][1] = tss[D3DTSS_COLORARG1] ? tss[D3DTSS_COLORARG1] : D3DTA_TEXTURE;
-            pc->stage_color[stage][2] = tss[D3DTSS_COLORARG2] ? tss[D3DTSS_COLORARG2] : D3DTA_CURRENT;
-            pc->stage_color[stage][3] = tss[D3DTSS_ALPHAOP] ? tss[D3DTSS_ALPHAOP] :
-                                         (stage == 0 ? D3DTOP_SELECTARG1 : D3DTOP_DISABLE);
-
-            pc->stage_alpha[stage][0] = tss[D3DTSS_ALPHAARG1] ? tss[D3DTSS_ALPHAARG1] : D3DTA_TEXTURE;
-            pc->stage_alpha[stage][1] = tss[D3DTSS_ALPHAARG2] ? tss[D3DTSS_ALPHAARG2] : D3DTA_CURRENT;
-            if (tss[D3DTSS_ALPHAKILL])
-                pc->ps_flags |= 8u << stage;
-        }
-
-        ID3D11DeviceContext_Unmap(ctx, (ID3D11Resource *)g_ps_cb, 0);
-    }
+    /* The same pixel constants are used by both fixed and programmable VS. */
+    d3d8_shaders_prepare_pixel();
 
     /* Bind constant buffers */
     {

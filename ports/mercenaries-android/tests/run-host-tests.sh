@@ -10,6 +10,8 @@ for off in 0 0x18300000; do
   (cd $T/out && find . -type f | sed 's|^\./||' | sort | while read f; do echo "$(sha256sum "$f"|cut -d' ' -f1)  $f"; done) > $T/got
   sort -k2 $T/t.iso.manifest | diff - $T/got && echo "  partition offset $off: OK"
 done
+echo "== Fixed-function constant buffer cache"
+gcc -O1 -Wall -Wextra -Werror test_constant_cache.c -o $T/constant_cache && $T/constant_cache
 echo "== Touch overlay GL state isolation"
 gcc -O1 -Wall -Wextra -Wno-unused-function -ffunction-sections -fdata-sections -I fake_ndk -I$A test_touch_overlay.c -Wl,--gc-sections -o $T/touch_overlay
 $T/touch_overlay
