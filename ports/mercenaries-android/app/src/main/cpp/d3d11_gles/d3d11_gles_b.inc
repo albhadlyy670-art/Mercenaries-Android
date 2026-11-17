@@ -137,7 +137,17 @@ static GLuint compile_stage(GLenum type, const char *src, const char *what)
 {
     GLuint s = glCreateShader(type); glShaderSource(s, 1, &src, NULL); glCompileShader(s);
     GLint ok = 0; glGetShaderiv(s, GL_COMPILE_STATUS, &ok);
-    if (!ok) { char log[2048]; glGetShaderInfoLog(s, sizeof(log), NULL, log); D3DGL_LOG("%s shader failed to compile: %s", what, log); glDeleteShader(s); return 0; }
+    if (!ok) {
+        char log[2048]; glGetShaderInfoLog(s, sizeof(log), NULL, log);
+        D3DGL_LOG("%s shader failed to compile: %s", what, log);
+#ifdef __ANDROID__
+        /* The in-app Share log cannot read logcat. Keep a bounded sample of
+         * shader failures in game.log so graphical faults can be diagnosed. */
+        static unsigned reports;
+        if (reports++ < 20) fprintf(stderr, "[d3d11gles] %s shader failed to compile: %s\n", what, log);
+#endif
+        glDeleteShader(s); return 0;
+    }
     return s;
 }
 static char *str_replace_once(const char *s, const char *needle, const char *repl)
@@ -180,7 +190,15 @@ static Program *get_program(Shader *vs, Shader *ps, uint32_t bgra_mask)
     p->prog = glCreateProgram(); glAttachShader(p->prog, v); glAttachShader(p->prog, f); glLinkProgram(p->prog);
     glDeleteShader(v); glDeleteShader(f);
     GLint ok = 0; glGetProgramiv(p->prog, GL_LINK_STATUS, &ok);
-    if (!ok) { char log[2048]; glGetProgramInfoLog(p->prog, sizeof(log), NULL, log); D3DGL_LOG("program link failed: %s", log); glDeleteProgram(p->prog); free(p); return NULL; }
+    if (!ok) {
+        char log[2048]; glGetProgramInfoLog(p->prog, sizeof(log), NULL, log);
+        D3DGL_LOG("program link failed: %s", log);
+#ifdef __ANDROID__
+        static unsigned reports;
+        if (reports++ < 20) fprintf(stderr, "[d3d11gles] program link failed: %s\n", log);
+#endif
+        glDeleteProgram(p->prog); free(p); return NULL;
+    }
     p->vs = vs; p->ps = ps; p->n_vs = vs->r.n_samplers; p->n_ps = ps->r.n_samplers; p->bgra = bgra_mask; p->ps_unit0 = vs->r.n_samplers;
     if (p->n_vs + p->n_ps > G.max_units) D3DGL_LOG("shader pair needs %d texture units, device has %d", p->n_vs + p->n_ps, G.max_units);
     glUseProgram(p->prog);
