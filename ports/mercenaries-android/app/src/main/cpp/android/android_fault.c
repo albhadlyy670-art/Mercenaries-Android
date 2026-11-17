@@ -9,6 +9,7 @@
  * device claims, fall through to Android's default crash handling (tombstone).
  */
 #define _GNU_SOURCE
+#include "android_signal_stack.h"
 #include "platform/xbox_winnt.h"
 #include "platform/mmio_a64.h"
 #include "kernel/xbox_memory_layout.h"
@@ -114,8 +115,22 @@ volatile unsigned g_android_kpos;
 volatile int g_sample_label;   /* 0 = main game thread, otherwise the Xbox thread id being sampled */
 
 extern ptrdiff_t g_xbox_mem_offset;
-static unsigned gw32(unsigned va) { return va < 0x07FFFFFCu ? *(volatile unsigned *)((uintptr_t)g_xbox_mem_offset + va) : 0u; }
-static unsigned gw8(unsigned va)  { return va < 0x07FFFFFFu ? *(volatile unsigned char *)((uintptr_t)g_xbox_mem_offset + va) : 0u; }
+/* Sampling guest state must not dereference an invalid or unmapped pointer in
+ * a signal handler. A failed pread simply leaves the sampled value at zero. */
+static unsigned guest_sample(unsigned va, size_t size)
+{
+    unsigned value = 0;
+    if (!g_xbox_mem_offset || va >= 0x08000000u || size > 0x08000000u - va)
+        return 0;
+    int fd = open("/proc/self/mem", O_RDONLY | O_CLOEXEC);
+    if (fd < 0) return 0;
+    if (pread(fd, &value, size, (off_t)((uintptr_t)g_xbox_mem_offset + va)) != (ssize_t)size)
+        value = 0;
+    close(fd);
+    return value;
+}
+static unsigned gw32(unsigned va) { return guest_sample(va, 4); }
+static unsigned gw8(unsigned va) { return guest_sample(va, 1); }
 
 /* Dump the first requests of one asset queue: cell list at obj+0x24, node = cell[2], next = cell[0]. */
 static size_t dump_queue(char *buf, size_t cap, size_t len, const char *tag, unsigned obj, unsigned cnt_va)
@@ -145,13 +160,17 @@ static void hang_handler(int sig, siginfo_t *si, void *ucv)
     put_frame(line, sizeof(line), &len, uc->uc_mcontext.pc);
     put_frame(line, sizeof(line), &len, uc->uc_mcontext.regs[30]);
     uintptr_t fp = uc->uc_mcontext.regs[29];
-    for (int i = 0; i < 12 && fp && !(fp & 7); ++i) {
-        uintptr_t *f = (uintptr_t *)fp; uintptr_t ret = f[1], next = f[0];
+    int memfd = open("/proc/self/mem", O_RDONLY | O_CLOEXEC);
+    for (int i = 0; memfd >= 0 && i < 12 && fp && !(fp & 7); ++i) {
+        uintptr_t frame[2];
+        if (pread(memfd, frame, sizeof(frame), (off_t)fp) != sizeof(frame)) break;
+        uintptr_t next = frame[0], ret = frame[1];
         if (!ret) break;
         put_frame(line, sizeof(line), &len, ret);
         if (next <= fp || next - fp > 0x100000) break;
         fp = next;
     }
+    if (memfd >= 0) close(memfd);
 #else
     (void)ucv;
 #endif
@@ -174,7 +193,7 @@ void android_install_hang_sampler(void)
     struct sigaction sa;
     memset(&sa, 0, sizeof(sa));
     sa.sa_sigaction = hang_handler;
-    sa.sa_flags = SA_SIGINFO | SA_RESTART;
+    sa.sa_flags = SA_SIGINFO | SA_RESTART | SA_ONSTACK;
     sigemptyset(&sa.sa_mask);
     sigaction(SIGUSR2, &sa, NULL);
 }
@@ -261,12 +280,10 @@ static void other_handler(int sig, siginfo_t *si, void *ucv)
 void android_install_fault_handler(void)
 {
     static int installed;                       /* called early by the app and again by main.c */
+    if (android_install_thread_signal_stack() != 0)
+        LOG("could not install alternate signal stack for game thread");
     if (installed) return;
     installed = 1;
-    /* Run on a dedicated stack so a guest stack overflow is still reportable. */
-    static uint8_t altstack[64 * 1024];
-    stack_t ss = { .ss_sp = altstack, .ss_size = sizeof(altstack), .ss_flags = 0 };
-    sigaltstack(&ss, NULL);
 
     struct sigaction sa;
     memset(&sa, 0, sizeof(sa));

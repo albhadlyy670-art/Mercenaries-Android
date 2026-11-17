@@ -10,6 +10,9 @@ for off in 0 0x18300000; do
   (cd $T/out && find . -type f | sed 's|^\./||' | sort | while read f; do echo "$(sha256sum "$f"|cut -d' ' -f1)  $f"; done) > $T/got
   sort -k2 $T/t.iso.manifest | diff - $T/got && echo "  partition offset $off: OK"
 done
+echo "== Per-thread alternate signal stacks"
+gcc -O1 -Wall -Wextra -I$A test_signal_stack.c $A/android_signal_stack.c -lpthread -o $T/signal_stack
+$T/signal_stack
 echo "== AArch64 MMIO decoder"; gcc -fsanitize=undefined -I$S/platform test_mmio_a64.c -o $T/a && $T/a
 echo "== Guest memory layout (mmap arena, mirrors, aliases, faults)"
 gcc -O1 -w -fsanitize=undefined -I$S -I$S/kernel -I$S/platform test_memory_layout.c $S/kernel/xbox_memory_layout.c $S/platform/win32_compat.c -lpthread -lm -o $T/m && $T/m | tail -1
@@ -20,7 +23,7 @@ echo "== SHA-256 behind the BCrypt shim (NIST vectors, retail-XBE verification)"
 gcc -O1 -w -I$CPP/compat/include -I$CPP/compat -I$CPP/d3d11_gles/include -I$S -I$S/platform test_sha256.c $CPP/compat/bcrypt_sha256.c -o $T/sha && $T/sha
 echo "== Case-insensitive file names (importer lower-cases; path translator folds requests)"
 echo 'void xbox_log(int l,int c,const char*f,...){}' > $T/logstub.c
-gcc -O1 -w -DXBOX_ANDROID=1 -D__ANDROID__ -I$CPP/d3d11_gles/include -I$CPP/compat -I$S -I$S/kernel -I$S/platform test_path_fold.c $S/kernel/kernel_path.c $T/logstub.c $S/platform/win32_compat.c $CPP/compat/winapi_extra.c -lpthread -lm -o $T/fold && $T/fold
+gcc -O1 -w -DXBOX_ANDROID=1 -D__ANDROID__ -I$CPP/d3d11_gles/include -I$CPP/compat -I$S -I$S/kernel -I$S/platform test_path_fold.c $S/kernel/kernel_path.c $T/logstub.c $S/platform/win32_compat.c $A/android_signal_stack.c $CPP/compat/winapi_extra.c -lpthread -lm -o $T/fold && $T/fold
 echo "== Shell build link (no recompiler output): every symbol resolves"
 python3 check_shell_link.py
 echo "== Whole Android source set: CMake lists, NDK-strict compile, every symbol accounted for"
