@@ -383,16 +383,18 @@ static GLenum gl_topology(D3D11_PRIMITIVE_TOPOLOGY t)
 
 void d3dgl_Ctx_Draw(ID3D11DeviceContext *cx, UINT count, UINT start)
 {
-    Ctx *c = (Ctx *)cx; Program *p; if (!prepare_draw(c, 0, &p)) return;
-    glDrawArrays(gl_topology(c->topo), (GLint)start, (GLsizei)count); gl_check("Draw");
+    PERF_BEGIN(draw);
+    Ctx *c = (Ctx *)cx; Program *p; if (!prepare_draw(c, 0, &p)) { PERF_END(draw); return; }
+    glDrawArrays(gl_topology(c->topo), (GLint)start, (GLsizei)count); gl_check("Draw"); PERF_END(draw);
 }
 void d3dgl_Ctx_DrawIndexed(ID3D11DeviceContext *cx, UINT count, UINT start, INT base)
 {
-    Ctx *c = (Ctx *)cx; Program *p; if (!c->ib || !prepare_draw(c, base, &p)) return;
+    PERF_BEGIN(draw);
+    Ctx *c = (Ctx *)cx; Program *p; if (!c->ib || !prepare_draw(c, base, &p)) { PERF_END(draw); return; }
     int wide = c->ib_fmt == DXGI_FORMAT_R32_UINT; glBindVertexArray(G.vao); glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, c->ib->buf);
     glEnable(GL_PRIMITIVE_RESTART_FIXED_INDEX);
     glDrawElements(gl_topology(c->topo), (GLsizei)count, wide ? GL_UNSIGNED_INT : GL_UNSIGNED_SHORT, (const void *)(uintptr_t)((size_t)c->ib_off + (size_t)start * (wide ? 4 : 2)));
-    gl_check("DrawIndexed");
+    gl_check("DrawIndexed"); PERF_END(draw);
 }
 
 /* ---- clears -------------------------------------------------------------------------------------------------------------------- */

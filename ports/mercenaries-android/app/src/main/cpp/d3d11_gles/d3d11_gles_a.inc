@@ -240,6 +240,49 @@ typedef struct {
 } Global;
 static Global G;
 
+#ifdef __ANDROID__
+/* Sample potentially blocking driver calls rather than timing every draw.
+ * These are CPU-side durations, not GPU execution times. All rendering and
+ * presentation occur on the context-owning game thread. */
+#include <time.h>
+void android_trace(const char *fmt, ...);
+typedef struct { unsigned long long calls, samples; double seconds; } PerfOp;
+static PerfOp perf_map, perf_unmap, perf_draw, perf_read;
+static double perf_start;
+static double perf_now(void)
+{
+    struct timespec t;
+    return clock_gettime(CLOCK_MONOTONIC, &t) == 0 ? t.tv_sec + t.tv_nsec * 1e-9 : 0.0;
+}
+static double perf_begin(PerfOp *op)
+{
+    ++op->calls;
+    return ((op->calls & 63u) == 1u) ? perf_now() : 0.0;
+}
+static void perf_end(PerfOp *op, double start)
+{
+    if (start > 0.0) { double end = perf_now(); if (end >= start) { op->seconds += end - start; ++op->samples; } }
+}
+#define PERF_BEGIN(name) double perf_stamp = perf_begin(&perf_##name)
+#define PERF_END(name) perf_end(&perf_##name, perf_stamp)
+static void perf_report(void)
+{
+    double now = perf_now();
+    if (now <= 0.0) return;
+    if (perf_start == 0.0 || now < perf_start || now - perf_start > 30.0) { perf_start = now; memset(&perf_map, 0, sizeof(perf_map)); memset(&perf_unmap, 0, sizeof(perf_unmap)); memset(&perf_draw, 0, sizeof(perf_draw)); memset(&perf_read, 0, sizeof(perf_read)); return; }
+    if (now - perf_start < 10.0) return;
+#define AVG(op) ((op).samples ? 1000.0 * (op).seconds / (op).samples : 0.0)
+    android_trace("[perf-gles] interval_s=%.1f programs=%d draws=%llu draw_samples=%llu draw_avg_ms=%.3f maps=%llu map_samples=%llu map_avg_ms=%.3f unmaps=%llu unmap_samples=%llu unmap_avg_ms=%.3f reads=%llu read_samples=%llu read_avg_ms=%.3f",
+        now - perf_start, G.nprogs, perf_draw.calls, perf_draw.samples, AVG(perf_draw), perf_map.calls, perf_map.samples, AVG(perf_map), perf_unmap.calls, perf_unmap.samples, AVG(perf_unmap), perf_read.calls, perf_read.samples, AVG(perf_read));
+#undef AVG
+    perf_start = now; memset(&perf_map, 0, sizeof(perf_map)); memset(&perf_unmap, 0, sizeof(perf_unmap)); memset(&perf_draw, 0, sizeof(perf_draw)); memset(&perf_read, 0, sizeof(perf_read));
+}
+#else
+#define PERF_BEGIN(name) ((void)0)
+#define PERF_END(name) ((void)0)
+#define perf_report() ((void)0)
+#endif
+
 void d3d11gles_set_host(const D3d11GlesHost *h) { if (h) G.host = *h; else memset(&G.host, 0, sizeof(G.host)); }
 int d3d11gles_take_error_count(void) { int e = G.errors; G.errors = 0; return e; }
 static void gl_check(const char *where)
@@ -296,7 +339,9 @@ static int tex_read(Tex *t, UINT sub, UINT x, UINT y, UINT w, UINT h, uint8_t *d
     size_t sz = (size_t)w * h * t->fmt->gl_bpp; uint8_t *tmp = (uint8_t *)malloc(sz ? sz : 1); if (!tmp) return 0;
     attach_for_read(t, sub, G.read_fbo);
     glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    PERF_BEGIN(read);
     glReadPixels((GLint)x, (GLint)y, (GLsizei)w, (GLsizei)h, t->fmt->format, t->fmt->type, tmp);
+    PERF_END(read);
     glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, 0, 0);
     glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
     convert_from_gl(t->fmt, tmp, w, h, dst, dst_pitch); free(tmp); gl_check("tex_read"); return 1;
@@ -358,7 +403,9 @@ HRESULT d3dgl_Ctx_Map(ID3D11DeviceContext *c, ID3D11Resource *res, UINT sub, D3D
                         case D3D11_MAP_WRITE_DISCARD: acc = GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT; break;
                         case D3D11_MAP_WRITE_NO_OVERWRITE: acc = GL_MAP_WRITE_BIT | GL_MAP_UNSYNCHRONIZED_BIT; break; default: acc = GL_MAP_WRITE_BIT; }
         glBindBuffer(GL_COPY_WRITE_BUFFER, b->buf);
+        PERF_BEGIN(map);
         void *p = glMapBufferRange(GL_COPY_WRITE_BUFFER, 0, (GLsizeiptr)b->d.ByteWidth, acc);
+        PERF_END(map);
         b->map_type = type;
         if (p) b->mapped_gl = 1;
         else { b->mapped_gl = 0; free(b->tmp); b->tmp = (uint8_t *)calloc(1, b->d.ByteWidth); p = b->tmp; }   /* fallback: shadow + upload */
@@ -378,7 +425,7 @@ void d3dgl_Ctx_Unmap(ID3D11DeviceContext *c, ID3D11Resource *res, UINT sub)
     (void)c; (void)sub; Obj *o = (Obj *)res; if (!o) return;
     if (o->kind == K_BUFFER) {
         Buf *b = (Buf *)o; glBindBuffer(GL_COPY_WRITE_BUFFER, b->buf);
-        if (b->mapped_gl) { glUnmapBuffer(GL_COPY_WRITE_BUFFER); b->mapped_gl = 0; }
+        if (b->mapped_gl) { PERF_BEGIN(unmap); glUnmapBuffer(GL_COPY_WRITE_BUFFER); PERF_END(unmap); b->mapped_gl = 0; }
         else if (b->tmp) { if (b->map_type != D3D11_MAP_READ) glBufferSubData(GL_COPY_WRITE_BUFFER, 0, (GLsizeiptr)b->d.ByteWidth, b->tmp); free(b->tmp); b->tmp = NULL; }
         gl_check("Unmap(buffer)"); return;
     }

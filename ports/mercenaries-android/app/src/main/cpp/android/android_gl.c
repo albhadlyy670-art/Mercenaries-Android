@@ -207,20 +207,25 @@ static double monotonic_seconds(void)
 }
 static void note_frame(double swap_start, double swap_end)
 {
-    static double start, last, swap_total;
+    static double start, last, swap_total, cpu_start;
     static unsigned frames;
+    struct timespec cpu_time;
+    double cpu_now = clock_gettime(CLOCK_THREAD_CPUTIME_ID, &cpu_time) == 0
+        ? (double)cpu_time.tv_sec + (double)cpu_time.tv_nsec * 1e-9 : -1.0;
     if (swap_end <= 0.0) return;
     if (last == 0.0 || swap_end - last > 3.0 || swap_end < last) {
-        start = swap_end; frames = 0; swap_total = 0.0;
+        start = swap_end; frames = 0; swap_total = 0.0; cpu_start = cpu_now;
     }
     last = swap_end;
     if (swap_start > 0.0 && swap_end >= swap_start) swap_total += swap_end - swap_start;
     ++frames;
     if (swap_end - start >= 10.0) {
-        android_trace("[perf] fps=%.1f frames=%u avg_swap_ms=%.1f interval_s=%.1f",
+        android_trace("[perf] fps=%.1f frames=%u avg_swap_ms=%.1f interval_s=%.1f game_thread_cpu_pct=%.1f",
                       frames / (swap_end - start), frames,
-                      1000.0 * swap_total / frames, swap_end - start);
-        start = swap_end; frames = 0; swap_total = 0.0;
+                      1000.0 * swap_total / frames, swap_end - start,
+                      cpu_start >= 0.0 && cpu_now >= cpu_start
+                          ? 100.0 * (cpu_now - cpu_start) / (swap_end - start) : -1.0);
+        start = swap_end; frames = 0; swap_total = 0.0; cpu_start = cpu_now;
     }
 }
 
