@@ -10,9 +10,6 @@ for off in 0 0x18300000; do
   (cd $T/out && find . -type f | sed 's|^\./||' | sort | while read f; do echo "$(sha256sum "$f"|cut -d' ' -f1)  $f"; done) > $T/got
   sort -k2 $T/t.iso.manifest | diff - $T/got && echo "  partition offset $off: OK"
 done
-echo "== Shader compiler crash guard"
-gcc -O1 -Wall -Wextra -I$A test_shader_guard.c $A/android_shader_guard.c -o $T/shader_guard
-$T/shader_guard
 echo "== Per-thread alternate signal stacks"
 gcc -O1 -Wall -Wextra -I$A test_signal_stack.c $A/android_signal_stack.c -lpthread -o $T/signal_stack
 $T/signal_stack

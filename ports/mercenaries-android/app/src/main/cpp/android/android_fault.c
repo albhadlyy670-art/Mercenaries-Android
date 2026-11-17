@@ -62,6 +62,14 @@ static void dump_state(const char *tag, int flags, int sig, siginfo_t *si, void 
     uintptr_t pc = uc->uc_mcontext.pc, lr = uc->uc_mcontext.regs[30], fp = uc->uc_mcontext.regs[29];
     snprintf(b, sizeof(b), "sp %p fp %p\n", (void *)(uintptr_t)uc->uc_mcontext.sp, (void *)fp);
     cw(fd, b);
+    stack_t alt;
+    if (sigaltstack(NULL, &alt) == 0) {
+        uintptr_t sp = (uintptr_t)uc->uc_mcontext.sp, base = (uintptr_t)alt.ss_sp;
+        int on_alt = !(alt.ss_flags & SS_DISABLE) && sp >= base && sp - base < alt.ss_size;
+        snprintf(b, sizeof(b), "altstack %p size %zu interrupted_sp_on_altstack %d flags %d\n",
+                 alt.ss_sp, alt.ss_size, on_alt, alt.ss_flags);
+        cw(fd, b);
+    }
     for (int i = 0; i < 29; i += 2) {
         snprintf(b, sizeof(b), "x%-2d %016lx x%-2d %016lx\n", i,
                  (unsigned long)uc->uc_mcontext.regs[i], i + 1,

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""The Android shader crash guard is now part of d3d11_gles_b.inc.
+"""Legacy no-op. Do not patch shaders based on the old signal-stack crashes.
 
-Kept as a no-op for older build instructions. Patching the fault handler is
-unsafe: guest MMIO intentionally raises SIGSEGV and is not a shader crash.
+The Android MMIO handler now has a suitably sized per-thread signal stack.
+Old shader blacklists were prone to skipping healthy shaders.
 """
-print("shader crash guard is built in; no patch needed")
+print("obsolete shader skip patch disabled; using larger MMIO signal stacks")

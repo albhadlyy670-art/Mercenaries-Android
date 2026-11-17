@@ -100,6 +100,10 @@ int android_game_run(const char *game_dir, const char *save_dir, const char *tmp
 {
     char path[1024], config[1024];
     android_install_fault_handler();            /* so even an early crash is written to crash.log */
+    { stack_t ss;
+      if (sigaltstack(NULL, &ss) == 0)
+          android_trace("[app] game signal stack size=%zu flags=%d", ss.ss_size, ss.ss_flags);
+    }
     show("Starting", 0.05f);
 
     snprintf(config, sizeof(config), "%s/config", save_dir); mkdir(config, 0775);
