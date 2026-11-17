@@ -349,14 +349,19 @@ static UINT vertex_fmt_bytes(DXGI_FORMAT f) { VFmt v; if (!vertex_fmt(f, &v)) re
 
 static int prepare_draw(Ctx *c, int base_vertex, Program **out_prog)
 {
-    if (!c->vs || !c->ps || !c->vs->glsl || !c->ps->glsl || !c->layout) return 0;
-    uint32_t bgra = 0; Layout *L = c->layout;
-    for (int i = 0; i < L->n; ++i) if (L->el[i].Format == DXGI_FORMAT_B8G8R8A8_UNORM && L->loc[i] >= 0) bgra |= 1u << L->loc[i];
+    if (!c->vs || !c->ps || !c->vs->glsl || !c->ps->glsl) return 0;
+    /* Full-screen resolve/depth-alias shaders synthesize positions from
+     * SV_VertexID and intentionally bind no input layout. Reject only a
+     * missing layout for shaders that actually need vertex attributes. */
+    Layout *L = c->layout;
+    if (!L && c->vs->r.n_inputs != 0) return 0;
+    uint32_t bgra = 0;
+    for (int i = 0; L && i < L->n; ++i) if (L->el[i].Format == DXGI_FORMAT_B8G8R8A8_UNORM && L->loc[i] >= 0) bgra |= 1u << L->loc[i];
     Program *p = get_program(c->vs, c->ps, bgra); if (!p) return 0;
     int w = 0, h = 0; bind_ctx_fbo(c, &w, &h); apply_state(c, w, h);
     glUseProgram(p->prog); bind_resources(c, p);
     glBindVertexArray(G.vao); UINT running[MAX_VB] = { 0 }; uint32_t used = 0;
-    for (int i = 0; i < L->n; ++i) {
+    for (int i = 0; L && i < L->n; ++i) {
         const D3D11_INPUT_ELEMENT_DESC *e = &L->el[i]; if (e->InputSlot >= MAX_VB) continue;
         UINT off = e->AlignedByteOffset == 0xFFFFFFFFu ? running[e->InputSlot] : e->AlignedByteOffset; running[e->InputSlot] = off + vertex_fmt_bytes(e->Format);
         if (L->loc[i] < 0) continue; VBind *vb = &c->vb[e->InputSlot]; VFmt f; if (!vb->b || !vertex_fmt(e->Format, &f)) continue;
