@@ -200,9 +200,22 @@ static void bind_uniform_buffer(GLuint index, GLuint buffer)
         G.uniform_buffers[index] = buffer; G.uniform_valid |= bit;
     }
 }
+static Program *find_cached_program(Shader *vs, Shader *ps, uint32_t bgra_mask)
+{
+    int last = G.last_program - 1;
+    if (last >= 0 && last < G.nprogs && G.progs[last].vs == vs &&
+        G.progs[last].ps == ps && G.progs[last].p->bgra == bgra_mask)
+        return G.progs[last].p;
+    for (int i = 0; i < G.nprogs; ++i) {
+        if (G.progs[i].vs == vs && G.progs[i].ps == ps && G.progs[i].p->bgra == bgra_mask) {
+            G.last_program = i + 1; return G.progs[i].p;
+        }
+    }
+    return NULL;
+}
 static Program *get_program(Shader *vs, Shader *ps, uint32_t bgra_mask)
 {
-    for (int i = 0; i < G.nprogs; ++i) if (G.progs[i].vs == vs && G.progs[i].ps == ps && G.progs[i].p->bgra == bgra_mask) return G.progs[i].p;
+    Program *cached = find_cached_program(vs, ps, bgra_mask); if (cached) return cached;
     if (G.nprogs >= MAX_PROGRAMS) { D3DGL_LOG("program cache full"); return NULL; }
     Program *p = (Program *)calloc(1, sizeof(Program)); if (!p) return NULL;
     char *vsrc = build_vs_source(vs, ps, bgra_mask);
@@ -227,7 +240,7 @@ static Program *get_program(Shader *vs, Shader *ps, uint32_t bgra_mask)
     for (int i = 0; i < ps->r.n_cbufs; ++i) { GLuint idx = glGetUniformBlockIndex(p->prog, ps->r.cbufs[i].name); if (idx != GL_INVALID_INDEX) glUniformBlockBinding(p->prog, idx, 16u + ps->r.cbufs[i].slot); }
     for (int i = 0; i < vs->r.n_samplers; ++i) { GLint l = glGetUniformLocation(p->prog, vs->r.samplers[i].name); if (l >= 0) glUniform1i(l, vs->r.samplers[i].unit); }
     for (int i = 0; i < ps->r.n_samplers; ++i) { GLint l = glGetUniformLocation(p->prog, ps->r.samplers[i].name); if (l >= 0) glUniform1i(l, p->ps_unit0 + ps->r.samplers[i].unit); }
-    G.progs[G.nprogs].vs = vs; G.progs[G.nprogs].ps = ps; G.progs[G.nprogs].p = p; G.nprogs++;
+    G.progs[G.nprogs].vs = vs; G.progs[G.nprogs].ps = ps; G.progs[G.nprogs].p = p; G.nprogs++; G.last_program = G.nprogs;
     REF(vs); REF(ps);
     return p;
 }
@@ -431,10 +444,10 @@ static int prepare_draw(Ctx *c, int base_vertex, Program **out_prog)
     if (!L && c->vs->r.n_inputs != 0) return 0;
     uint32_t bgra = 0;
     for (int i = 0; L && i < L->n; ++i) if (L->el[i].Format == DXGI_FORMAT_B8G8R8A8_UNORM && L->loc[i] >= 0) bgra |= 1u << L->loc[i];
-    Program *p = get_program(c->vs, c->ps, bgra); if (!p) return 0;
-    int w = 0, h = 0; bind_ctx_fbo(c, &w, &h); apply_state(c, w, h);
-    use_renderer_program(p->prog); bind_resources(c, p);
-    bind_renderer_vao(); UINT running[MAX_VB] = { 0 }; uint32_t used = 0;
+    Program *p; { PERF_BEGIN(program); p = get_program(c->vs, c->ps, bgra); PERF_END(program); } if (!p) return 0;
+    int w = 0, h = 0; { PERF_BEGIN(fbstate); bind_ctx_fbo(c, &w, &h); apply_state(c, w, h); PERF_END(fbstate); }
+    { PERF_BEGIN(resources); use_renderer_program(p->prog); bind_resources(c, p); PERF_END(resources); }
+    { PERF_BEGIN(vertex); bind_renderer_vao(); UINT running[MAX_VB] = { 0 }; uint32_t used = 0;
     GLuint array_buffer = 0; int array_buffer_valid = 0;
     for (int i = 0; L && i < L->n; ++i) {
         const D3D11_INPUT_ELEMENT_DESC *e = &L->el[i]; if (e->InputSlot >= MAX_VB) continue;
@@ -452,7 +465,7 @@ static int prepare_draw(Ctx *c, int base_vertex, Program **out_prog)
         sync_vertex_divisor(loc, e->InputSlotClass == D3D11_INPUT_PER_INSTANCE_DATA ? (e->InstanceDataStepRate ? e->InstanceDataStepRate : 1u) : 0u, &G.divisor_valid, G.attrib_divisors);
         used |= 1u << loc;
     }
-    sync_vertex_attribs(used, &G.enabled_attribs, &G.attribs_initialized);
+    sync_vertex_attribs(used, &G.enabled_attribs, &G.attribs_initialized); PERF_END(vertex); }
     *out_prog = p; return 1;
 }
 static GLenum gl_topology(D3D11_PRIMITIVE_TOPOLOGY t)

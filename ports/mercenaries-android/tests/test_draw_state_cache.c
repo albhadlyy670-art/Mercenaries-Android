@@ -30,6 +30,17 @@ void glFramebufferTexture2D(GLenum target, GLenum point, GLenum tex_target, GLui
 void glDrawBuffers(GLsizei n, const GLenum *values) { assert(n > 0 && values); ++draw_buffers_calls; }
 int main(void)
 {
+    Shader vs1 = {0}, vs2 = {0}, ps = {0}; Program p1 = {0}, p2 = {0}, p3 = {0};
+    p3.bgra = 1;
+    G.progs[0] = (ProgKey){ &vs1, &ps, &p1 };
+    G.progs[1] = (ProgKey){ &vs2, &ps, &p2 };
+    G.progs[2] = (ProgKey){ &vs1, &ps, &p3 }; G.nprogs = 3;
+    assert(find_cached_program(&vs1, &ps, 0) == &p1 && G.last_program == 1);
+    assert(find_cached_program(&vs1, &ps, 0) == &p1);
+    assert(find_cached_program(&vs2, &ps, 0) == &p2 && G.last_program == 2);
+    assert(find_cached_program(&vs1, &ps, 1) == &p3 && G.last_program == 3);
+    assert(find_cached_program(&vs2, &ps, 1) == NULL);
+    G.nprogs = G.last_program = 0;
     Ctx c; StateObj raster, depth, blend;
     memset(&c, 0, sizeof(c)); memset(&raster, 0, sizeof(raster));
     memset(&depth, 0, sizeof(depth)); memset(&blend, 0, sizeof(blend));

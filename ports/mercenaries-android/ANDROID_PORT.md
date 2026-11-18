@@ -71,8 +71,11 @@ the number of full draw-state applications (`state_applies`), and the current sh
 Transient vertex-ring map/unmap calls
 are reported separately as `ring_maps` and `ring_unmaps`. These samples can miss occasional spikes
 and do not measure GPU execution time. `[perf-gles-draw]` separates sampled
-CPU time spent preparing a draw from the driver draw call; the latter can include
-GPU/driver backpressure but is not a GPU timer. Android normally collects GLES errors at
+CPU time spent preparing a draw from the driver draw call. `[perf-gles-prepare]`
+breaks preparation into program lookup/creation, framebuffer and state setup,
+resource binding, and vertex setup. Each is sampled independently, so their
+averages need not sum exactly to the preparation average. These wall times can
+include driver waits or backpressure; none is a GPU timer. Android normally collects GLES errors at
 presentation instead of after every hot draw/upload. Set `D3DGL_DEBUG=1` for
 per-operation GL error checks and attribution when investigating graphics.
 
