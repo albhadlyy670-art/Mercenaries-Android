@@ -239,6 +239,8 @@ typedef struct {
     GLuint vao, fbo, read_fbo, draw_fbo; GLuint att_tex[MAX_RT + 1], att_target[MAX_RT + 1]; GLint att_level[MAX_RT + 1]; int fbo_dirty;
     ProgKey progs[MAX_PROGRAMS]; int nprogs; int errors; int max_units;
     uint32_t enabled_attribs; int attribs_initialized;
+    uint32_t divisor_valid; GLuint attrib_divisors[16];
+    Ctx *fbo_ctx; int fbo_width, fbo_height;
     unsigned draw_buffer_mask; int draw_buffers_valid;
     GLuint current_program; int program_valid, vao_bound;
     GLuint uniform_buffers[32]; uint32_t uniform_valid;

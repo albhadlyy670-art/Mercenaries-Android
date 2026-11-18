@@ -260,7 +260,16 @@ void d3dgl_Ctx_RSSetState(ID3D11DeviceContext *c, ID3D11RasterizerState *s) { SE
 void d3dgl_Ctx_RSGetState(ID3D11DeviceContext *c, ID3D11RasterizerState **s) { *s = (ID3D11RasterizerState *)((Ctx *)c)->rs; REF(*s); }
 void d3dgl_Ctx_RSSetScissorRects(ID3D11DeviceContext *c, UINT n, const D3D11_RECT *r) { Ctx *x = (Ctx *)c; x->nsc = n > MAX_VP ? MAX_VP : n; for (UINT i = 0; i < x->nsc; ++i) x->sc[i] = r[i]; }
 void d3dgl_Ctx_OMSetRenderTargets(ID3D11DeviceContext *c, UINT n, ID3D11RenderTargetView *const *r, ID3D11DepthStencilView *d)
-{ Ctx *x = (Ctx *)c; for (UINT i = 0; i < MAX_RT; ++i) SETREF(x->rtv[i], (i < n && r) ? r[i] : NULL); SETREF(x->dsv, d); G.fbo_dirty = 1; }
+{
+    Ctx *x = (Ctx *)c; int changed = x->dsv != (View *)d;
+    for (UINT i = 0; i < MAX_RT; ++i) {
+        ID3D11RenderTargetView *next = (i < n && r) ? r[i] : NULL;
+        if (x->rtv[i] != (View *)next) changed = 1;
+        SETREF(x->rtv[i], next);
+    }
+    SETREF(x->dsv, d);
+    if (changed) G.fbo_dirty = 1;
+}
 void d3dgl_Ctx_OMGetRenderTargets(ID3D11DeviceContext *c, UINT n, ID3D11RenderTargetView **r, ID3D11DepthStencilView **d)
 { Ctx *x = (Ctx *)c; for (UINT i = 0; i < n && r; ++i) { r[i] = (i < MAX_RT) ? (ID3D11RenderTargetView *)x->rtv[i] : NULL; REF(r[i]); } if (d) { *d = (ID3D11DepthStencilView *)x->dsv; REF(*d); } }
 void d3dgl_Ctx_OMSetBlendState(ID3D11DeviceContext *c, ID3D11BlendState *b, const FLOAT *f, UINT m)
@@ -297,6 +306,11 @@ static void att_set(GLuint fbo_target, GLenum point, int slot, const View *v)
 }
 static void bind_ctx_fbo(Ctx *c, int *w, int *h)
 {
+    /* Only the draw framebuffer matters here; readback binds READ separately.
+     * Clears, copies and host presentation invalidate this shortcut. */
+    if (!G.fbo_dirty && G.fbo_ctx == c) {
+        *w = G.fbo_width; *h = G.fbo_height; return;
+    }
     glBindFramebuffer(GL_FRAMEBUFFER, G.fbo);
     GLenum bufs[MAX_RT]; int last = -1; unsigned mask = 0;
     for (int i = 0; i < MAX_RT; ++i) { att_set(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + (GLenum)i, i, c->rtv[i]); bufs[i] = c->rtv[i] ? GL_COLOR_ATTACHMENT0 + (GLenum)i : GL_NONE; if (c->rtv[i]) { last = i; mask |= 1u << i; } }
@@ -313,7 +327,8 @@ static void bind_ctx_fbo(Ctx *c, int *w, int *h)
     }
     const View *ref = c->rtv[0] ? c->rtv[0] : c->dsv; UINT mw = 0, mh = 0;
     if (ref) { mw = dimu(ref->tex->d.Width, (UINT)ref->mip); mh = dimu(ref->tex->d.Height, (UINT)ref->mip); }
-    *w = (int)mw; *h = (int)mh; G.fbo_dirty = 0;
+    *w = G.fbo_width = (int)mw; *h = G.fbo_height = (int)mh;
+    G.fbo_ctx = c; G.fbo_dirty = 0;
 }
 static void invalidate_att(void) { memset(G.att_tex, 0, sizeof(G.att_tex)); memset(G.att_target, 0, sizeof(G.att_target)); memset(G.att_level, 0, sizeof(G.att_level)); G.fbo_dirty = 1; G.draw_buffers_valid = 0; G.program_valid = 0; G.vao_bound = 0; G.uniform_valid = 0; invalidate_texture_bindings(); applied_draw_state_valid = 0; }
 
@@ -420,17 +435,21 @@ static int prepare_draw(Ctx *c, int base_vertex, Program **out_prog)
     int w = 0, h = 0; bind_ctx_fbo(c, &w, &h); apply_state(c, w, h);
     use_renderer_program(p->prog); bind_resources(c, p);
     bind_renderer_vao(); UINT running[MAX_VB] = { 0 }; uint32_t used = 0;
+    GLuint array_buffer = 0; int array_buffer_valid = 0;
     for (int i = 0; L && i < L->n; ++i) {
         const D3D11_INPUT_ELEMENT_DESC *e = &L->el[i]; if (e->InputSlot >= MAX_VB) continue;
         UINT off = e->AlignedByteOffset == 0xFFFFFFFFu ? running[e->InputSlot] : e->AlignedByteOffset; running[e->InputSlot] = off + vertex_fmt_bytes(e->Format);
         if (L->loc[i] < 0) continue; VBind *vb = &c->vb[e->InputSlot]; VFmt f; if (!vb->b || !vertex_fmt(e->Format, &f)) continue;
         GLuint loc = (GLuint)L->loc[i]; int shader_int = 0;
         for (int a = 0; a < p->vs->r.n_inputs; ++a) if (p->vs->r.inputs[a].location == loc) shader_int = p->vs->r.inputs[a].base != HLSL_BASE_FLOAT;
-        glBindBuffer(GL_ARRAY_BUFFER, vb->b->buf);
+        if (!array_buffer_valid || array_buffer != vb->b->buf) {
+            glBindBuffer(GL_ARRAY_BUFFER, vb->b->buf);
+            array_buffer = vb->b->buf; array_buffer_valid = 1;
+        }
         const void *ptr = (const void *)(uintptr_t)((size_t)vb->offset + off + (size_t)(base_vertex > 0 ? base_vertex : 0) * vb->stride);
         if (shader_int && f.is_int) glVertexAttribIPointer(loc, f.size, f.type, (GLsizei)vb->stride, ptr);
         else glVertexAttribPointer(loc, f.size, f.type, f.norm, (GLsizei)vb->stride, ptr);
-        glVertexAttribDivisor(loc, e->InputSlotClass == D3D11_INPUT_PER_INSTANCE_DATA ? (e->InstanceDataStepRate ? e->InstanceDataStepRate : 1u) : 0u);
+        sync_vertex_divisor(loc, e->InputSlotClass == D3D11_INPUT_PER_INSTANCE_DATA ? (e->InstanceDataStepRate ? e->InstanceDataStepRate : 1u) : 0u, &G.divisor_valid, G.attrib_divisors);
         used |= 1u << loc;
     }
     sync_vertex_attribs(used, &G.enabled_attribs, &G.attribs_initialized);

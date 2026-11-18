@@ -3,7 +3,7 @@
 #include <stdio.h>
 #define D3DGL_TEST_DEFER_HOT_ERRORS 1
 #include "../app/src/main/cpp/d3d11_gles/d3d11_gles.c"
-static int calls, destroyed, draw_buffers_calls, program_calls, vao_calls, uniform_calls, delete_calls, error_checks;
+static int calls, destroyed, draw_buffers_calls, framebuffer_calls, program_calls, vao_calls, uniform_calls, delete_calls, error_checks;
 static GLenum pending_error;
 GLenum glGetError(void) { ++error_checks; GLenum e = pending_error; pending_error = 0; return e; }
 static void destroy_mock(Obj *o) { (void)o; ++destroyed; }
@@ -24,7 +24,7 @@ void glUseProgram(GLuint p) { (void)p; ++program_calls; }
 void glBindVertexArray(GLuint vao) { (void)vao; ++vao_calls; }
 void glBindBufferBase(GLenum target, GLuint slot, GLuint buf) { assert(target == GL_UNIFORM_BUFFER); (void)slot; (void)buf; ++uniform_calls; }
 void glDeleteBuffers(GLsizei n, const GLuint *buf) { (void)n; (void)buf; ++delete_calls; }
-void glBindFramebuffer(GLenum target, GLuint fbo) { (void)target; (void)fbo; }
+void glBindFramebuffer(GLenum target, GLuint fbo) { (void)target; (void)fbo; ++framebuffer_calls; }
 void glFramebufferTexture2D(GLenum target, GLenum point, GLenum tex_target, GLuint tex, GLint level)
 { (void)target; (void)point; (void)tex_target; (void)tex; (void)level; }
 void glDrawBuffers(GLsizei n, const GLenum *values) { assert(n > 0 && values); ++draw_buffers_calls; }
@@ -51,12 +51,18 @@ int main(void)
      * presentation and copy invalidate it before the next draw. */
     Tex tex; View view; int width, height;
     memset(&tex, 0, sizeof(tex)); memset(&view, 0, sizeof(view));
-    tex.d.Width = 640; tex.d.Height = 480; tex.tex = 1; view.tex = &tex;
-    c.rtv[0] = &view; invalidate_att();
-    bind_ctx_fbo(&c, &width, &height); assert(width == 640 && height == 480 && draw_buffers_calls == 1);
-    bind_ctx_fbo(&c, &width, &height); assert(draw_buffers_calls == 1);
-    c.rtv[0] = NULL; bind_ctx_fbo(&c, &width, &height); assert(draw_buffers_calls == 2);
-    invalidate_att(); bind_ctx_fbo(&c, &width, &height); assert(draw_buffers_calls == 3);
+    tex.d.Width = 640; tex.d.Height = 480; tex.tex = 1; view.tex = &tex; view.o.ref = 1;
+    ID3D11RenderTargetView *target = (ID3D11RenderTargetView *)&view;
+    d3dgl_Ctx_OMSetRenderTargets((ID3D11DeviceContext *)&c, 1, &target, NULL); invalidate_att();
+    bind_ctx_fbo(&c, &width, &height); assert(width == 640 && height == 480 && draw_buffers_calls == 1 && framebuffer_calls == 1);
+    d3dgl_Ctx_OMSetRenderTargets((ID3D11DeviceContext *)&c, 1, &target, NULL);
+    bind_ctx_fbo(&c, &width, &height); assert(draw_buffers_calls == 1 && framebuffer_calls == 1);
+    d3dgl_Ctx_OMSetRenderTargets((ID3D11DeviceContext *)&c, 0, NULL, NULL);
+    bind_ctx_fbo(&c, &width, &height); assert(draw_buffers_calls == 2 && framebuffer_calls == 2);
+    invalidate_att(); bind_ctx_fbo(&c, &width, &height); assert(draw_buffers_calls == 3 && framebuffer_calls == 3);
+    Ctx another; memset(&another, 0, sizeof(another));
+    bind_ctx_fbo(&another, &width, &height); assert(framebuffer_calls == 4);
+    bind_ctx_fbo(&c, &width, &height); assert(framebuffer_calls == 5);
     /* Production defers hot-path errors to the next normal check; debug
      * mode still checks immediately. */
     G.dbg = 0; pending_error = 0x0500; error_checks = 0;

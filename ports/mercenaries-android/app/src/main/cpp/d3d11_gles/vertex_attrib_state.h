@@ -15,4 +15,14 @@ static void sync_vertex_attribs(uint32_t used, uint32_t *previous, int *initiali
     *previous = used;
     *initialized = 1;
 }
+static void sync_vertex_divisor(GLuint index, GLuint divisor, uint32_t *valid, GLuint *previous)
+{
+    if (index >= 16u) { glVertexAttribDivisor(index, divisor); return; }
+    uint32_t bit = 1u << index;
+    if (!(*valid & bit) || previous[index] != divisor) {
+        glVertexAttribDivisor(index, divisor);
+        previous[index] = divisor;
+        *valid |= bit;
+    }
+}
 #endif
