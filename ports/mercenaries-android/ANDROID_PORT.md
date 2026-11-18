@@ -80,7 +80,11 @@ issued array/indexed draws, submitted vertex or index references, draw sizes
 blits are not counted as draw-FBO rebinds; attachment updates include clears.
 `[perf-gles-small]` separates small draws (up to 16 vertices/indices) by
 vertex-ID-only versus attribute input and by primitive topology. Vertex-ID-only
-draws can include internal resolve passes; the category is not an exact origin label. Each timing is sampled independently, so their
+draws can include internal resolve passes; the category is not an exact origin label.
+`[perf-nv2a-small]` counts guest draw submission paths and small NV2A triangle
+strips, how many have an enabled texture stage, and non-contiguous DRAW_ARRAYS
+splits (all primitive modes and strips respectively). These are diagnostic
+counts, not proof that a particular pair can be safely merged. Each timing is sampled independently, so their
 averages need not sum exactly to the preparation average. These wall times can
 include driver waits or backpressure; none is a GPU timer. Android normally collects GLES errors at
 presentation instead of after every hot draw/upload. Set `D3DGL_DEBUG=1` for

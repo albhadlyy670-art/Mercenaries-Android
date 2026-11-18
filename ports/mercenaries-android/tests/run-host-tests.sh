@@ -18,6 +18,9 @@ echo "== GLES draw-state cache (mock driver)"
 gcc -O1 -w -ffunction-sections -fdata-sections -I$CPP/compat/include -I$D/include -I$CPP/compat -I$D -I$S -I$S/d3d -I$S/platform -I$S/kernel -I$S/nv2a -DXBOX_ANDROID=1 test_draw_state_cache.c -Wl,--gc-sections -lm -o $T/draw_state_cache && $T/draw_state_cache
 echo "== GLES Android workload diagnostics"
 gcc -O1 -w -ffunction-sections -fdata-sections -I fake_ndk -I$CPP/compat/include -I$D/include -I$CPP/compat -I$D -I$S -I$S/d3d -I$S/platform -I$S/kernel -I$S/nv2a -DXBOX_ANDROID=1 test_gles_workload.c -Wl,--gc-sections -lm -o $T/gles_workload && $T/gles_workload
+echo "== NV2A small draw origin diagnostics"
+gcc -O1 -Wall -Wextra -Werror test_nv2a_workload.c -o $T/nv2a_workload
+$T/nv2a_workload
 echo "== Adjacent feedback snapshot reuse"
 gcc -O1 -Wall -Wextra -Werror test_feedback_reuse.c -o $T/feedback_reuse
 $T/feedback_reuse

@@ -16,6 +16,7 @@
 #include "nv2a_state.h"
 #include "nv2a_image_blit.h"
 #include "nv2a_feedback_reuse.h"
+#include "nv2a_draw_workload.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -25,6 +26,35 @@
 /* Renderer diagnostics are process-launch configuration. Cache getenv results
  * by call-site string pointer so disabled probes stay cheap in method/draw hot
  * paths. Environment variables are never mutated after renderer startup. */
+#ifdef __ANDROID__
+void android_trace(const char *fmt, ...);
+static Nv2aDrawWorkload g_draw_workload;
+static ULONGLONG g_workload_start_ms;
+static void pgraph_report_workload(void)
+{
+    ULONGLONG now = GetTickCount64();
+    if (!g_workload_start_ms || now < g_workload_start_ms || now - g_workload_start_ms > 30000u) {
+        memset(&g_draw_workload, 0, sizeof(g_draw_workload)); g_workload_start_ms = now; return;
+    }
+    if (now - g_workload_start_ms < 10000u) return;
+    android_trace("[perf-nv2a-small] interval_s=%.1f array=%llu indexed=%llu inline=%llu immediate=%llu small_strips=%llu small_array=%llu small_indexed=%llu small_inline=%llu small_immediate=%llu small_textured=%llu disjoint_splits=%llu strip_splits=%llu",
+        (double)(now - g_workload_start_ms) / 1000.0,
+        (unsigned long long)g_draw_workload.array, (unsigned long long)g_draw_workload.indexed,
+        (unsigned long long)g_draw_workload.inline_array, (unsigned long long)g_draw_workload.immediate,
+        (unsigned long long)g_draw_workload.small_strips, (unsigned long long)g_draw_workload.small_strips_array,
+        (unsigned long long)g_draw_workload.small_strips_indexed, (unsigned long long)g_draw_workload.small_strips_inline,
+        (unsigned long long)g_draw_workload.small_strips_immediate, (unsigned long long)g_draw_workload.small_strips_textured,
+        (unsigned long long)g_draw_workload.disjoint_array_splits, (unsigned long long)g_draw_workload.strip_array_splits);
+    memset(&g_draw_workload, 0, sizeof(g_draw_workload)); g_workload_start_ms = now;
+}
+#define PGRAPH_WORK_DRAW(source, mode, count, textured) nv2a_workload_draw(&g_draw_workload, (source), (mode), (count), (textured))
+#define PGRAPH_WORK_SPLIT(mode) do { ++g_draw_workload.disjoint_array_splits; if ((mode) == 6u) ++g_draw_workload.strip_array_splits; } while (0)
+#else
+#define PGRAPH_WORK_DRAW(source, mode, count, textured) ((void)0)
+#define PGRAPH_WORK_SPLIT(mode) ((void)0)
+#define pgraph_report_workload() ((void)0)
+#endif
+
 static const char *pgraph_cached_getenv(const char *name)
 {
     typedef struct PgraphEnvCacheEntry {
@@ -8738,6 +8768,9 @@ static void submit_array_draw(void)
     }
     debug_capture_satellite_draw_before("array");
     dev->lpVtbl->BeginScene(dev);
+    PGRAPH_WORK_DRAW(g_pg.inline_array_mode ? NV2A_DRAW_INLINE :
+        g_pg.inline_element_count ? NV2A_DRAW_INDEXED : NV2A_DRAW_ARRAY,
+        g_pg.draw_mode, count, g_pg.tex[0].enabled || g_pg.tex[1].enabled || g_pg.tex[2].enabled || g_pg.tex[3].enabled);
     dev->lpVtbl->DrawPrimitiveUP(dev,
         (D3DPRIMITIVETYPE)g_pg.d3d_prim_type, prim_count, draw_data,
         draw_stride);
@@ -10016,6 +10049,8 @@ static void submit_draw(void)
     dev->lpVtbl->BeginScene(dev);
 
     /* Draw */
+    PGRAPH_WORK_DRAW(NV2A_DRAW_IMMEDIATE, g_pg.draw_mode, num_verts,
+        g_pg.tex[0].enabled || g_pg.tex[1].enabled || g_pg.tex[2].enabled || g_pg.tex[3].enabled);
     dev->lpVtbl->DrawPrimitiveUP(dev, (D3DPRIMITIVETYPE)actual_prim_type,
                                   prim_count, immediate_draw_data,
                                   immediate_draw_stride);
@@ -10923,6 +10958,7 @@ int pgraph_d3d11_method(int subchannel, uint32_t method, uint32_t param)
                                 g_pg.draw_array_count) {
                 g_pg.draw_array_count += count;
             } else {
+                PGRAPH_WORK_SPLIT(g_pg.draw_mode);
                 submit_draw();
                 g_pg.draw_array_start = start;
                 g_pg.draw_array_count = count;
@@ -11942,6 +11978,7 @@ void pgraph_d3d11_flush(void)
         g_pg.in_draw = 0;
     }
     g_pg.stats.frames++;
+    pgraph_report_workload();
 }
 
 static int service_pending_scanout(int force)
