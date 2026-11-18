@@ -179,6 +179,27 @@ static char *build_vs_source(Shader *vs, Shader *ps, uint32_t bgra_mask)
     }
     return b;
 }
+/* These GL bindings persist across draws in the renderer-owned context.
+ * Presentation and other external GL work invalidate the cached values. */
+static void use_renderer_program(GLuint program)
+{
+    if (!G.program_valid || G.current_program != program) {
+        glUseProgram(program); G.current_program = program; G.program_valid = 1;
+    }
+}
+static void bind_renderer_vao(void)
+{
+    if (!G.vao_bound) { glBindVertexArray(G.vao); G.vao_bound = 1; }
+}
+static void bind_uniform_buffer(GLuint index, GLuint buffer)
+{
+    if (index >= 32u) { glBindBufferBase(GL_UNIFORM_BUFFER, index, buffer); return; }
+    uint32_t bit = 1u << index;
+    if (!(G.uniform_valid & bit) || G.uniform_buffers[index] != buffer) {
+        glBindBufferBase(GL_UNIFORM_BUFFER, index, buffer);
+        G.uniform_buffers[index] = buffer; G.uniform_valid |= bit;
+    }
+}
 static Program *get_program(Shader *vs, Shader *ps, uint32_t bgra_mask)
 {
     for (int i = 0; i < G.nprogs; ++i) if (G.progs[i].vs == vs && G.progs[i].ps == ps && G.progs[i].p->bgra == bgra_mask) return G.progs[i].p;
@@ -201,7 +222,7 @@ static Program *get_program(Shader *vs, Shader *ps, uint32_t bgra_mask)
     }
     p->vs = vs; p->ps = ps; p->n_vs = vs->r.n_samplers; p->n_ps = ps->r.n_samplers; p->bgra = bgra_mask; p->ps_unit0 = vs->r.n_samplers;
     if (p->n_vs + p->n_ps > G.max_units) D3DGL_LOG("shader pair needs %d texture units, device has %d", p->n_vs + p->n_ps, G.max_units);
-    glUseProgram(p->prog);
+    use_renderer_program(p->prog);
     for (int i = 0; i < vs->r.n_cbufs; ++i) { GLuint idx = glGetUniformBlockIndex(p->prog, vs->r.cbufs[i].name); if (idx != GL_INVALID_INDEX) glUniformBlockBinding(p->prog, idx, vs->r.cbufs[i].slot); }
     for (int i = 0; i < ps->r.n_cbufs; ++i) { GLuint idx = glGetUniformBlockIndex(p->prog, ps->r.cbufs[i].name); if (idx != GL_INVALID_INDEX) glUniformBlockBinding(p->prog, idx, 16u + ps->r.cbufs[i].slot); }
     for (int i = 0; i < vs->r.n_samplers; ++i) { GLint l = glGetUniformLocation(p->prog, vs->r.samplers[i].name); if (l >= 0) glUniform1i(l, vs->r.samplers[i].unit); }
@@ -294,7 +315,7 @@ static void bind_ctx_fbo(Ctx *c, int *w, int *h)
     if (ref) { mw = dimu(ref->tex->d.Width, (UINT)ref->mip); mh = dimu(ref->tex->d.Height, (UINT)ref->mip); }
     *w = (int)mw; *h = (int)mh; G.fbo_dirty = 0;
 }
-static void invalidate_att(void) { memset(G.att_tex, 0, sizeof(G.att_tex)); memset(G.att_target, 0, sizeof(G.att_target)); memset(G.att_level, 0, sizeof(G.att_level)); G.fbo_dirty = 1; G.draw_buffers_valid = 0; applied_draw_state_valid = 0; }
+static void invalidate_att(void) { memset(G.att_tex, 0, sizeof(G.att_tex)); memset(G.att_target, 0, sizeof(G.att_target)); memset(G.att_level, 0, sizeof(G.att_level)); G.fbo_dirty = 1; G.draw_buffers_valid = 0; G.program_valid = 0; G.vao_bound = 0; G.uniform_valid = 0; applied_draw_state_valid = 0; }
 
 /* ---- state application + draw --------------------------------------------------------------------------------------------- */
 static void apply_state(Ctx *c, int rt_w, int rt_h)
@@ -359,7 +380,7 @@ static void bind_resources(Ctx *c, Program *p)
                 glBindSampler(unit, 0); if (t && !t->staging) { glTexParameteri(target, GL_TEXTURE_MIN_FILTER, GL_NEAREST); glTexParameteri(target, GL_TEXTURE_MAG_FILTER, GL_NEAREST); } }
         }
         Buf **cbs = stage ? c->cb_ps : c->cb_vs;
-        for (int i = 0; i < s->r.n_cbufs; ++i) { UINT slot = s->r.cbufs[i].slot; glBindBufferBase(GL_UNIFORM_BUFFER, (stage ? 16u : 0u) + slot, (slot < MAX_CB && cbs[slot]) ? cbs[slot]->buf : 0); }
+        for (int i = 0; i < s->r.n_cbufs; ++i) { UINT slot = s->r.cbufs[i].slot; bind_uniform_buffer((stage ? 16u : 0u) + slot, (slot < MAX_CB && cbs[slot]) ? cbs[slot]->buf : 0); }
     }
 }
 
@@ -392,8 +413,8 @@ static int prepare_draw(Ctx *c, int base_vertex, Program **out_prog)
     for (int i = 0; L && i < L->n; ++i) if (L->el[i].Format == DXGI_FORMAT_B8G8R8A8_UNORM && L->loc[i] >= 0) bgra |= 1u << L->loc[i];
     Program *p = get_program(c->vs, c->ps, bgra); if (!p) return 0;
     int w = 0, h = 0; bind_ctx_fbo(c, &w, &h); apply_state(c, w, h);
-    glUseProgram(p->prog); bind_resources(c, p);
-    glBindVertexArray(G.vao); UINT running[MAX_VB] = { 0 }; uint32_t used = 0;
+    use_renderer_program(p->prog); bind_resources(c, p);
+    bind_renderer_vao(); UINT running[MAX_VB] = { 0 }; uint32_t used = 0;
     for (int i = 0; L && i < L->n; ++i) {
         const D3D11_INPUT_ELEMENT_DESC *e = &L->el[i]; if (e->InputSlot >= MAX_VB) continue;
         UINT off = e->AlignedByteOffset == 0xFFFFFFFFu ? running[e->InputSlot] : e->AlignedByteOffset; running[e->InputSlot] = off + vertex_fmt_bytes(e->Format);
@@ -418,16 +439,16 @@ void d3dgl_Ctx_Draw(ID3D11DeviceContext *cx, UINT count, UINT start)
 {
     PERF_BEGIN(draw);
     Ctx *c = (Ctx *)cx; Program *p; if (!prepare_draw(c, 0, &p)) { PERF_END(draw); return; }
-    glDrawArrays(gl_topology(c->topo), (GLint)start, (GLsizei)count); gl_check("Draw"); PERF_END(draw);
+    glDrawArrays(gl_topology(c->topo), (GLint)start, (GLsizei)count); gl_check_hot("Draw"); PERF_END(draw);
 }
 void d3dgl_Ctx_DrawIndexed(ID3D11DeviceContext *cx, UINT count, UINT start, INT base)
 {
     PERF_BEGIN(draw);
     Ctx *c = (Ctx *)cx; Program *p; if (!c->ib || !prepare_draw(c, base, &p)) { PERF_END(draw); return; }
-    int wide = c->ib_fmt == DXGI_FORMAT_R32_UINT; glBindVertexArray(G.vao); glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, c->ib->buf);
+    int wide = c->ib_fmt == DXGI_FORMAT_R32_UINT; bind_renderer_vao(); glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, c->ib->buf);
     glEnable(GL_PRIMITIVE_RESTART_FIXED_INDEX);
     glDrawElements(gl_topology(c->topo), (GLsizei)count, wide ? GL_UNSIGNED_INT : GL_UNSIGNED_SHORT, (const void *)(uintptr_t)((size_t)c->ib_off + (size_t)start * (wide ? 4 : 2)));
-    gl_check("DrawIndexed"); PERF_END(draw);
+    gl_check_hot("DrawIndexed"); PERF_END(draw);
 }
 
 /* ---- clears -------------------------------------------------------------------------------------------------------------------- */

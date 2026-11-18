@@ -240,6 +240,8 @@ typedef struct {
     ProgKey progs[MAX_PROGRAMS]; int nprogs; int errors; int max_units;
     uint32_t enabled_attribs; int attribs_initialized;
     unsigned draw_buffer_mask; int draw_buffers_valid;
+    GLuint current_program; int program_valid, vao_bound;
+    GLuint uniform_buffers[32]; uint32_t uniform_valid;
 } Global;
 static Global G;
 
@@ -295,6 +297,18 @@ static void gl_check(const char *where)
 {
     GLenum e; int n = 0;
     while ((e = glGetError()) != GL_NO_ERROR && n++ < 8) { G.errors++; if (G.dbg) D3DGL_LOG("GL error 0x%04X after %s", e, where); }
+}
+
+/* Per-operation checks in these hot paths cost multiple driver calls per draw.
+ * On Android drain errors at Present instead; D3DGL_DEBUG=1 restores checks
+ * after each operation when diagnosing graphics. */
+static void gl_check_hot(const char *where)
+{
+#if defined(__ANDROID__) || defined(D3DGL_TEST_DEFER_HOT_ERRORS)
+    if (G.dbg) gl_check(where);
+#else
+    gl_check(where);
+#endif
 }
 
 /* ---- textures ---------------------------------------------------------------------------------- */
@@ -387,7 +401,7 @@ void d3dgl_Resource_GetType(ID3D11Resource *p, D3D11_RESOURCE_DIMENSION *dim)
 { *dim = ((Obj *)p)->kind == K_BUFFER ? D3D11_RESOURCE_DIMENSION_BUFFER : D3D11_RESOURCE_DIMENSION_TEXTURE2D; }
 
 /* ---- buffers ------------------------------------------------------------------------------------- */
-static void buf_destroy(Obj *o) { Buf *b = (Buf *)o; if (b->buf) glDeleteBuffers(1, &b->buf); free(b->tmp); }
+static void buf_destroy(Obj *o) { Buf *b = (Buf *)o; G.uniform_valid = 0; if (b->buf) glDeleteBuffers(1, &b->buf); free(b->tmp); }
 HRESULT d3dgl_Device_CreateBuffer(ID3D11Device *dev, const D3D11_BUFFER_DESC *d, const D3D11_SUBRESOURCE_DATA *init, ID3D11Buffer **out)
 {
     (void)dev; if (!d || !out) return E_INVALIDARG;
@@ -424,7 +438,7 @@ HRESULT d3d11gles_upload_vertex_range(ID3D11Buffer *buffer, UINT offset,
         if (discard) glBufferData(GL_COPY_WRITE_BUFFER, (GLsizeiptr)b->d.ByteWidth, NULL, GL_DYNAMIC_DRAW);
         glBufferSubData(GL_COPY_WRITE_BUFFER, (GLintptr)offset, (GLsizeiptr)size, data);
     }
-    gl_check("upload_vertex_range");
+    gl_check_hot("upload_vertex_range");
     return S_OK;
 }
 
@@ -462,7 +476,7 @@ void d3dgl_Ctx_Unmap(ID3D11DeviceContext *c, ID3D11Resource *res, UINT sub)
         Buf *b = (Buf *)o; glBindBuffer(GL_COPY_WRITE_BUFFER, b->buf);
         if (b->mapped_gl) { PERF_BEGIN(unmap); glUnmapBuffer(GL_COPY_WRITE_BUFFER); PERF_END(unmap); b->mapped_gl = 0; }
         else if (b->tmp) { if (b->map_type != D3D11_MAP_READ) glBufferSubData(GL_COPY_WRITE_BUFFER, 0, (GLsizeiptr)b->d.ByteWidth, b->tmp); free(b->tmp); b->tmp = NULL; }
-        gl_check("Unmap(buffer)"); return;
+        gl_check_hot("Unmap(buffer)"); return;
     }
     Tex *t = (Tex *)o;
     if (!t->staging && t->map_buf && t->map_type != D3D11_MAP_READ) {
