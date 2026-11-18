@@ -17,7 +17,7 @@ HRESULT d3dgl_SC_Present(IDXGISwapChain *p, UINT sync, UINT flags)
     SwapChain *s = (SwapChain *)p; if (flags & DXGI_PRESENT_TEST) return S_OK;
     glFlush();
     if (G.host.present && s->back) G.host.present(G.host.user, s->back->tex, (int)s->back->d.Width, (int)s->back->d.Height, (int)sync);
-    invalidate_att(); gl_check("Present"); return S_OK;
+    invalidate_att(); gl_check("Present"); perf_report(); return S_OK;
 }
 HRESULT d3dgl_SC_GetBuffer(IDXGISwapChain *p, UINT idx, const GUID *riid, void **out)
 { (void)riid; SwapChain *s = (SwapChain *)p; if (idx != 0 || !s->back || !out) return E_INVALIDARG; REF(s->back); *out = s->back; return S_OK; }
@@ -67,7 +67,8 @@ HRESULT d3dgl_Device_GetDeviceRemovedReason(ID3D11Device *d) { (void)d; return S
 
 static void ctx_destroy(Obj *o)
 {
-    Ctx *c = (Ctx *)o; void **slots[] = { (void **)&c->vs, (void **)&c->ps, (void **)&c->gs, (void **)&c->layout, (void **)&c->ib, (void **)&c->dsv, (void **)&c->blend, (void **)&c->dss, (void **)&c->rs };
+    Ctx *c = (Ctx *)o; if (G.fbo_ctx == c) { G.fbo_ctx = NULL; G.fbo_dirty = 1; }
+    void **slots[] = { (void **)&c->vs, (void **)&c->ps, (void **)&c->gs, (void **)&c->layout, (void **)&c->ib, (void **)&c->dsv, (void **)&c->blend, (void **)&c->dss, (void **)&c->rs };
     for (size_t i = 0; i < sizeof(slots) / sizeof(slots[0]); ++i) if (*slots[i]) d3dgl_Release(*slots[i]);
     for (int i = 0; i < MAX_VB; ++i) if (c->vb[i].b) d3dgl_Release(c->vb[i].b);
     for (int i = 0; i < MAX_CB; ++i) { if (c->cb_vs[i]) d3dgl_Release(c->cb_vs[i]); if (c->cb_ps[i]) d3dgl_Release(c->cb_ps[i]); if (c->cb_gs[i]) d3dgl_Release(c->cb_gs[i]); }

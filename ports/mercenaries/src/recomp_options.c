@@ -385,12 +385,32 @@ int recomp_options_begin_world_load(void) {
     g_object_distance_for_world = 0; /* Do not revive a stale extended range. */
     fprintf(stderr, "[RECOMP-OPTIONS] world load object distance: %d -> %d\n",
             previous, g_object_distance_for_world);
+#ifdef XBOX_ANDROID
+    fprintf(stderr, "[world-streaming] camera_scenery_cap=%.0f grid_radius=%.0f fog_cutoff=unmeasured\n",
+            recomp_options_world_view_distance(300.0f), recomp_options_streaming_grid_radius());
+#endif
     return previous != g_object_distance_for_world;
 }
 float recomp_options_object_distance_multiplier(void) {
     /* Keep objects, activation grid and camera inside the retail terrain range.
      * Deliberately independent of saved/pending values while disabled. */
     return 1.0f;
+}
+/* A conservative, Android-only trial: the actual fog cutoff varies by scene
+ * and has not been measured. Keep the grid beyond the capped camera and the
+ * scenery radius; leave terrain's authored cache and gameplay logic intact. */
+float recomp_options_world_view_distance(float distance) {
+#ifdef XBOX_ANDROID
+    if (distance > 260.0f) return 260.0f;
+#endif
+    return distance;
+}
+float recomp_options_streaming_grid_radius(void) {
+#ifdef XBOX_ANDROID
+    return 300.0f; /* 40 units beyond the maximum normal world camera. */
+#else
+    return 300.0f * recomp_options_object_distance_multiplier() + 20.0f;
+#endif
 }
 float recomp_options_scale_object_distance(float distance, uint32_t type) {
     switch (type) {
@@ -409,7 +429,8 @@ float recomp_options_scale_object_distance(float distance, uint32_t type) {
     case 0xC0FC1F76u: /* staticlarge */
     case 0x660A425Du: /* fixturelarge */
     case 0x38DF0375u: /* building */
-        return distance * recomp_options_object_distance_multiplier();
+        return recomp_options_world_view_distance(
+            distance * recomp_options_object_distance_multiplier());
     default: return distance;
     }
 }

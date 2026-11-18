@@ -15,6 +15,11 @@
 #include "nv2a_regs.h"
 #include "nv2a_state.h"
 #include "nv2a_image_blit.h"
+#include "nv2a_feedback_reuse.h"
+#include "nv2a_draw_workload.h"
+#include "nv2a_immediate_vertices.h"
+#include "nv2a_indexed_vertices.h"
+#include "nv2a_draw_batch.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -24,6 +29,40 @@
 /* Renderer diagnostics are process-launch configuration. Cache getenv results
  * by call-site string pointer so disabled probes stay cheap in method/draw hot
  * paths. Environment variables are never mutated after renderer startup. */
+#ifdef __ANDROID__
+void android_trace(const char *fmt, ...);
+static Nv2aDrawWorkload g_draw_workload;
+static uint64_t g_inline_batches;
+static ULONGLONG g_workload_start_ms;
+static void pgraph_report_workload(void)
+{
+    ULONGLONG now = GetTickCount64();
+    if (!g_workload_start_ms || now < g_workload_start_ms || now - g_workload_start_ms > 30000u) {
+        memset(&g_draw_workload, 0, sizeof(g_draw_workload)); g_inline_batches = 0; g_workload_start_ms = now; return;
+    }
+    if (now - g_workload_start_ms < 10000u) return;
+    android_trace("[perf-nv2a-small] interval_s=%.1f array=%llu indexed=%llu inline=%llu immediate=%llu small_strips=%llu small_array=%llu small_indexed=%llu small_inline=%llu small_immediate=%llu small_textured=%llu disjoint_splits=%llu strip_splits=%llu",
+        (double)(now - g_workload_start_ms) / 1000.0,
+        (unsigned long long)g_draw_workload.array, (unsigned long long)g_draw_workload.indexed,
+        (unsigned long long)g_draw_workload.inline_array, (unsigned long long)g_draw_workload.immediate,
+        (unsigned long long)g_draw_workload.small_strips, (unsigned long long)g_draw_workload.small_strips_array,
+        (unsigned long long)g_draw_workload.small_strips_indexed, (unsigned long long)g_draw_workload.small_strips_inline,
+        (unsigned long long)g_draw_workload.small_strips_immediate, (unsigned long long)g_draw_workload.small_strips_textured,
+        (unsigned long long)g_draw_workload.disjoint_array_splits, (unsigned long long)g_draw_workload.strip_array_splits);
+    android_trace("[perf-nv2a-batch] merged_inline_triangle_draws=%llu",
+                  (unsigned long long)g_inline_batches);
+    memset(&g_draw_workload, 0, sizeof(g_draw_workload)); g_inline_batches = 0; g_workload_start_ms = now;
+}
+#define PGRAPH_BATCH_MERGED() (++g_inline_batches)
+#define PGRAPH_WORK_DRAW(source, mode, count, textured) nv2a_workload_draw(&g_draw_workload, (source), (mode), (count), (textured))
+#define PGRAPH_WORK_SPLIT(mode) do { ++g_draw_workload.disjoint_array_splits; if ((mode) == 6u) ++g_draw_workload.strip_array_splits; } while (0)
+#else
+#define PGRAPH_BATCH_MERGED() ((void)0)
+#define PGRAPH_WORK_DRAW(source, mode, count, textured) ((void)0)
+#define PGRAPH_WORK_SPLIT(mode) ((void)0)
+#define pgraph_report_workload() ((void)0)
+#endif
+
 static const char *pgraph_cached_getenv(const char *name)
 {
     typedef struct PgraphEnvCacheEntry {
@@ -3063,6 +3102,23 @@ fail:
     if (texture)
         ID3D11Texture2D_Release(texture);
     return NULL;
+}
+
+/* Adjacent texture stages that sample the active color target need the
+ * same pre-draw snapshot. Reuse only within this draw: the next guest draw
+ * may modify the target and must take a fresh copy. Both references are
+ * owned independently so the existing per-stage cleanup remains valid. */
+static ID3D11ShaderResourceView *snapshot_color_for_stage(
+    GuestColorSurface *surface, unsigned stage,
+    ID3D11Texture2D **textures, ID3D11ShaderResourceView **views)
+{
+    if (stage && nv2a_feedback_reuse_previous(stage, textures[stage - 1], views[stage - 1])) {
+        textures[stage] = textures[stage - 1];
+        ID3D11Texture2D_AddRef(textures[stage]);
+        ID3D11ShaderResourceView_AddRef(views[stage - 1]);
+        return views[stage - 1];
+    }
+    return snapshot_bound_color_surface(surface, &textures[stage]);
 }
 
 static GuestDepthSurface *satellite_depth_filter_source(uint32_t stage,
@@ -7202,6 +7258,7 @@ static void submit_array_draw(void)
     const int linear_uv = texture_color_format_is_linear(color_format);
     const uint8_t *vertex_bytes;
     uint8_t *expanded_elements = NULL;
+    uint8_t indexed_scratch[2048];
     int host_depth_test;
     GuestDepthSurface *depth_alias_source;
     int colored_overlay_capture_pending = 0;
@@ -7256,15 +7313,11 @@ static void submit_array_draw(void)
         end = (uint64_t)offset + ((uint64_t)max_index + 1u) * stride;
         if (end > (uint64_t)memory_region_size(d->vram))
             return;
-        expanded_elements = (uint8_t *)malloc((size_t)count * stride);
+        expanded_elements = nv2a_expand_indexed_vertices(
+            d->vram_ptr + offset, g_pg.inline_elements, count, stride,
+            indexed_scratch, sizeof(indexed_scratch));
         if (!expanded_elements)
             return;
-        for (element = 0u; element < count; ++element) {
-            memcpy(expanded_elements + (size_t)element * stride,
-                   d->vram_ptr + offset +
-                       (size_t)g_pg.inline_elements[element] * stride,
-                   stride);
-        }
         vertex_bytes = expanded_elements;
     } else {
         first = (uint64_t)offset + (uint64_t)start * stride;
@@ -7376,7 +7429,7 @@ static void submit_array_draw(void)
     default:                  return;
     }
     if (prim_count == 0u) {
-        free(expanded_elements);
+        nv2a_free_indexed_vertices(expanded_elements, indexed_scratch);
         return;
     }
 
@@ -7960,7 +8013,7 @@ static void submit_array_draw(void)
     out = prepare_array_fallback_vertices(draw_shader, vertex_bytes, stride,
         count, linear_uv, tex_width, tex_height);
     if (!draw_shader && !out) {
-        free(expanded_elements);
+        nv2a_free_indexed_vertices(expanded_elements, indexed_scratch);
         return;
     }
     if (draw_shader) {
@@ -7985,7 +8038,7 @@ static void submit_array_draw(void)
         uint32_t q;
         if (!quad_count) {
             free(out);
-            free(expanded_elements);
+            nv2a_free_indexed_vertices(expanded_elements, indexed_scratch);
             return;
         }
         /* Vertex counts originate in guest commands; do not put this
@@ -7994,7 +8047,7 @@ static void submit_array_draw(void)
             (size_t)quad_count > SIZE_MAX / 6u / draw_stride ||
             !(expanded_quads = (uint8_t *)malloc(expanded_size))) {
             free(out);
-            free(expanded_elements);
+            nv2a_free_indexed_vertices(expanded_elements, indexed_scratch);
             return;
         }
         for (q = 0u; q < quad_count; ++q) {
@@ -8023,7 +8076,7 @@ static void submit_array_draw(void)
             (size_t)count + 1u > SIZE_MAX / draw_stride ||
             !(expanded_line_loop = (uint8_t *)malloc(expanded_size))) {
             free(out);
-            free(expanded_elements);
+            nv2a_free_indexed_vertices(expanded_elements, indexed_scratch);
             return;
         }
         memcpy(expanded_line_loop, draw_data, (size_t)count * draw_stride);
@@ -8110,8 +8163,8 @@ static void submit_array_draw(void)
                  * Array draws can perform the same retail framebuffer-feedback
                  * composites as immediate draws (HUD, PDA, and shop effects),
                  * so give both submission paths the same pre-draw snapshot. */
-                feedback_srvs[i] = snapshot_bound_color_surface(
-                    g_pg.bound_color, &feedback_textures[i]);
+                feedback_srvs[i] = snapshot_color_for_stage(
+                    g_pg.bound_color, i, feedback_textures, feedback_srvs);
                 stage_surface_srv[i] = feedback_srvs[i];
             } else if (!stage_surface_srv[i]) {
                 stage_surface_srv[i] = get_guest_surface_texture(
@@ -8720,6 +8773,9 @@ static void submit_array_draw(void)
     }
     debug_capture_satellite_draw_before("array");
     dev->lpVtbl->BeginScene(dev);
+    PGRAPH_WORK_DRAW(g_pg.inline_array_mode ? NV2A_DRAW_INLINE :
+        g_pg.inline_element_count ? NV2A_DRAW_INDEXED : NV2A_DRAW_ARRAY,
+        g_pg.draw_mode, count, g_pg.tex[0].enabled || g_pg.tex[1].enabled || g_pg.tex[2].enabled || g_pg.tex[3].enabled);
     dev->lpVtbl->DrawPrimitiveUP(dev,
         (D3DPRIMITIVETYPE)g_pg.d3d_prim_type, prim_count, draw_data,
         draw_stride);
@@ -8927,7 +8983,7 @@ static void submit_array_draw(void)
     free(expanded_quads);
     free(expanded_line_loop);
     free(out);
-    free(expanded_elements);
+    nv2a_free_indexed_vertices(expanded_elements, indexed_scratch);
 }
 
 /* Mirror simple fixed-function texture blits into guest VRAM. Xbox titles use
@@ -9272,39 +9328,12 @@ static void submit_draw(void)
      * OutputVertex path only as a fallback for fixed-function submissions. */
     if ((g_pg.transform_execution_mode & 3u) == 2u &&
         g_pg.immediate_vertex_count == num_verts) {
-        program_vertices = (float (*)[NV2A_VS_MAX_INPUTS][4])_alloca(
-            (size_t)out_vert_count * sizeof(*program_vertices));
-        if (is_quads) {
-            uint32_t q, out_index = 0u;
-            for (q = 0u; q < num_quads; ++q) {
-                const uint32_t base = q * 4u;
-                memcpy(program_vertices[out_index + 0u],
-                       g_pg.immediate_vertices[base + 0u],
-                       sizeof(*program_vertices));
-                memcpy(program_vertices[out_index + 1u],
-                       g_pg.immediate_vertices[base + 1u],
-                       sizeof(*program_vertices));
-                memcpy(program_vertices[out_index + 2u],
-                       g_pg.immediate_vertices[base + 2u],
-                       sizeof(*program_vertices));
-                memcpy(program_vertices[out_index + 3u],
-                       g_pg.immediate_vertices[base + 0u],
-                       sizeof(*program_vertices));
-                memcpy(program_vertices[out_index + 4u],
-                       g_pg.immediate_vertices[base + 2u],
-                       sizeof(*program_vertices));
-                memcpy(program_vertices[out_index + 5u],
-                       g_pg.immediate_vertices[base + 3u],
-                       sizeof(*program_vertices));
-                out_index += 6u;
-            }
-        } else {
-            memcpy(program_vertices, g_pg.immediate_vertices,
-                   (size_t)num_verts * sizeof(*program_vertices));
-            if (is_line_loop)
-                memcpy(program_vertices[num_verts], program_vertices[0],
-                       sizeof(*program_vertices));
-        }
+        Nv2aImmediateVertex *scratch = NULL;
+        if (is_quads || is_line_loop)
+            scratch = (Nv2aImmediateVertex *)_alloca(
+                (size_t)out_vert_count * sizeof(*scratch));
+        program_vertices = nv2a_immediate_vertex_source(
+            g_pg.immediate_vertices, scratch, num_verts, is_quads, is_line_loop);
     }
 
     /* NV2A PROJECT2D texture modes consume the Xbox linear coordinates
@@ -9569,8 +9598,8 @@ static void submit_draw(void)
                         g_pg.tex[stage].control0,
                         g_pg.tex[stage].control1) &&
                     guest_color_surface_aliases_bound(stage_surface)) {
-                    feedback_srvs[stage] = snapshot_bound_color_surface(
-                        g_pg.bound_color, &feedback_textures[stage]);
+                    feedback_srvs[stage] = snapshot_color_for_stage(
+                        g_pg.bound_color, stage, feedback_textures, feedback_srvs);
                     stage_surface_srv[stage] = feedback_srvs[stage];
                 } else if (!stage_surface_srv[stage]) {
                     stage_surface_srv[stage] = get_guest_surface_texture(
@@ -9998,6 +10027,8 @@ static void submit_draw(void)
     dev->lpVtbl->BeginScene(dev);
 
     /* Draw */
+    PGRAPH_WORK_DRAW(NV2A_DRAW_IMMEDIATE, g_pg.draw_mode, num_verts,
+        g_pg.tex[0].enabled || g_pg.tex[1].enabled || g_pg.tex[2].enabled || g_pg.tex[3].enabled);
     dev->lpVtbl->DrawPrimitiveUP(dev, (D3DPRIMITIVETYPE)actual_prim_type,
                                   prim_count, immediate_draw_data,
                                   immediate_draw_stride);
@@ -10472,6 +10503,43 @@ uint32_t pgraph_d3d11_inline_batch(uint32_t method, const uint32_t *words,
     return count;
 }
 
+/* Only called for a complete adjacent BEGIN/INLINE_ARRAY/END packet inside
+ * the same synchronous PFIFO submission. No guest method can intervene. The
+ * caller dispatches the current END normally after this append. */
+int pgraph_d3d11_try_batch_inline_triangles(const uint32_t *words, uint32_t count)
+{
+    uint32_t stride, old_vertices, added_vertices;
+    Nv2aDrawBatch batch;
+    if (!g_pg.initialized || !g_pg.in_draw || !g_pg.inline_array_mode ||
+        g_pg.draw_mode != NV097_SET_BEGIN_END_OP_TRIANGLES ||
+        g_pg.draw_array_count || g_pg.inline_element_count || g_pg.immediate_vertex_count ||
+        !words || !count) return 0;
+    /* The append helper uses memcpy, so reject any aliased source. */
+    uintptr_t src = (uintptr_t)words, dst = (uintptr_t)g_pg.inline_data;
+    size_t source_bytes = (size_t)count * sizeof(*words);
+    if (src > UINTPTR_MAX - source_bytes ||
+        dst > UINTPTR_MAX - sizeof(g_pg.inline_data) ||
+        (src < dst + sizeof(g_pg.inline_data) && dst < src + source_bytes)) return 0;
+    /* Sampling any texture could include a framebuffer feedback dependency. */
+    for (uint32_t i = 0; i < 4u; ++i) if (g_pg.tex[i].enabled) return 0;
+    stride = prepare_inline_array_layout();
+    if (!stride || ((uint64_t)g_pg.inline_count * 4u) % stride ||
+        ((uint64_t)count * 4u) % stride) return 0;
+    old_vertices = (uint32_t)(((uint64_t)g_pg.inline_count * 4u) / stride);
+    added_vertices = (uint32_t)(((uint64_t)count * 4u) / stride);
+    /* Avoid count-specific full-screen/sky compatibility paths. */
+    if (old_vertices < 3u || added_vertices < 3u || old_vertices % 3u ||
+        added_vertices % 3u || old_vertices + added_vertices > 120u) return 0;
+    nv2a_batch_init(&batch, g_pg.inline_data, sizeof(g_pg.inline_data));
+    batch.stride = stride; batch.count = old_vertices; batch.mode = 5u; batch.draws = 1u;
+    if (nv2a_batch_append(&batch, 5u, words, added_vertices, stride) != NV2A_BATCH_APPEND) return 0;
+    g_pg.inline_count += count;
+    /* The ordinary path would process the extra BEGIN, data words and END. */
+    g_pg.stats.methods_handled += count + 2u;
+    PGRAPH_BATCH_MERGED();
+    return 1;
+}
+
 int pgraph_d3d11_method(int subchannel, uint32_t method, uint32_t param)
 {
     if (!g_pg.initialized)
@@ -10905,6 +10973,7 @@ int pgraph_d3d11_method(int subchannel, uint32_t method, uint32_t param)
                                 g_pg.draw_array_count) {
                 g_pg.draw_array_count += count;
             } else {
+                PGRAPH_WORK_SPLIT(g_pg.draw_mode);
                 submit_draw();
                 g_pg.draw_array_start = start;
                 g_pg.draw_array_count = count;
@@ -11924,6 +11993,7 @@ void pgraph_d3d11_flush(void)
         g_pg.in_draw = 0;
     }
     g_pg.stats.frames++;
+    pgraph_report_workload();
 }
 
 static int service_pending_scanout(int force)

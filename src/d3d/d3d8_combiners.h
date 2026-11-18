@@ -354,8 +354,8 @@ ID3D11PixelShader *d3d8_combiners_get_shader(const NV2ACombinerState *state);
 /**
  * Prepare for a draw call using register combiners.
  *
- * This is the main integration point. Call this instead of (or after)
- * d3d8_shaders_prepare_draw() when a combiner pixel shader is active.
+ * Call after vertex shader preparation; if it returns FALSE, prepare the
+ * fixed-function pixel shader instead.
  *
  * - Rebuilds combiner state from current render states if dirty
  * - Gets or compiles the matching pixel shader

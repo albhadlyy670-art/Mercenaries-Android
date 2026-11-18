@@ -177,6 +177,10 @@ typedef struct {
 void d3d11gles_set_host(const D3d11GlesHost *host);
 /* Number of times GL reported an error since the last call (debug aid). */
 int  d3d11gles_take_error_count(void);
+/* Upload a range of the transient vertex ring. NO_OVERWRITE requires the
+ * caller to avoid ranges still used by queued draws; discard replaces storage. */
+HRESULT d3d11gles_upload_vertex_range(ID3D11Buffer *buffer, UINT offset,
+                                      const void *data, UINT size, BOOL discard);
 
 /* ---- creation -------------------------------------------------------------------- */
 HRESULT D3D11CreateDeviceAndSwapChain(IDXGIAdapter *adapter, D3D_DRIVER_TYPE type, HMODULE software, UINT flags,
@@ -282,6 +286,7 @@ D3DGL_REL(ID3D11RenderTargetView) D3DGL_REL(ID3D11DepthStencilView) D3DGL_REL(ID
 D3DGL_REL(ID3D11GeometryShader) D3DGL_REL(ID3D11Resource) D3DGL_REL(ID3D11Device) D3DGL_REL(ID3D11DeviceContext)
 D3DGL_REL(IDXGISwapChain) D3DGL_REL(IDXGIFactory) D3DGL_REL(IDXGIFactory5) D3DGL_REL(IDXGIFactory6) D3DGL_REL(IDXGIAdapter)
 D3DGL_REL(IDXGIAdapter1) D3DGL_REL(IDXGIDevice)
+#define ID3D11Texture2D_AddRef(p) d3dgl_AddRef(p)
 #define ID3D11ShaderResourceView_AddRef(p) d3dgl_AddRef(p)
 #define ID3D11Device_QueryInterface(p, iid, out) d3dgl_QueryInterface(p, iid, out)
 #define ID3D10Blob_GetBufferPointer(b) d3dgl_Blob_GetBufferPointer(b)

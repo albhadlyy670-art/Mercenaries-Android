@@ -51,6 +51,7 @@ static void show(const char *status, float progress)
 
 #ifdef MERC_HAVE_GAME
 extern int mercenaries_android_main(void);
+#include "android_cpu_tuning.inc"
 void android_install_hang_sampler(void);
 
 /* Diagnostics: if the game seems stuck, sample where its thread is every few seconds (written to crash.log). */
@@ -100,6 +101,10 @@ int android_game_run(const char *game_dir, const char *save_dir, const char *tmp
 {
     char path[1024], config[1024];
     android_install_fault_handler();            /* so even an early crash is written to crash.log */
+    { stack_t ss;
+      if (sigaltstack(NULL, &ss) == 0)
+          android_trace("[app] game signal stack size=%zu flags=%d", ss.ss_size, ss.ss_flags);
+    }
     show("Starting", 0.05f);
 
     snprintf(config, sizeof(config), "%s/config", save_dir); mkdir(config, 0775);
@@ -117,12 +122,32 @@ int android_game_run(const char *game_dir, const char *save_dir, const char *tmp
 #ifdef MERC_HAVE_GAME
     g_game_tid = pthread_self();
     android_install_hang_sampler();
-    { pthread_t w; if (pthread_create(&w, NULL, watchdog_thread, NULL) == 0) pthread_detach(w); }
+    /* Sampling every game thread with signals is expensive on mobile and is
+     * only useful when diagnosing a hang. Opt in with <cache>/watchdog.enable. */
+    { char marker[1024];
+      snprintf(marker, sizeof(marker), "%s/watchdog.enable", tmp_dir);
+      if (access(marker, F_OK) == 0) {
+          pthread_t w;
+          if (pthread_create(&w, NULL, watchdog_thread, NULL) == 0) pthread_detach(w);
+          android_trace("[app] diagnostic watchdog enabled");
+      }
+    }
+    /* Experimental batching defaults on; a cache marker restores the
+     * original draw path if a device shows a rendering regression. */
+    { char marker[1024];
+      snprintf(marker, sizeof(marker), "%s/nv2a_batch.disable", tmp_dir);
+      int disabled = access(marker, F_OK) == 0;
+      setenv("MERCENARIES_TEST_NV2A_BATCH", disabled ? "0" : "1", 1);
+      android_trace("[nv2a-batch] experimental inline triangle-list batching %s",
+                    disabled ? "disabled" : "enabled");
+    }
     trace_memory();
     atexit(on_exit_trace);
+    android_cpu_tuning_start(tmp_dir);
     android_trace("[app] entering mercenaries_android_main");
     fprintf(stderr, "[app] entering mercenaries_android_main\n");
     int rc = mercenaries_android_main();                /* does not normally return */
+    android_cpu_tuning_stop();
     LOG("mercenaries_android_main returned %d", rc);
     return rc;
 #else

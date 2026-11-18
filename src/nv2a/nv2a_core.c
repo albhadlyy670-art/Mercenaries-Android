@@ -10,6 +10,7 @@
 
 #include "nv2a_state.h"
 #include "nv2a_pgraph_d3d11.h"
+#include "nv2a_push_batch.h"
 
 /* ============================================================
  * Global state
@@ -1086,7 +1087,45 @@ static void pfifo_process_pushbuffer(NV2AState *d, uint32_t put)
                         "method=%04X param=%08X\n",
                         submission_index, subchannel, method, word);
             }
+            uint32_t batch_consumed = 0u;
+#if defined(XBOX_ANDROID) && defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+            uint32_t batch_payload = 0u;
+            /* Experimental trial: only a fully present, identical-subchannel
+             * triangle-list packet can be folded into this END. Never look
+             * across a PUT boundary or bypass active method tracing. */
+            static int batch_enabled = -1;
+            if (batch_enabled < 0) {
+                const char *setting = getenv("MERCENARIES_TEST_NV2A_BATCH");
+                batch_enabled = setting && setting[0] && setting[0] != '0';
+            }
+            if (batch_enabled && method == NV097_SET_BEGIN_END && word == 0u &&
+                method_count == 1u && method_type == NV_PFIFO_CACHE1_DMA_STATE_METHOD_TYPE_INC &&
+                subchannel < 8u && d->pgraph.subchannel_class[subchannel] == NV_KELVIN_PRIMITIVE &&
+                (d->pgraph.regs[NV_PGRAPH_CTX_CACHE1 + subchannel * 4u] &
+                 NV_PGRAPH_CTX_SWITCH1_GRCLASS) == NV_KELVIN_PRIMITIVE &&
+                !g_pgraph_trace_enabled && !trace_submission && !trace_progress_enabled &&
+                put >= get && dma_len >= get) {
+                uint32_t available = (put - get) / 4u;
+                uint32_t dma_available = (uint32_t)((dma_len - get) / 4u);
+                if (available > dma_available) available = dma_available;
+                if (available > budget) available = budget;
+                batch_consumed = nv2a_batch_inline_packet((const uint32_t *)(dma + get),
+                                                         available, subchannel, &batch_payload);
+                if (batch_consumed && !pgraph_d3d11_try_batch_inline_triangles(
+                        (const uint32_t *)(dma + get) + 3u, batch_payload))
+                    batch_consumed = 0u;
+            }
+#endif
             pgraph_method(d, subchannel, method, word);
+            if (batch_consumed) {
+                get += batch_consumed * 4u;
+                budget -= batch_consumed;
+                methods += batch_payload + 2u;
+                progress_methods += batch_payload + 2u;
+                g_pgraph_method_count += batch_payload + 2u;
+                g_nv2a_pfifo_diag_get = get - 4u;
+                g_nv2a_pfifo_diag_word = 0u;
+            }
             g_nv2a_pfifo_diag_stage = 1u;
             ++progress_methods;
             if (trace_submission) {

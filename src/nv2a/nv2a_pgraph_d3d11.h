@@ -45,6 +45,8 @@ int pgraph_d3d11_method(int subchannel, uint32_t method, uint32_t param);
  * method. Returns consumed words, or zero for unsupported state/methods. */
 uint32_t pgraph_d3d11_inline_batch(uint32_t method, const uint32_t *words,
                                   uint32_t count);
+/* Merge a complete following inline triangle-list draw, or leave it untouched. */
+int pgraph_d3d11_try_batch_inline_triangles(const uint32_t *words, uint32_t count);
 
 /* Execute an explicit NV09F SRCCOPY between compatible GPU color surfaces. */
 int pgraph_d3d11_image_blit(void);
