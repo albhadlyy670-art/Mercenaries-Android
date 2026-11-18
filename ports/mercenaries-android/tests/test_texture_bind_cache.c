@@ -12,6 +12,7 @@ void glPixelStorei(GLenum p, GLint v) { (void)p; (void)v; }
 void glTexSubImage2D(GLenum t, GLint l, GLint x, GLint y, GLsizei w, GLsizei h, GLenum f, GLenum ty, const void *p)
 { (void)l;(void)x;(void)y;(void)w;(void)h;(void)f;(void)ty;(void)p; assert(t==GL_TEXTURE_2D && unit==0 && tex2d[0]==11); ++uploads; }
 GLenum glGetError(void) { return GL_NO_ERROR; }
+void glDeleteFramebuffers(GLsizei n, const GLuint *id) { (void)n; (void)id; }
 void glDeleteTextures(GLsizei n, const GLuint *id) { (void)n; (void)id; ++deletes; }
 void glDeleteSamplers(GLsizei n, const GLuint *id) { (void)n; (void)id; ++deletes; }
 void glBindBufferBase(GLenum t, GLuint i, GLuint b) { (void)t; (void)i; (void)b; }

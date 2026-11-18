@@ -231,11 +231,18 @@ typedef struct {
     View *rtv[MAX_RT]; View *dsv; StateObj *blend, *dss, *rs; FLOAT blend_factor[4]; UINT sample_mask, stencil_ref;
 } Ctx;
 
+#define DRAW_FBO_CACHE_SIZE 64
+/* GL names, mip levels and attachment points define immutable draw FBOs.
+ * Texture destruction evicts references before a GL name can be reused. */
+typedef struct { GLuint tex, target; GLint mip; } DrawFboAttachment;
+typedef struct { DrawFboAttachment att[MAX_RT + 1]; GLenum depth_point; } DrawFboKey;
+typedef struct { DrawFboKey key; GLuint fbo; } DrawFboEntry;
 typedef struct { Shader *vs, *ps; Program *p; } ProgKey;
 struct Program { GLuint prog; Shader *vs, *ps; int n_vs, n_ps; uint32_t bgra; int ps_unit0; };
 
 typedef struct {
     int inited; Ctx *ctx; D3d11GlesHost host; int dbg;
+    DrawFboEntry draw_fbos[DRAW_FBO_CACHE_SIZE]; unsigned draw_fbo_next;
     GLuint vao, fbo, read_fbo, draw_fbo; GLuint att_tex[MAX_RT + 1], att_target[MAX_RT + 1]; GLint att_level[MAX_RT + 1]; int fbo_dirty;
     ProgKey progs[MAX_PROGRAMS]; int nprogs; int last_program; int errors; int max_units;
     uint32_t enabled_attribs; int attribs_initialized;
@@ -390,10 +397,11 @@ static void sub_info(const Tex *t, UINT sub, UINT *w, UINT *h, UINT *mip, UINT *
 }
 static GLenum face_target(const Tex *t, UINT layer) { return t->cube ? GL_TEXTURE_CUBE_MAP_POSITIVE_X + layer : GL_TEXTURE_2D; }
 
+static void invalidate_draw_fbos_for_texture(GLuint tex);
 static void tex_destroy(Obj *o)
 {
     Tex *t = (Tex *)o;
-    if (t->tex) { invalidate_texture_bindings(); glDeleteTextures(1, &t->tex); }
+    if (t->tex) { invalidate_draw_fbos_for_texture(t->tex); invalidate_texture_bindings(); glDeleteTextures(1, &t->tex); }
     if (t->cpu) { for (int i = 0; i < t->nsub; ++i) free(t->cpu[i]); free(t->cpu); }
     free(t->map_buf);
 }

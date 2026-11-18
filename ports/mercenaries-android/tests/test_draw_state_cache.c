@@ -4,7 +4,9 @@
 #define D3DGL_TEST_DEFER_HOT_ERRORS 1
 #include "../app/src/main/cpp/d3d11_gles/d3d11_gles.c"
 static int calls, destroyed, draw_buffers_calls, framebuffer_calls, program_calls, vao_calls, uniform_calls, delete_calls, error_checks;
-static int copy_bind_calls;
+static int copy_bind_calls, fbo_gen_calls, fbo_delete_calls, attachment_calls;
+static GLuint next_fbo = 10;
+static GLenum last_attachment;
 static GLenum pending_error;
 static int viewport_calls, raster_calls, depth_calls, blend_calls;
 GLenum glGetError(void) { ++error_checks; GLenum e = pending_error; pending_error = 0; return e; }
@@ -30,9 +32,11 @@ void glBindVertexArray(GLuint vao) { (void)vao; ++vao_calls; }
 void glBindBuffer(GLenum target, GLuint buf) { assert(target == GL_COPY_WRITE_BUFFER); (void)buf; ++copy_bind_calls; }
 void glBindBufferBase(GLenum target, GLuint slot, GLuint buf) { assert(target == GL_UNIFORM_BUFFER); (void)slot; (void)buf; ++uniform_calls; }
 void glDeleteBuffers(GLsizei n, const GLuint *buf) { (void)n; (void)buf; ++delete_calls; }
+void glGenFramebuffers(GLsizei n, GLuint *out) { assert(n == 1); *out = next_fbo++; ++fbo_gen_calls; }
+void glDeleteFramebuffers(GLsizei n, const GLuint *out) { assert(n == 1 && *out); ++fbo_delete_calls; }
 void glBindFramebuffer(GLenum target, GLuint fbo) { (void)target; (void)fbo; ++framebuffer_calls; }
 void glFramebufferTexture2D(GLenum target, GLenum point, GLenum tex_target, GLuint tex, GLint level)
-{ (void)target; (void)point; (void)tex_target; (void)tex; (void)level; }
+{ (void)target; (void)tex_target; (void)tex; (void)level; last_attachment = point; ++attachment_calls; }
 void glDrawBuffers(GLsizei n, const GLenum *values) { assert(n > 0 && values); ++draw_buffers_calls; }
 int main(void)
 {
@@ -77,22 +81,43 @@ int main(void)
     assert(viewport_calls == v + 1 && raster_calls == r && depth_calls == d && blend_calls == b); v++;
     invalidate_att(); apply_state(&c, 320, 240);
     assert(viewport_calls == v + 1 && raster_calls == r + 1 && depth_calls == d + 1 && blend_calls == b + 1);
-    /* Draw-buffer routing is FBO state: unchanged targets reuse it; clear,
-     * presentation and copy invalidate it before the next draw. */
+    /* Repeated render-target configurations reuse immutable FBOs; clear,
+     * presentation and copies invalidate the binding but not the objects. */
     Tex tex; View view; int width, height;
     memset(&tex, 0, sizeof(tex)); memset(&view, 0, sizeof(view));
     tex.d.Width = 640; tex.d.Height = 480; tex.tex = 1; view.tex = &tex; view.o.ref = 1;
     ID3D11RenderTargetView *target = (ID3D11RenderTargetView *)&view;
     d3dgl_Ctx_OMSetRenderTargets((ID3D11DeviceContext *)&c, 1, &target, NULL); invalidate_att();
-    bind_ctx_fbo(&c, &width, &height); assert(width == 640 && height == 480 && draw_buffers_calls == 1 && framebuffer_calls == 1);
+    bind_ctx_fbo(&c, &width, &height);
+    assert(width == 640 && height == 480 && draw_buffers_calls == 1 && framebuffer_calls == 1 && attachment_calls == 1);
     d3dgl_Ctx_OMSetRenderTargets((ID3D11DeviceContext *)&c, 1, &target, NULL);
-    bind_ctx_fbo(&c, &width, &height); assert(draw_buffers_calls == 1 && framebuffer_calls == 1);
+    bind_ctx_fbo(&c, &width, &height); assert(framebuffer_calls == 1 && attachment_calls == 1);
     d3dgl_Ctx_OMSetRenderTargets((ID3D11DeviceContext *)&c, 0, NULL, NULL);
     bind_ctx_fbo(&c, &width, &height); assert(draw_buffers_calls == 2 && framebuffer_calls == 2);
-    invalidate_att(); bind_ctx_fbo(&c, &width, &height); assert(draw_buffers_calls == 3 && framebuffer_calls == 3);
+    invalidate_att(); bind_ctx_fbo(&c, &width, &height);
+    assert(draw_buffers_calls == 2 && framebuffer_calls == 3 && attachment_calls == 1);
+    d3dgl_Ctx_OMSetRenderTargets((ID3D11DeviceContext *)&c, 1, &target, NULL);
+    bind_ctx_fbo(&c, &width, &height); assert(fbo_gen_calls == 2 && attachment_calls == 1);
+    /* Different mip is a distinct attachment; reuse after switching back. */
+    view.mip = 1; G.fbo_dirty = 1; bind_ctx_fbo(&c, &width, &height);
+    assert(width == 320 && height == 240 && fbo_gen_calls == 3 && attachment_calls == 2);
+    view.mip = 0; G.fbo_dirty = 1; bind_ctx_fbo(&c, &width, &height);
+    assert(fbo_gen_calls == 3 && attachment_calls == 2);
+    /* A destroyed texture must evict every mip before its GL name is reused. */
+    invalidate_draw_fbos_for_texture(1); assert(fbo_delete_calls == 2);
+    bind_ctx_fbo(&c, &width, &height); assert(fbo_gen_calls == 4 && attachment_calls == 3);
     Ctx another; memset(&another, 0, sizeof(another));
-    bind_ctx_fbo(&another, &width, &height); assert(framebuffer_calls == 4);
-    bind_ctx_fbo(&c, &width, &height); assert(framebuffer_calls == 5);
+    bind_ctx_fbo(&another, &width, &height); assert(fbo_gen_calls == 4);
+    bind_ctx_fbo(&c, &width, &height); assert(fbo_gen_calls == 4);
+    /* Depth-only and packed depth/stencil use distinct attachment points. */
+    Tex ztex = {0}; View zview = {0}; Ctx zctx = {0};
+    ztex.tex = 2; ztex.d.Width = 640; ztex.d.Height = 480;
+    ztex.fmt = find_fmt_raw(DXGI_FORMAT_D16_UNORM); zview.tex = &ztex; zctx.dsv = &zview;
+    bind_ctx_fbo(&zctx, &width, &height); assert(last_attachment == GL_DEPTH_ATTACHMENT);
+    ztex.fmt = find_fmt_raw(DXGI_FORMAT_D24_UNORM_S8_UINT); G.fbo_dirty = 1;
+    bind_ctx_fbo(&zctx, &width, &height); assert(last_attachment == GL_DEPTH_STENCIL_ATTACHMENT);
+    int depth_gen = fbo_gen_calls; ztex.fmt = find_fmt_raw(DXGI_FORMAT_D16_UNORM); G.fbo_dirty = 1;
+    bind_ctx_fbo(&zctx, &width, &height); assert(fbo_gen_calls == depth_gen);
     /* Production defers hot-path errors to the next normal check; debug
      * mode still checks immediately. */
     G.dbg = 0; pending_error = 0x0500; error_checks = 0;
@@ -130,5 +155,15 @@ int main(void)
     handle = NULL;
     d3dgl_Ctx_IASetVertexBuffers((ID3D11DeviceContext *)&bindings, 0, 1, &handle, &stride, &offset);
     assert(destroyed == 1 && bindings.vb[0].b == NULL);
+    /* Cache stays bounded and evicted target configurations are rebuilt. */
+    Ctx many = {0}; Tex many_tex = {0}; View many_view = {0};
+    many_tex.d.Width = many_tex.d.Height = 32; many_view.tex = &many_tex; many.rtv[0] = &many_view;
+    int deletes_before = fbo_delete_calls;
+    for (unsigned i = 0; i < DRAW_FBO_CACHE_SIZE + 4; ++i) {
+        many_tex.tex = 100 + i; G.fbo_dirty = 1; bind_ctx_fbo(&many, &width, &height);
+    }
+    assert(fbo_delete_calls >= deletes_before + 4);
+    int generated = fbo_gen_calls; many_tex.tex = 100; G.fbo_dirty = 1;
+    bind_ctx_fbo(&many, &width, &height); assert(fbo_gen_calls == generated + 1);
     puts("draw state: reuse, changes, invalidation and binding references OK"); return 0;
 }

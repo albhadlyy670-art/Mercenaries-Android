@@ -317,7 +317,7 @@ static void att_set(GLuint fbo_target, GLenum point, int slot, const View *v)
     if (G.att_tex[slot] == tex && G.att_level[slot] == lvl && G.att_target[slot] == target) return;
     PERF_ATTACHMENT(); glFramebufferTexture2D(fbo_target, point, target, tex, lvl); G.att_tex[slot] = tex; G.att_target[slot] = target; G.att_level[slot] = lvl;
 }
-static void bind_ctx_fbo(Ctx *c, int *w, int *h)
+static void bind_ctx_fbo_uncached(Ctx *c, int *w, int *h)
 {
     /* Only the draw framebuffer matters here; readback binds READ separately.
      * Clears, copies and host presentation invalidate this shortcut. */
@@ -341,6 +341,71 @@ static void bind_ctx_fbo(Ctx *c, int *w, int *h)
     const View *ref = c->rtv[0] ? c->rtv[0] : c->dsv; UINT mw = 0, mh = 0;
     if (ref) { mw = dimu(ref->tex->d.Width, (UINT)ref->mip); mh = dimu(ref->tex->d.Height, (UINT)ref->mip); }
     *w = G.fbo_width = (int)mw; *h = G.fbo_height = (int)mh;
+    G.fbo_ctx = c; G.fbo_dirty = 0;
+}
+/* Draw FBOs are immutable once configured. Switching between recurring
+ * render targets then binds an existing FBO instead of repeatedly changing
+ * attachments on the same object (expensive on tile-based mobile GPUs).
+ * Clear/copy/present continue to use separate scratch FBOs. */
+static void invalidate_draw_fbos_for_texture(GLuint tex)
+{
+    if (!tex) return;
+    for (unsigned i = 0; i < DRAW_FBO_CACHE_SIZE; ++i) {
+        DrawFboEntry *e = &G.draw_fbos[i];
+        if (!e->fbo) continue;
+        for (int j = 0; j <= MAX_RT; ++j) {
+            if (e->key.att[j].tex == tex) {
+                glDeleteFramebuffers(1, &e->fbo);
+                memset(e, 0, sizeof(*e));
+                G.fbo_dirty = 1; G.fbo_ctx = NULL;
+                break;
+            }
+        }
+    }
+}
+static void bind_ctx_fbo(Ctx *c, int *w, int *h)
+{
+    if (!G.fbo_dirty && G.fbo_ctx == c) { *w = G.fbo_width; *h = G.fbo_height; return; }
+    DrawFboKey key; memset(&key, 0, sizeof(key));
+    for (int i = 0; i <= MAX_RT; ++i) {
+        const View *v = i == MAX_RT ? c->dsv : c->rtv[i];
+        if (v && v->tex && v->tex->tex) {
+            key.att[i].tex = v->tex->tex;
+            key.att[i].target = v->tex->cube ? GL_TEXTURE_CUBE_MAP_POSITIVE_X : GL_TEXTURE_2D;
+            key.att[i].mip = v->mip;
+        }
+    }
+    if (c->dsv) key.depth_point = c->dsv->tex->fmt->stencil ? GL_DEPTH_STENCIL_ATTACHMENT : GL_DEPTH_ATTACHMENT;
+    DrawFboEntry *entry = NULL;
+    for (unsigned i = 0; i < DRAW_FBO_CACHE_SIZE; ++i) {
+        if (G.draw_fbos[i].fbo && memcmp(&G.draw_fbos[i].key, &key, sizeof(key)) == 0) {
+            entry = &G.draw_fbos[i]; break;
+        }
+    }
+    if (!entry) {
+        entry = &G.draw_fbos[G.draw_fbo_next++ % DRAW_FBO_CACHE_SIZE];
+        if (entry->fbo) glDeleteFramebuffers(1, &entry->fbo);
+        memset(entry, 0, sizeof(*entry));
+        glGenFramebuffers(1, &entry->fbo);
+        if (!entry->fbo) { bind_ctx_fbo_uncached(c, w, h); return; }
+        entry->key = key;
+        PERF_FBO_REBIND(); glBindFramebuffer(GL_FRAMEBUFFER, entry->fbo);
+        GLenum bufs[MAX_RT]; int last = -1;
+        for (int i = 0; i < MAX_RT; ++i) {
+            const DrawFboAttachment *a = &key.att[i];
+            bufs[i] = a->tex ? GL_COLOR_ATTACHMENT0 + (GLenum)i : GL_NONE;
+            if (a->tex) { PERF_ATTACHMENT(); glFramebufferTexture2D(GL_FRAMEBUFFER, bufs[i], a->target, a->tex, a->mip); last = i; }
+        }
+        const DrawFboAttachment *depth = &key.att[MAX_RT];
+        if (depth->tex) { PERF_ATTACHMENT(); glFramebufferTexture2D(GL_FRAMEBUFFER, key.depth_point, depth->target, depth->tex, depth->mip); }
+        if (last < 0) { GLenum none = GL_NONE; glDrawBuffers(1, &none); }
+        else glDrawBuffers(last + 1, bufs);
+    } else {
+        PERF_FBO_REBIND(); glBindFramebuffer(GL_FRAMEBUFFER, entry->fbo);
+    }
+    const View *ref = c->rtv[0] ? c->rtv[0] : c->dsv;
+    *w = G.fbo_width = ref ? (int)dimu(ref->tex->d.Width, (UINT)ref->mip) : 0;
+    *h = G.fbo_height = ref ? (int)dimu(ref->tex->d.Height, (UINT)ref->mip) : 0;
     G.fbo_ctx = c; G.fbo_dirty = 0;
 }
 static void invalidate_att(void) { memset(G.att_tex, 0, sizeof(G.att_tex)); memset(G.att_target, 0, sizeof(G.att_target)); memset(G.att_level, 0, sizeof(G.att_level)); G.fbo_dirty = 1; G.draw_buffers_valid = 0; G.program_valid = 0; G.vao_bound = 0; G.uniform_valid = 0; G.copy_write_valid = 0; invalidate_texture_bindings(); applied_draw_state_valid = 0; }
