@@ -17,6 +17,7 @@
 #include "nv2a_image_blit.h"
 #include "nv2a_feedback_reuse.h"
 #include "nv2a_draw_workload.h"
+#include "nv2a_immediate_vertices.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -9323,39 +9324,12 @@ static void submit_draw(void)
      * OutputVertex path only as a fallback for fixed-function submissions. */
     if ((g_pg.transform_execution_mode & 3u) == 2u &&
         g_pg.immediate_vertex_count == num_verts) {
-        program_vertices = (float (*)[NV2A_VS_MAX_INPUTS][4])_alloca(
-            (size_t)out_vert_count * sizeof(*program_vertices));
-        if (is_quads) {
-            uint32_t q, out_index = 0u;
-            for (q = 0u; q < num_quads; ++q) {
-                const uint32_t base = q * 4u;
-                memcpy(program_vertices[out_index + 0u],
-                       g_pg.immediate_vertices[base + 0u],
-                       sizeof(*program_vertices));
-                memcpy(program_vertices[out_index + 1u],
-                       g_pg.immediate_vertices[base + 1u],
-                       sizeof(*program_vertices));
-                memcpy(program_vertices[out_index + 2u],
-                       g_pg.immediate_vertices[base + 2u],
-                       sizeof(*program_vertices));
-                memcpy(program_vertices[out_index + 3u],
-                       g_pg.immediate_vertices[base + 0u],
-                       sizeof(*program_vertices));
-                memcpy(program_vertices[out_index + 4u],
-                       g_pg.immediate_vertices[base + 2u],
-                       sizeof(*program_vertices));
-                memcpy(program_vertices[out_index + 5u],
-                       g_pg.immediate_vertices[base + 3u],
-                       sizeof(*program_vertices));
-                out_index += 6u;
-            }
-        } else {
-            memcpy(program_vertices, g_pg.immediate_vertices,
-                   (size_t)num_verts * sizeof(*program_vertices));
-            if (is_line_loop)
-                memcpy(program_vertices[num_verts], program_vertices[0],
-                       sizeof(*program_vertices));
-        }
+        Nv2aImmediateVertex *scratch = NULL;
+        if (is_quads || is_line_loop)
+            scratch = (Nv2aImmediateVertex *)_alloca(
+                (size_t)out_vert_count * sizeof(*scratch));
+        program_vertices = nv2a_immediate_vertex_source(
+            g_pg.immediate_vertices, scratch, num_verts, is_quads, is_line_loop);
     }
 
     /* NV2A PROJECT2D texture modes consume the Xbox linear coordinates
