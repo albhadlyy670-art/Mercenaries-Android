@@ -12,6 +12,8 @@ for off in 0 0x18300000; do
 done
 echo "== Android preview logging opt-in"
 gcc -O1 -Wall -Wextra -I fake_ndk -I$S test_preview_log_android.c -lpthread -o $T/preview_log && $T/preview_log
+echo "== GLES texture and sampler binding cache (mock driver)"
+gcc -O1 -w -ffunction-sections -fdata-sections -I$CPP/compat/include -I$D/include -I$CPP/compat -I$D -I$S -I$S/d3d -I$S/platform -I$S/kernel -I$S/nv2a -DXBOX_ANDROID=1 test_texture_bind_cache.c -Wl,--gc-sections -lm -o $T/texture_cache && $T/texture_cache
 echo "== GLES draw-state cache (mock driver)"
 gcc -O1 -w -ffunction-sections -fdata-sections -I$CPP/compat/include -I$D/include -I$CPP/compat -I$D -I$S -I$S/d3d -I$S/platform -I$S/kernel -I$S/nv2a -DXBOX_ANDROID=1 test_draw_state_cache.c -Wl,--gc-sections -lm -o $T/draw_state_cache && $T/draw_state_cache
 echo "== Pixel shader selection and fallback"

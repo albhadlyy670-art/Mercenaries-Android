@@ -210,7 +210,7 @@ typedef struct Tex Tex; typedef struct Buf Buf; typedef struct Shader Shader; ty
 typedef struct View View; typedef struct StateObj StateObj; typedef struct Program Program;
 
 struct Tex {
-    Obj o; D3D11_TEXTURE2D_DESC d; GLuint tex; GLenum target; const Fmt *fmt; int cube, mips, layers, staging;
+    Obj o; D3D11_TEXTURE2D_DESC d; GLuint tex; GLenum target; const Fmt *fmt; int cube, mips, layers, staging, point_params;
     uint8_t **cpu; int nsub; int map_sub; uint8_t *map_buf; D3D11_MAP map_type;
 };
 struct Buf { Obj o; D3D11_BUFFER_DESC d; GLuint buf; uint8_t *tmp; D3D11_MAP map_type; int mapped_gl; };
@@ -242,6 +242,9 @@ typedef struct {
     unsigned draw_buffer_mask; int draw_buffers_valid;
     GLuint current_program; int program_valid, vao_bound;
     GLuint uniform_buffers[32]; uint32_t uniform_valid;
+    GLuint tex2d[32], texcube[32], samplers[32];
+    uint32_t tex2d_valid, texcube_valid, sampler_valid;
+    GLuint active_texture; int active_texture_valid;
 } Global;
 static Global G;
 
@@ -252,7 +255,7 @@ static Global G;
 #include <time.h>
 void android_trace(const char *fmt, ...);
 typedef struct { unsigned long long calls, samples; double seconds; } PerfOp;
-static PerfOp perf_map, perf_unmap, perf_draw, perf_read, perf_ringmap, perf_ringunmap;
+static PerfOp perf_map, perf_unmap, perf_draw, perf_drawprep, perf_issue, perf_read, perf_ringmap, perf_ringunmap;
 static double perf_start;
 static unsigned long long perf_state_applies;
 #define PERF_STATE_APPLY() (++perf_state_applies)
@@ -276,13 +279,15 @@ static void perf_report(void)
 {
     double now = perf_now();
     if (now <= 0.0) return;
-    if (perf_start == 0.0 || now < perf_start || now - perf_start > 30.0) { perf_start = now; perf_state_applies = 0; memset(&perf_map, 0, sizeof(perf_map)); memset(&perf_unmap, 0, sizeof(perf_unmap)); memset(&perf_draw, 0, sizeof(perf_draw)); memset(&perf_read, 0, sizeof(perf_read)); memset(&perf_ringmap, 0, sizeof(perf_ringmap)); memset(&perf_ringunmap, 0, sizeof(perf_ringunmap)); return; }
+    if (perf_start == 0.0 || now < perf_start || now - perf_start > 30.0) { perf_start = now; perf_state_applies = 0; memset(&perf_map, 0, sizeof(perf_map)); memset(&perf_unmap, 0, sizeof(perf_unmap)); memset(&perf_draw, 0, sizeof(perf_draw)); memset(&perf_drawprep, 0, sizeof(perf_drawprep)); memset(&perf_issue, 0, sizeof(perf_issue)); memset(&perf_read, 0, sizeof(perf_read)); memset(&perf_ringmap, 0, sizeof(perf_ringmap)); memset(&perf_ringunmap, 0, sizeof(perf_ringunmap)); return; }
     if (now - perf_start < 10.0) return;
 #define AVG(op) ((op).samples ? 1000.0 * (op).seconds / (op).samples : 0.0)
     android_trace("[perf-gles] interval_s=%.1f programs=%d state_applies=%llu draws=%llu draw_samples=%llu draw_avg_ms=%.3f maps=%llu map_samples=%llu map_avg_ms=%.3f unmaps=%llu unmap_samples=%llu unmap_avg_ms=%.3f reads=%llu read_samples=%llu read_avg_ms=%.3f ring_maps=%llu ring_map_samples=%llu ring_map_avg_ms=%.3f ring_unmaps=%llu ring_unmap_samples=%llu ring_unmap_avg_ms=%.3f",
         now - perf_start, G.nprogs, perf_state_applies, perf_draw.calls, perf_draw.samples, AVG(perf_draw), perf_map.calls, perf_map.samples, AVG(perf_map), perf_unmap.calls, perf_unmap.samples, AVG(perf_unmap), perf_read.calls, perf_read.samples, AVG(perf_read), perf_ringmap.calls, perf_ringmap.samples, AVG(perf_ringmap), perf_ringunmap.calls, perf_ringunmap.samples, AVG(perf_ringunmap));
+    android_trace("[perf-gles-draw] prepare_samples=%llu prepare_avg_ms=%.3f issue_samples=%llu issue_avg_ms=%.3f",
+        perf_drawprep.samples, AVG(perf_drawprep), perf_issue.samples, AVG(perf_issue));
 #undef AVG
-    perf_start = now; perf_state_applies = 0; memset(&perf_map, 0, sizeof(perf_map)); memset(&perf_unmap, 0, sizeof(perf_unmap)); memset(&perf_draw, 0, sizeof(perf_draw)); memset(&perf_read, 0, sizeof(perf_read)); memset(&perf_ringmap, 0, sizeof(perf_ringmap)); memset(&perf_ringunmap, 0, sizeof(perf_ringunmap));
+    perf_start = now; perf_state_applies = 0; memset(&perf_map, 0, sizeof(perf_map)); memset(&perf_unmap, 0, sizeof(perf_unmap)); memset(&perf_draw, 0, sizeof(perf_draw)); memset(&perf_drawprep, 0, sizeof(perf_drawprep)); memset(&perf_issue, 0, sizeof(perf_issue)); memset(&perf_read, 0, sizeof(perf_read)); memset(&perf_ringmap, 0, sizeof(perf_ringmap)); memset(&perf_ringunmap, 0, sizeof(perf_ringunmap));
 }
 #else
 #define PERF_STATE_APPLY() ((void)0)
@@ -311,6 +316,40 @@ static void gl_check_hot(const char *where)
 #endif
 }
 
+static void invalidate_texture_bindings(void)
+{
+    G.tex2d_valid = G.texcube_valid = G.sampler_valid = 0;
+    G.active_texture_valid = 0;
+}
+static void activate_texture_unit(GLuint unit)
+{
+    if (!G.active_texture_valid || G.active_texture != unit) {
+        glActiveTexture(GL_TEXTURE0 + unit);
+        G.active_texture = unit; G.active_texture_valid = 1;
+    }
+}
+static void bind_texture_unit(GLuint unit, GLenum target, GLuint texture)
+{
+    if (unit >= 32u || (target != GL_TEXTURE_2D && target != GL_TEXTURE_CUBE_MAP)) {
+        activate_texture_unit(unit); glBindTexture(target, texture); return;
+    }
+    uint32_t bit = 1u << unit;
+    uint32_t *valid = target == GL_TEXTURE_2D ? &G.tex2d_valid : &G.texcube_valid;
+    GLuint *entries = target == GL_TEXTURE_2D ? G.tex2d : G.texcube;
+    if (!(*valid & bit) || entries[unit] != texture) {
+        activate_texture_unit(unit); glBindTexture(target, texture);
+        entries[unit] = texture; *valid |= bit;
+    }
+}
+static void bind_sampler_unit(GLuint unit, GLuint sampler)
+{
+    if (unit >= 32u) { glBindSampler(unit, sampler); return; }
+    uint32_t bit = 1u << unit;
+    if (!(G.sampler_valid & bit) || G.samplers[unit] != sampler) {
+        glBindSampler(unit, sampler); G.samplers[unit] = sampler; G.sampler_valid |= bit;
+    }
+}
+
 /* ---- textures ---------------------------------------------------------------------------------- */
 static UINT dimu(UINT v, UINT m) { v >>= m; return v ? v : 1; }
 static void sub_info(const Tex *t, UINT sub, UINT *w, UINT *h, UINT *mip, UINT *layer)
@@ -323,7 +362,7 @@ static GLenum face_target(const Tex *t, UINT layer) { return t->cube ? GL_TEXTUR
 static void tex_destroy(Obj *o)
 {
     Tex *t = (Tex *)o;
-    if (t->tex) glDeleteTextures(1, &t->tex);
+    if (t->tex) { invalidate_texture_bindings(); glDeleteTextures(1, &t->tex); }
     if (t->cpu) { for (int i = 0; i < t->nsub; ++i) free(t->cpu[i]); free(t->cpu); }
     free(t->map_buf);
 }
@@ -340,7 +379,7 @@ static void tex_upload(Tex *t, UINT sub, UINT x, UINT y, UINT w, UINT h, const v
     }
     size_t gsz = (size_t)w * h * t->fmt->gl_bpp; uint8_t *tmp = (uint8_t *)malloc(gsz ? gsz : 1); if (!tmp) return;
     convert_to_gl(t->fmt, (const uint8_t *)src, pitch, w, h, tmp);
-    glActiveTexture(GL_TEXTURE0); glBindTexture(t->target, t->tex); glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    bind_texture_unit(0, t->target, t->tex); activate_texture_unit(0); glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
     glTexSubImage2D(face_target(t, layer), (GLint)mip, (GLint)x, (GLint)y, (GLsizei)w, (GLsizei)h, t->fmt->format, t->fmt->type, tmp);
     free(tmp); gl_check("tex_upload");
 }
@@ -383,7 +422,7 @@ HRESULT d3dgl_Device_CreateTexture2D(ID3D11Device *dev, const D3D11_TEXTURE2D_DE
         t->cpu = (uint8_t **)calloc((size_t)t->nsub, sizeof(uint8_t *));
         for (int s = 0; s < t->nsub; ++s) { UINT w, h; sub_info(t, (UINT)s, &w, &h, NULL, NULL); t->cpu[s] = (uint8_t *)calloc(1, (size_t)d3d_row_bytes(f, w) * d3d_rows(f, h) + 16); }
     } else {
-        glGenTextures(1, &t->tex); glActiveTexture(GL_TEXTURE0); glBindTexture(t->target, t->tex);
+        glGenTextures(1, &t->tex); bind_texture_unit(0, t->target, t->tex); activate_texture_unit(0);
         glTexStorage2D(t->target, t->mips, f->internal, (GLsizei)d->Width, (GLsizei)d->Height);
         if (f->a8) { glTexParameteri(t->target, GL_TEXTURE_SWIZZLE_R, GL_ZERO); glTexParameteri(t->target, GL_TEXTURE_SWIZZLE_G, GL_ZERO);
                      glTexParameteri(t->target, GL_TEXTURE_SWIZZLE_B, GL_ZERO); glTexParameteri(t->target, GL_TEXTURE_SWIZZLE_A, GL_RED); }
