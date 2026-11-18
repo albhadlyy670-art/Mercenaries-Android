@@ -250,6 +250,22 @@ void d3dgl_Ctx_OMSetDepthStencilState(ID3D11DeviceContext *c, ID3D11DepthStencil
 void d3dgl_Ctx_OMGetDepthStencilState(ID3D11DeviceContext *c, ID3D11DepthStencilState **s, UINT *ref) { Ctx *x = (Ctx *)c; *s = (ID3D11DepthStencilState *)x->dss; REF(*s); if (ref) *ref = x->stencil_ref; }
 void d3dgl_Ctx_Flush(ID3D11DeviceContext *c) { (void)c; glFlush(); }
 
+/* Only applied GL state is cached; D3D context setters still update their
+ * full state and own references normally. Clears, blits and presentation can
+ * change GL state behind the context, so invalidate_att also invalidates it. */
+typedef struct {
+    D3D11_VIEWPORT vp;
+    D3D11_RECT sc;
+    D3D11_RASTERIZER_DESC rs;
+    D3D11_DEPTH_STENCIL_DESC ds;
+    D3D11_BLEND_DESC blend;
+    FLOAT blend_factor[4];
+    UINT stencil_ref;
+    int has_rs, has_ds, has_blend, has_sc;
+} DrawStateKey;
+static DrawStateKey applied_draw_state;
+static int applied_draw_state_valid;
+
 /* ---- framebuffer binding -------------------------------------------------------------------------------------------- */
 static void att_set(GLuint fbo_target, GLenum point, int slot, const View *v)
 {
@@ -275,13 +291,27 @@ static void bind_ctx_fbo(Ctx *c, int *w, int *h)
     if (ref) { mw = dimu(ref->tex->d.Width, (UINT)ref->mip); mh = dimu(ref->tex->d.Height, (UINT)ref->mip); }
     *w = (int)mw; *h = (int)mh; G.fbo_dirty = 0;
 }
-static void invalidate_att(void) { memset(G.att_tex, 0, sizeof(G.att_tex)); memset(G.att_target, 0, sizeof(G.att_target)); memset(G.att_level, 0, sizeof(G.att_level)); G.fbo_dirty = 1; }
+static void invalidate_att(void) { memset(G.att_tex, 0, sizeof(G.att_tex)); memset(G.att_target, 0, sizeof(G.att_target)); memset(G.att_level, 0, sizeof(G.att_level)); G.fbo_dirty = 1; applied_draw_state_valid = 0; }
 
 /* ---- state application + draw --------------------------------------------------------------------------------------------- */
 static void apply_state(Ctx *c, int rt_w, int rt_h)
 {
     const D3D11_RASTERIZER_DESC *rs = c->rs ? &c->rs->u.rs : NULL;
     D3D11_VIEWPORT vp = c->nvp ? c->vp[0] : (D3D11_VIEWPORT){ 0, 0, (FLOAT)rt_w, (FLOAT)rt_h, 0.f, 1.f };
+    DrawStateKey key;
+    memset(&key, 0, sizeof(key));
+    key.vp = vp;
+    key.has_sc = c->nsc != 0;
+    if (key.has_sc) key.sc = c->sc[0];
+    key.has_rs = c->rs != NULL; if (key.has_rs) key.rs = c->rs->u.rs;
+    key.has_ds = c->dss != NULL; if (key.has_ds) key.ds = c->dss->u.ds;
+    key.has_blend = c->blend != NULL; if (key.has_blend) key.blend = c->blend->u.blend;
+    memcpy(key.blend_factor, c->blend_factor, sizeof(key.blend_factor));
+    key.stencil_ref = c->stencil_ref;
+    if (applied_draw_state_valid && memcmp(&key, &applied_draw_state, sizeof(key)) == 0) return;
+    applied_draw_state = key;
+    applied_draw_state_valid = 1;
+    PERF_STATE_APPLY();
     glViewport((GLint)vp.TopLeftX, (GLint)vp.TopLeftY, (GLsizei)vp.Width, (GLsizei)vp.Height); glDepthRangef(vp.MinDepth, vp.MaxDepth);
     if (rs && rs->ScissorEnable && c->nsc) { glEnable(GL_SCISSOR_TEST); glScissor(c->sc[0].left, c->sc[0].top, c->sc[0].right - c->sc[0].left, c->sc[0].bottom - c->sc[0].top); }
     else glDisable(GL_SCISSOR_TEST);

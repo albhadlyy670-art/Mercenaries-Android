@@ -251,6 +251,8 @@ void android_trace(const char *fmt, ...);
 typedef struct { unsigned long long calls, samples; double seconds; } PerfOp;
 static PerfOp perf_map, perf_unmap, perf_draw, perf_read, perf_ringmap, perf_ringunmap;
 static double perf_start;
+static unsigned long long perf_state_applies;
+#define PERF_STATE_APPLY() (++perf_state_applies)
 static double perf_now(void)
 {
     struct timespec t;
@@ -271,15 +273,16 @@ static void perf_report(void)
 {
     double now = perf_now();
     if (now <= 0.0) return;
-    if (perf_start == 0.0 || now < perf_start || now - perf_start > 30.0) { perf_start = now; memset(&perf_map, 0, sizeof(perf_map)); memset(&perf_unmap, 0, sizeof(perf_unmap)); memset(&perf_draw, 0, sizeof(perf_draw)); memset(&perf_read, 0, sizeof(perf_read)); memset(&perf_ringmap, 0, sizeof(perf_ringmap)); memset(&perf_ringunmap, 0, sizeof(perf_ringunmap)); return; }
+    if (perf_start == 0.0 || now < perf_start || now - perf_start > 30.0) { perf_start = now; perf_state_applies = 0; memset(&perf_map, 0, sizeof(perf_map)); memset(&perf_unmap, 0, sizeof(perf_unmap)); memset(&perf_draw, 0, sizeof(perf_draw)); memset(&perf_read, 0, sizeof(perf_read)); memset(&perf_ringmap, 0, sizeof(perf_ringmap)); memset(&perf_ringunmap, 0, sizeof(perf_ringunmap)); return; }
     if (now - perf_start < 10.0) return;
 #define AVG(op) ((op).samples ? 1000.0 * (op).seconds / (op).samples : 0.0)
-    android_trace("[perf-gles] interval_s=%.1f programs=%d draws=%llu draw_samples=%llu draw_avg_ms=%.3f maps=%llu map_samples=%llu map_avg_ms=%.3f unmaps=%llu unmap_samples=%llu unmap_avg_ms=%.3f reads=%llu read_samples=%llu read_avg_ms=%.3f ring_maps=%llu ring_map_samples=%llu ring_map_avg_ms=%.3f ring_unmaps=%llu ring_unmap_samples=%llu ring_unmap_avg_ms=%.3f",
-        now - perf_start, G.nprogs, perf_draw.calls, perf_draw.samples, AVG(perf_draw), perf_map.calls, perf_map.samples, AVG(perf_map), perf_unmap.calls, perf_unmap.samples, AVG(perf_unmap), perf_read.calls, perf_read.samples, AVG(perf_read), perf_ringmap.calls, perf_ringmap.samples, AVG(perf_ringmap), perf_ringunmap.calls, perf_ringunmap.samples, AVG(perf_ringunmap));
+    android_trace("[perf-gles] interval_s=%.1f programs=%d state_applies=%llu draws=%llu draw_samples=%llu draw_avg_ms=%.3f maps=%llu map_samples=%llu map_avg_ms=%.3f unmaps=%llu unmap_samples=%llu unmap_avg_ms=%.3f reads=%llu read_samples=%llu read_avg_ms=%.3f ring_maps=%llu ring_map_samples=%llu ring_map_avg_ms=%.3f ring_unmaps=%llu ring_unmap_samples=%llu ring_unmap_avg_ms=%.3f",
+        now - perf_start, G.nprogs, perf_state_applies, perf_draw.calls, perf_draw.samples, AVG(perf_draw), perf_map.calls, perf_map.samples, AVG(perf_map), perf_unmap.calls, perf_unmap.samples, AVG(perf_unmap), perf_read.calls, perf_read.samples, AVG(perf_read), perf_ringmap.calls, perf_ringmap.samples, AVG(perf_ringmap), perf_ringunmap.calls, perf_ringunmap.samples, AVG(perf_ringunmap));
 #undef AVG
-    perf_start = now; memset(&perf_map, 0, sizeof(perf_map)); memset(&perf_unmap, 0, sizeof(perf_unmap)); memset(&perf_draw, 0, sizeof(perf_draw)); memset(&perf_read, 0, sizeof(perf_read)); memset(&perf_ringmap, 0, sizeof(perf_ringmap)); memset(&perf_ringunmap, 0, sizeof(perf_ringunmap));
+    perf_start = now; perf_state_applies = 0; memset(&perf_map, 0, sizeof(perf_map)); memset(&perf_unmap, 0, sizeof(perf_unmap)); memset(&perf_draw, 0, sizeof(perf_draw)); memset(&perf_read, 0, sizeof(perf_read)); memset(&perf_ringmap, 0, sizeof(perf_ringmap)); memset(&perf_ringunmap, 0, sizeof(perf_ringunmap));
 }
 #else
+#define PERF_STATE_APPLY() ((void)0)
 #define PERF_BEGIN(name) ((void)0)
 #define PERF_END(name) ((void)0)
 #define perf_report() ((void)0)

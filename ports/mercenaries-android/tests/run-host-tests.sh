@@ -10,6 +10,8 @@ for off in 0 0x18300000; do
   (cd $T/out && find . -type f | sed 's|^\./||' | sort | while read f; do echo "$(sha256sum "$f"|cut -d' ' -f1)  $f"; done) > $T/got
   sort -k2 $T/t.iso.manifest | diff - $T/got && echo "  partition offset $off: OK"
 done
+echo "== GLES draw-state cache (mock driver)"
+gcc -O1 -w -ffunction-sections -fdata-sections -I$CPP/compat/include -I$D/include -I$CPP/compat -I$D -I$S -I$S/d3d -I$S/platform -I$S/kernel -I$S/nv2a -DXBOX_ANDROID=1 test_draw_state_cache.c -Wl,--gc-sections -lm -o $T/draw_state_cache && $T/draw_state_cache
 echo "== Pixel shader selection and fallback"
 gcc -O1 -Wall -Wextra -Werror test_pixel_selection.c -o $T/pixel_selection && $T/pixel_selection
 echo "== GLES vertex attribute state transitions"
