@@ -277,8 +277,8 @@ static void att_set(GLuint fbo_target, GLenum point, int slot, const View *v)
 static void bind_ctx_fbo(Ctx *c, int *w, int *h)
 {
     glBindFramebuffer(GL_FRAMEBUFFER, G.fbo);
-    GLenum bufs[MAX_RT]; int last = -1;
-    for (int i = 0; i < MAX_RT; ++i) { att_set(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + (GLenum)i, i, c->rtv[i]); bufs[i] = c->rtv[i] ? GL_COLOR_ATTACHMENT0 + (GLenum)i : GL_NONE; if (c->rtv[i]) last = i; }
+    GLenum bufs[MAX_RT]; int last = -1; unsigned mask = 0;
+    for (int i = 0; i < MAX_RT; ++i) { att_set(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + (GLenum)i, i, c->rtv[i]); bufs[i] = c->rtv[i] ? GL_COLOR_ATTACHMENT0 + (GLenum)i : GL_NONE; if (c->rtv[i]) { last = i; mask |= 1u << i; } }
     const Fmt *df = c->dsv ? c->dsv->tex->fmt : NULL;
     if (df && df->stencil) { att_set(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, MAX_RT, c->dsv); }
     else {
@@ -286,12 +286,15 @@ static void bind_ctx_fbo(Ctx *c, int *w, int *h)
         if (G.att_tex[MAX_RT] && !df) { glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D, 0, 0); G.att_tex[MAX_RT] = 0; }
         else if (df) att_set(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, MAX_RT, c->dsv);
     }
-    if (last < 0) { GLenum none = GL_NONE; glDrawBuffers(1, &none); } else glDrawBuffers(last + 1, bufs);
+    if (!G.draw_buffers_valid || G.draw_buffer_mask != mask) {
+        if (last < 0) { GLenum none = GL_NONE; glDrawBuffers(1, &none); } else glDrawBuffers(last + 1, bufs);
+        G.draw_buffer_mask = mask; G.draw_buffers_valid = 1;
+    }
     const View *ref = c->rtv[0] ? c->rtv[0] : c->dsv; UINT mw = 0, mh = 0;
     if (ref) { mw = dimu(ref->tex->d.Width, (UINT)ref->mip); mh = dimu(ref->tex->d.Height, (UINT)ref->mip); }
     *w = (int)mw; *h = (int)mh; G.fbo_dirty = 0;
 }
-static void invalidate_att(void) { memset(G.att_tex, 0, sizeof(G.att_tex)); memset(G.att_target, 0, sizeof(G.att_target)); memset(G.att_level, 0, sizeof(G.att_level)); G.fbo_dirty = 1; applied_draw_state_valid = 0; }
+static void invalidate_att(void) { memset(G.att_tex, 0, sizeof(G.att_tex)); memset(G.att_target, 0, sizeof(G.att_target)); memset(G.att_level, 0, sizeof(G.att_level)); G.fbo_dirty = 1; G.draw_buffers_valid = 0; applied_draw_state_valid = 0; }
 
 /* ---- state application + draw --------------------------------------------------------------------------------------------- */
 static void apply_state(Ctx *c, int rt_w, int rt_h)

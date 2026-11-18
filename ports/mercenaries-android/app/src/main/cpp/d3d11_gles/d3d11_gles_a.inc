@@ -41,7 +41,7 @@ ULONG d3dgl_Release(void *p)
 }
 #define REF(p) ((void)d3dgl_AddRef(p))
 /* replace a held reference */
-#define SETREF(dst, src) do { void *_n = (src); if (_n) d3dgl_AddRef(_n); void *_o = (dst); (dst) = _n; if (_o) d3dgl_Release(_o); } while (0)
+#define SETREF(dst, src) do { void *_n = (src); void *_o = (dst); if (_n != _o) { if (_n) d3dgl_AddRef(_n); (dst) = _n; if (_o) d3dgl_Release(_o); } } while (0)
 
 /* ---- half float ----------------------------------------------------------------- */
 static uint16_t f2h(float f)
@@ -239,6 +239,7 @@ typedef struct {
     GLuint vao, fbo, read_fbo, draw_fbo; GLuint att_tex[MAX_RT + 1], att_target[MAX_RT + 1]; GLint att_level[MAX_RT + 1]; int fbo_dirty;
     ProgKey progs[MAX_PROGRAMS]; int nprogs; int errors; int max_units;
     uint32_t enabled_attribs; int attribs_initialized;
+    unsigned draw_buffer_mask; int draw_buffers_valid;
 } Global;
 static Global G;
 

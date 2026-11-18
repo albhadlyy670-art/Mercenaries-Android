@@ -1,8 +1,8 @@
 /*
  * preview_log_android.c - logcat implementation of kernel/preview_log.h.
  * The Windows build writes timestamped files under preview-logs/; on Android
- * everything goes to logcat (tag "MercRecomp"), which `adb logcat` and the
- * in-app "Share log" button read.
+ * optional developer events go to logcat and events.log. Essential lifecycle,
+ * performance and crash traces use android_trace independently.
  */
 #include "kernel/preview_log.h"
 #include <android/log.h>
@@ -13,7 +13,9 @@
 
 #define TAG "MercRecomp"
 static char g_crash_context[512];
-static int g_enabled = 1;
+/* main.c calls init only when developer logging was explicitly enabled.
+ * Match the desktop logger: do not run costly telemetry in normal gameplay. */
+static int g_enabled;
 
 /* <cache>/events.log: every event is written and flushed straight to disk so it survives a sudden kill. */
 extern const char *g_android_crash_path;
@@ -38,6 +40,7 @@ int xbox_preview_log_enabled(void) { return g_enabled; }
 void xbox_preview_log_eventv(const char *category, const char *format, va_list args)
 {
     char msg[1024];
+    if (!g_enabled) return;
     vsnprintf(msg, sizeof(msg), format, args);
     __android_log_print(ANDROID_LOG_INFO, TAG, "[%s] %s", category ? category : "log", msg);
     /* Keep per-frame telemetry from pushing startup/crash events out of the shared log. */
@@ -77,4 +80,4 @@ void xbox_preview_log_crash(uint32_t code, uintptr_t pc, uint32_t guest_pc,
         code, (void *)pc, guest_pc, eax, ecx, edx, esp, g_crash_context);
 }
 
-void xbox_preview_log_shutdown(void) {}
+void xbox_preview_log_shutdown(void) { g_enabled = 0; }

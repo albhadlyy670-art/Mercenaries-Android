@@ -72,6 +72,10 @@ Transient vertex-ring map/unmap calls
 are reported separately as `ring_maps` and `ring_unmaps`. These samples can miss occasional spikes
 and do not measure GPU execution time.
 
+Detailed game preview telemetry is disabled unless developer logging is enabled via
+`config/developer.ini` (`[Developer] logging=1`) or the `MERCENARIES_DEVELOPER_LOGGING`
+environment variable. Lifecycle, performance and crash traces remain enabled.
+
 The thread-sampling watchdog is disabled by default to avoid interrupting gameplay. For a hang investigation,
 create a file named `watchdog.enable` in the app's cache directory before starting the game. Remove it to
 turn sampling off. Crash reporting remains enabled without the watchdog.
