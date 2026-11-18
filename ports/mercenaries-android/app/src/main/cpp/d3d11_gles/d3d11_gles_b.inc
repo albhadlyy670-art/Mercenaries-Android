@@ -343,7 +343,7 @@ static void bind_ctx_fbo(Ctx *c, int *w, int *h)
     *w = G.fbo_width = (int)mw; *h = G.fbo_height = (int)mh;
     G.fbo_ctx = c; G.fbo_dirty = 0;
 }
-static void invalidate_att(void) { memset(G.att_tex, 0, sizeof(G.att_tex)); memset(G.att_target, 0, sizeof(G.att_target)); memset(G.att_level, 0, sizeof(G.att_level)); G.fbo_dirty = 1; G.draw_buffers_valid = 0; G.program_valid = 0; G.vao_bound = 0; G.uniform_valid = 0; invalidate_texture_bindings(); applied_draw_state_valid = 0; }
+static void invalidate_att(void) { memset(G.att_tex, 0, sizeof(G.att_tex)); memset(G.att_target, 0, sizeof(G.att_target)); memset(G.att_level, 0, sizeof(G.att_level)); G.fbo_dirty = 1; G.draw_buffers_valid = 0; G.program_valid = 0; G.vao_bound = 0; G.uniform_valid = 0; G.copy_write_valid = 0; invalidate_texture_bindings(); applied_draw_state_valid = 0; }
 
 /* ---- state application + draw --------------------------------------------------------------------------------------------- */
 static void apply_state(Ctx *c, int rt_w, int rt_h)
@@ -540,7 +540,7 @@ void d3dgl_Ctx_CopySubresourceRegion(ID3D11DeviceContext *cx, ID3D11Resource *ds
     (void)cx; (void)dz; Obj *d = (Obj *)dst, *s = (Obj *)src; if (!d || !s) return;
     if (d->kind == K_BUFFER && s->kind == K_BUFFER) {
         Buf *db = (Buf *)d, *sb = (Buf *)s; UINT so = box ? box->left : 0, n = box ? box->right - box->left : sb->d.ByteWidth;
-        glBindBuffer(GL_COPY_READ_BUFFER, sb->buf); glBindBuffer(GL_COPY_WRITE_BUFFER, db->buf);
+        glBindBuffer(GL_COPY_READ_BUFFER, sb->buf); bind_copy_write_buffer(db->buf);
         glCopyBufferSubData(GL_COPY_READ_BUFFER, GL_COPY_WRITE_BUFFER, (GLintptr)so, (GLintptr)dx, (GLsizeiptr)n); gl_check("CopyBuffer"); return;
     }
     if (d->kind != K_TEX || s->kind != K_TEX) return;

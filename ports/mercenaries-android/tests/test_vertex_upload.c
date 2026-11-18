@@ -6,11 +6,11 @@
 #include <string.h>
 static unsigned char storage[128];
 static GLintptr mapped_offset; static GLsizeiptr mapped_size;
-static GLbitfield mapped_flags; static int map_fail, unmap_fail, orphan_count, map_count;
+static GLbitfield mapped_flags; static int map_fail, unmap_fail, orphan_count, map_count, bind_count;
 GLenum glGetError(void) { return GL_NO_ERROR; }
 void glGenBuffers(GLsizei n, GLuint *out) { assert(n == 1); *out = 7; }
 void glDeleteBuffers(GLsizei n, const GLuint *out) { (void)n; (void)out; }
-void glBindBuffer(GLenum target, GLuint id) { assert(target == GL_COPY_WRITE_BUFFER && id == 7); }
+void glBindBuffer(GLenum target, GLuint id) { assert(target == GL_COPY_WRITE_BUFFER && id == 7); ++bind_count; }
 void glBufferData(GLenum target, GLsizeiptr size, const void *data, GLenum usage)
 { (void)target; (void)data; (void)usage; assert(size <= (GLsizeiptr)sizeof(storage)); memset(storage, 0, sizeof(storage)); ++orphan_count; }
 void glBufferSubData(GLenum target, GLintptr off, GLsizeiptr size, const void *data)
@@ -34,6 +34,7 @@ int main(void)
     assert(!memcmp(storage + 16, a, sizeof(a)));
     assert(SUCCEEDED(d3d11gles_upload_vertex_range(buffer, 40, b, sizeof(b), FALSE)));
     assert(!memcmp(storage + 16, a, sizeof(a)) && !memcmp(storage + 40, b, sizeof(b)));
+    assert(bind_count == 1); /* creation and repeated uploads reuse the binding */
     assert(SUCCEEDED(d3d11gles_upload_vertex_range(buffer, 0, a, sizeof(a), TRUE)));
     assert((mapped_flags & GL_MAP_INVALIDATE_BUFFER_BIT) && !(mapped_flags & GL_MAP_UNSYNCHRONIZED_BIT));
     assert(!memcmp(storage, a, sizeof(a)));

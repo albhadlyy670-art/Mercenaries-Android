@@ -4,6 +4,7 @@
 #define D3DGL_TEST_DEFER_HOT_ERRORS 1
 #include "../app/src/main/cpp/d3d11_gles/d3d11_gles.c"
 static int calls, destroyed, draw_buffers_calls, framebuffer_calls, program_calls, vao_calls, uniform_calls, delete_calls, error_checks;
+static int copy_bind_calls;
 static GLenum pending_error;
 static int viewport_calls, raster_calls, depth_calls, blend_calls;
 GLenum glGetError(void) { ++error_checks; GLenum e = pending_error; pending_error = 0; return e; }
@@ -26,6 +27,7 @@ V4(glBlendFuncSeparate,GLenum,GLenum,GLenum,GLenum)
 V4(glBlendColor,GLfloat,GLfloat,GLfloat,GLfloat)
 void glUseProgram(GLuint p) { (void)p; ++program_calls; }
 void glBindVertexArray(GLuint vao) { (void)vao; ++vao_calls; }
+void glBindBuffer(GLenum target, GLuint buf) { assert(target == GL_COPY_WRITE_BUFFER); (void)buf; ++copy_bind_calls; }
 void glBindBufferBase(GLenum target, GLuint slot, GLuint buf) { assert(target == GL_UNIFORM_BUFFER); (void)slot; (void)buf; ++uniform_calls; }
 void glDeleteBuffers(GLsizei n, const GLuint *buf) { (void)n; (void)buf; ++delete_calls; }
 void glBindFramebuffer(GLenum target, GLuint fbo) { (void)target; (void)fbo; ++framebuffer_calls; }
@@ -107,8 +109,12 @@ int main(void)
     bind_uniform_buffer(1, 8); bind_uniform_buffer(17, 7); assert(uniform_calls == 3);
     invalidate_att(); use_renderer_program(2); bind_renderer_vao(); bind_uniform_buffer(1, 8);
     assert(program_calls == 3 && vao_calls == 2 && uniform_calls == 4);
+    bind_copy_write_buffer(7); bind_copy_write_buffer(7); assert(copy_bind_calls == 1);
+    bind_copy_write_buffer(8); assert(copy_bind_calls == 2);
+    invalidate_att(); bind_copy_write_buffer(8); assert(copy_bind_calls == 3);
     Buf *dying = new_obj(sizeof(Buf), K_BUFFER, buf_destroy); dying->buf = 8;
     d3dgl_Release(dying); assert(delete_calls == 1);
+    bind_copy_write_buffer(8); assert(copy_bind_calls == 4); /* deleted GL name may be reused */
     bind_uniform_buffer(1, 8); assert(uniform_calls == 5); /* GL name reuse */
     /* Repeated binding of the same object must retain it exactly once while
      * still updating independent vertex-buffer offsets and strides. */

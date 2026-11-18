@@ -243,6 +243,7 @@ typedef struct {
     Ctx *fbo_ctx; int fbo_width, fbo_height;
     unsigned draw_buffer_mask; int draw_buffers_valid;
     GLuint current_program; int program_valid, vao_bound;
+    GLuint copy_write_buffer; int copy_write_valid;
     GLuint uniform_buffers[32]; uint32_t uniform_valid;
     GLuint tex2d[32], texcube[32], samplers[32];
     uint32_t tex2d_valid, texcube_valid, sampler_valid;
@@ -446,12 +447,19 @@ void d3dgl_Resource_GetType(ID3D11Resource *p, D3D11_RESOURCE_DIMENSION *dim)
 { *dim = ((Obj *)p)->kind == K_BUFFER ? D3D11_RESOURCE_DIMENSION_BUFFER : D3D11_RESOURCE_DIMENSION_TEXTURE2D; }
 
 /* ---- buffers ------------------------------------------------------------------------------------- */
-static void buf_destroy(Obj *o) { Buf *b = (Buf *)o; G.uniform_valid = 0; if (b->buf) glDeleteBuffers(1, &b->buf); free(b->tmp); }
+static void bind_copy_write_buffer(GLuint buffer)
+{
+    if (!G.copy_write_valid || G.copy_write_buffer != buffer) {
+        glBindBuffer(GL_COPY_WRITE_BUFFER, buffer);
+        G.copy_write_buffer = buffer; G.copy_write_valid = 1;
+    }
+}
+static void buf_destroy(Obj *o) { Buf *b = (Buf *)o; G.uniform_valid = 0; if (G.copy_write_valid && G.copy_write_buffer == b->buf) G.copy_write_valid = 0; if (b->buf) glDeleteBuffers(1, &b->buf); free(b->tmp); }
 HRESULT d3dgl_Device_CreateBuffer(ID3D11Device *dev, const D3D11_BUFFER_DESC *d, const D3D11_SUBRESOURCE_DATA *init, ID3D11Buffer **out)
 {
     (void)dev; if (!d || !out) return E_INVALIDARG;
     Buf *b = (Buf *)new_obj(sizeof(Buf), K_BUFFER, buf_destroy); if (!b) return E_OUTOFMEMORY;
-    b->d = *d; glGenBuffers(1, &b->buf); glBindBuffer(GL_COPY_WRITE_BUFFER, b->buf);
+    b->d = *d; glGenBuffers(1, &b->buf); bind_copy_write_buffer(b->buf);
     GLsizeiptr sz = (GLsizeiptr)((d->ByteWidth + 15u) & ~15u);
     glBufferData(GL_COPY_WRITE_BUFFER, sz, NULL, d->Usage == D3D11_USAGE_IMMUTABLE ? GL_STATIC_DRAW : d->Usage == D3D11_USAGE_DYNAMIC ? GL_DYNAMIC_DRAW : GL_STREAM_DRAW);
     if (init && init->pSysMem) glBufferSubData(GL_COPY_WRITE_BUFFER, 0, (GLsizeiptr)d->ByteWidth, init->pSysMem);
@@ -469,7 +477,7 @@ HRESULT d3d11gles_upload_vertex_range(ID3D11Buffer *buffer, UINT offset,
         b->d.Usage != D3D11_USAGE_DYNAMIC || !(b->d.BindFlags & D3D11_BIND_VERTEX_BUFFER) ||
         offset > b->d.ByteWidth || size > b->d.ByteWidth - offset || b->mapped_gl || b->tmp)
         return E_INVALIDARG;
-    glBindBuffer(GL_COPY_WRITE_BUFFER, b->buf);
+    bind_copy_write_buffer(b->buf);
     GLbitfield flags = GL_MAP_WRITE_BIT | (discard ? GL_MAP_INVALIDATE_BUFFER_BIT : GL_MAP_UNSYNCHRONIZED_BIT);
     PERF_BEGIN(ringmap);
     void *dst = glMapBufferRange(GL_COPY_WRITE_BUFFER, (GLintptr)offset, (GLsizeiptr)size, flags);
@@ -496,7 +504,7 @@ HRESULT d3dgl_Ctx_Map(ID3D11DeviceContext *c, ID3D11Resource *res, UINT sub, D3D
         switch (type) { case D3D11_MAP_READ: acc = GL_MAP_READ_BIT; break; case D3D11_MAP_READ_WRITE: acc = GL_MAP_READ_BIT | GL_MAP_WRITE_BIT; break;
                         case D3D11_MAP_WRITE_DISCARD: acc = GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT; break;
                         case D3D11_MAP_WRITE_NO_OVERWRITE: acc = GL_MAP_WRITE_BIT | GL_MAP_UNSYNCHRONIZED_BIT; break; default: acc = GL_MAP_WRITE_BIT; }
-        glBindBuffer(GL_COPY_WRITE_BUFFER, b->buf);
+        bind_copy_write_buffer(b->buf);
         PERF_BEGIN(map);
         void *p = glMapBufferRange(GL_COPY_WRITE_BUFFER, 0, (GLsizeiptr)b->d.ByteWidth, acc);
         PERF_END(map);
@@ -518,7 +526,7 @@ void d3dgl_Ctx_Unmap(ID3D11DeviceContext *c, ID3D11Resource *res, UINT sub)
 {
     (void)c; (void)sub; Obj *o = (Obj *)res; if (!o) return;
     if (o->kind == K_BUFFER) {
-        Buf *b = (Buf *)o; glBindBuffer(GL_COPY_WRITE_BUFFER, b->buf);
+        Buf *b = (Buf *)o; bind_copy_write_buffer(b->buf);
         if (b->mapped_gl) { PERF_BEGIN(unmap); glUnmapBuffer(GL_COPY_WRITE_BUFFER); PERF_END(unmap); b->mapped_gl = 0; }
         else if (b->tmp) { if (b->map_type != D3D11_MAP_READ) glBufferSubData(GL_COPY_WRITE_BUFFER, 0, (GLsizeiptr)b->d.ByteWidth, b->tmp); free(b->tmp); b->tmp = NULL; }
         gl_check_hot("Unmap(buffer)"); return;
@@ -535,7 +543,7 @@ void d3dgl_Ctx_UpdateSubresource(ID3D11DeviceContext *c, ID3D11Resource *res, UI
     (void)c; (void)dp; Obj *o = (Obj *)res; if (!o || !data) return;
     if (o->kind == K_BUFFER) {
         Buf *b = (Buf *)o; UINT off = box ? box->left : 0, n = box ? box->right - box->left : b->d.ByteWidth;
-        glBindBuffer(GL_COPY_WRITE_BUFFER, b->buf); glBufferSubData(GL_COPY_WRITE_BUFFER, (GLintptr)off, (GLsizeiptr)n, data); gl_check("UpdateSubresource(buffer)"); return;
+        bind_copy_write_buffer(b->buf); glBufferSubData(GL_COPY_WRITE_BUFFER, (GLintptr)off, (GLsizeiptr)n, data); gl_check("UpdateSubresource(buffer)"); return;
     }
     Tex *t = (Tex *)o; UINT w, h; sub_info(t, sub, &w, &h, NULL, NULL);
     UINT x = box ? box->left : 0, y = box ? box->top : 0, bw = box ? box->right - box->left : w, bh = box ? box->bottom - box->top : h;
