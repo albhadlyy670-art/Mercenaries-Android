@@ -10,9 +10,10 @@ const android_touch_btn_t k_buttons[ANDROID_TOUCH_BUTTONS] = {
     {"BLK",.72f,.88f,.045f,6}, {"WHT",.64f,.88f,.045f,7},
     {"STA",.54f,.90f,.04f,100}, {"BCK",.46f,.90f,.04f,101}
 };
-const float k_stick_cx=.16f, k_stick_cy=.70f, k_stick_r=.13f;
+const android_touch_stick_t k_sticks[ANDROID_TOUCH_STICKS] = { {.16f,.70f,.13f}, {.72f,.68f,.105f} };
 static int pressed;
-int android_input_overlay_pressed(int id) { return pressed && id == 0; }
+static android_touch_overlay_t input;
+void android_input_overlay_snapshot(android_touch_overlay_t *out) { *out = input; out->pressed = pressed ? 1u : 0u; }
 
 static int depth=1, stencil=1, cull=1, scissor=1, discard=1, coverage=1, offset=1, blend;
 static int color_ok, equation_ok, viewport_ok, draws, uploads;
@@ -55,6 +56,12 @@ int main(void) {
     draw_overlay();
     assert(draws == 3 && uploads == 2); /* pressed color updates */
     assert(g_overlay_vertices[0].a == 0.65f);
-    puts("touch overlay: one draw, cached geometry and isolated GL state");
+    input.lx = 20000; input.ry = -10000;
+    draw_overlay();
+    assert(draws == 4 && uploads == 3); /* moving either stick updates knobs */
+    draw_overlay();
+    assert(draws == 5 && uploads == 3);
+    assert(g_overlay_count < OVERLAY_MAX_VERTICES);
+    puts("touch overlay: circular sticks, one draw, cached geometry and isolated GL state");
     return 0;
 }

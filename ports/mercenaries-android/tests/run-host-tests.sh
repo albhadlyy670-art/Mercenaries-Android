@@ -20,8 +20,10 @@ echo "== GLES transient vertex range upload (mock driver)"
 gcc -O1 -w -ffunction-sections -fdata-sections -I$CPP/compat/include -I$D/include -I$CPP/compat -I$D -I$S -I$S/d3d -I$S/platform -I$S/kernel -I$S/nv2a -DXBOX_ANDROID=1 $D/d3d11_gles.c test_vertex_upload.c -Wl,--gc-sections -lm -o $T/vertex_upload && $T/vertex_upload
 echo "== Fixed-function constant buffer cache"
 gcc -O1 -Wall -Wextra -Werror test_constant_cache.c -o $T/constant_cache && $T/constant_cache
+echo "== Touch stick input and multitouch"
+gcc -O1 -Wall -Wextra -Wno-misleading-indentation -I fake_ndk -I$A -I$S test_touch_sticks.c $A/android_input.c -lpthread -lm -o $T/touch_sticks && $T/touch_sticks
 echo "== Touch overlay GL state isolation"
-gcc -O1 -Wall -Wextra -Wno-unused-function -ffunction-sections -fdata-sections -I fake_ndk -I$A test_touch_overlay.c -Wl,--gc-sections -o $T/touch_overlay
+gcc -O1 -Wall -Wextra -Wno-unused-function -ffunction-sections -fdata-sections -I fake_ndk -I$A test_touch_overlay.c -Wl,--gc-sections -lm -o $T/touch_overlay
 $T/touch_overlay
 echo "== Per-thread alternate signal stacks"
 gcc -O1 -Wall -Wextra -I$A test_signal_stack.c $A/android_signal_stack.c -lpthread -o $T/signal_stack

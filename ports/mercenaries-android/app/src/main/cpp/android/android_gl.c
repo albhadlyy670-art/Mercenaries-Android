@@ -12,6 +12,7 @@
 #include <string.h>
 #include <stddef.h>
 #include <time.h>
+#include <math.h>
 
 #define LOG(...) __android_log_print(ANDROID_LOG_INFO, "MercRecomp", __VA_ARGS__)
 
@@ -24,7 +25,7 @@ typedef struct { float x, y, r, g, b, a; } OverlayVertex;
 static OverlayVertex g_overlay_vertices[OVERLAY_MAX_VERTICES];
 static unsigned g_overlay_count;
 static int g_overlay_cached_w, g_overlay_cached_h;
-static unsigned g_overlay_cached_pressed;
+static android_touch_overlay_t g_overlay_cached_input;
 static int g_overlay_cache_valid;
 void android_trace(const char *fmt, ...);
 static int g_w, g_h, g_swap_interval = -1; static GLuint g_blit_fbo; int g_android_rendering;
@@ -103,6 +104,41 @@ static void rect(float x, float y, float w, float h, float r, float g, float b, 
     memcpy(&g_overlay_vertices[g_overlay_count], v, sizeof(v));
     g_overlay_count += 6;
 }
+/* Aspect-correct circles in normalized screen coordinates. The dark pad,
+ * thin light rim and black knob match the requested virtual-stick style. */
+static void overlay_disc(float cx, float cy, float radius, float ar,
+                         float r, float g, float b, float a)
+{
+    enum { segments = 32 };
+    static float circle_x[segments + 1], circle_y[segments + 1];
+    static int circle_ready;
+    if (!circle_ready) {
+        for (int i = 0; i <= segments; ++i) {
+            float t = 6.28318530718f * (float)i / segments;
+            circle_x[i] = cosf(t); circle_y[i] = sinf(t);
+        }
+        circle_ready = 1;
+    }
+    if (g_overlay_count + (unsigned)segments * 3u > OVERLAY_MAX_VERTICES) return;
+    for (int i = 0; i < segments; ++i) {
+        OverlayVertex v[3] = {
+            {cx, cy, r,g,b,a},
+            {cx + circle_x[i] * radius / ar, cy + circle_y[i] * radius, r,g,b,a},
+            {cx + circle_x[i + 1] * radius / ar, cy + circle_y[i + 1] * radius, r,g,b,a}
+        };
+        memcpy(&g_overlay_vertices[g_overlay_count], v, sizeof(v));
+        g_overlay_count += 3;
+    }
+}
+static void overlay_stick(const android_touch_stick_t *s, float ar, int16_t x, int16_t y)
+{
+    const float knob = s->r * 0.32f;
+    const float travel = s->r - knob - 0.002f;
+    overlay_disc(s->x, s->y, s->r, ar, 0.75f, 0.75f, 0.75f, 0.72f);
+    overlay_disc(s->x, s->y, s->r * 0.975f, ar, 0.10f, 0.10f, 0.10f, 0.58f);
+    overlay_disc(s->x + ((float)x / 32767.f) * travel / ar,
+                 s->y - ((float)y / 32767.f) * travel, knob, ar, 0.f, 0.f, 0.f, 0.90f);
+}
 static void overlay_upload(void)
 {
     glBindBuffer(GL_ARRAY_BUFFER, g_vbo);
@@ -160,11 +196,11 @@ static void draw_overlay(void)
     glUseProgram(g_prog); glBindVertexArray(g_overlay_vao);
     glEnable(GL_BLEND); glBlendEquationSeparate(GL_FUNC_ADD, GL_FUNC_ADD);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-    unsigned pressed = 0;
-    for (int i = 0; i < ANDROID_TOUCH_BUTTONS; ++i)
-        if (android_input_overlay_pressed(k_buttons[i].id)) pressed |= 1u << i;
+    android_touch_overlay_t input;
+    android_input_overlay_snapshot(&input);
+    unsigned pressed = input.pressed;
     if (!g_overlay_cache_valid || g_overlay_cached_w != g_w ||
-        g_overlay_cached_h != g_h || g_overlay_cached_pressed != pressed) {
+        g_overlay_cached_h != g_h || memcmp(&g_overlay_cached_input, &input, sizeof(input)) != 0) {
         g_overlay_count = 0;
         const float ar = (float)g_w / (float)g_h;
         for (int i = 0; i < ANDROID_TOUCH_BUTTONS; ++i) {
@@ -173,10 +209,11 @@ static void draw_overlay(void)
             rect(b->x - b->r / ar, b->y - b->r, 2 * b->r / ar, 2 * b->r, 1, 1, 1, alpha);
             overlay_label(b->label, b->x, b->y, b->r, ar);
         }
-        rect(k_stick_cx - k_stick_r / ar, k_stick_cy - k_stick_r, 2 * k_stick_r / ar, 2 * k_stick_r, 1, 1, 1, 0.20f);
+        overlay_stick(&k_sticks[0], ar, input.lx, input.ly);
+        overlay_stick(&k_sticks[1], ar, input.rx, input.ry);
         overlay_upload();
         g_overlay_cached_w = g_w; g_overlay_cached_h = g_h;
-        g_overlay_cached_pressed = pressed; g_overlay_cache_valid = 1;
+        g_overlay_cached_input = input; g_overlay_cache_valid = 1;
     }
     glDrawArrays(GL_TRIANGLES, 0, (GLsizei)g_overlay_count);
 }

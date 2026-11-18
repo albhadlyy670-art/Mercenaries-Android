@@ -11,11 +11,15 @@ extern "C" {
 typedef struct { const char *label; float x, y, r; int id; } android_touch_btn_t;
 #define ANDROID_TOUCH_BUTTONS 10
 extern const android_touch_btn_t k_buttons[ANDROID_TOUCH_BUTTONS];
-extern const float k_stick_cx, k_stick_cy, k_stick_r;
+typedef struct { float x, y, r; } android_touch_stick_t;
+typedef struct { unsigned pressed; int16_t lx, ly, rx, ry; } android_touch_overlay_t;
+#define ANDROID_TOUCH_STICKS 2
+extern const android_touch_stick_t k_sticks[ANDROID_TOUCH_STICKS];
 
 int  android_input_event(AInputEvent *e);
 void android_input_set_screen(int w, int h);
 int  android_input_overlay_pressed(int id);
+void android_input_overlay_snapshot(android_touch_overlay_t *out);
 
 /* EGL / GLES3 presentation (game thread owns the context) */
 int  android_gl_attach(ANativeWindow *w);   /* create surface+context; 1 on success */

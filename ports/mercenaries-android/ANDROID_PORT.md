@@ -56,6 +56,12 @@ Run `tools/recomp` on a PC with your disc image, open this folder in Android Stu
 `./gradlew assembleDebug`. arm64-v8a only. Needs Python 3 on the build machine (header generation).
 Install, tap *Import*, choose your `.iso`, tap *Play*. Logs: `adb logcat -s MercRecomp MercGame d3d11gles`.
 
+## Touch controls
+The two circular pads are independent analog sticks: left for movement and right for
+camera/aim. Drag from within a pad; the knob follows your finger and stays held even
+if you move outside the circle. Release it to recenter. Face buttons and both sticks
+can be used at the same time, and physical controllers remain supported.
+
 ## Android performance diagnostics
 The shared game log includes `[perf]` samples every ten seconds while rendering, with observed FPS and
 average `eglSwapBuffers` wait time and game-thread CPU time as a percentage of one core. Long background/stalled gaps reset the sample. These numbers alone
