@@ -271,18 +271,25 @@ static unsigned long long perf_state_applies;
 typedef struct {
     unsigned long long arrays, indexed, vertices, small, medium, large, huge;
     unsigned long long fbo_rebinds, attachments;
+    unsigned long long small_vertexid, small_attributes, small_triangles, small_strips, small_other;
 } PerfWorkload;
 static PerfWorkload perf_workload;
-static void perf_record_draw(UINT count, int indexed)
+static void perf_record_draw(UINT count, int indexed, int vertexid, D3D11_PRIMITIVE_TOPOLOGY topology)
 {
     if (indexed) ++perf_workload.indexed; else ++perf_workload.arrays;
     perf_workload.vertices += count;
-    if (count <= 16) ++perf_workload.small;
+    if (count <= 16) {
+        ++perf_workload.small;
+        if (vertexid) ++perf_workload.small_vertexid; else ++perf_workload.small_attributes;
+        if (topology == D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST) ++perf_workload.small_triangles;
+        else if (topology == D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP) ++perf_workload.small_strips;
+        else ++perf_workload.small_other;
+    }
     else if (count <= 64) ++perf_workload.medium;
     else if (count <= 256) ++perf_workload.large;
     else ++perf_workload.huge;
 }
-#define PERF_DRAW_WORK(count, indexed) perf_record_draw((count), (indexed))
+#define PERF_DRAW_WORK(count, indexed, vertexid, topology) perf_record_draw((count), (indexed), (vertexid), (topology))
 #define PERF_FBO_REBIND() (++perf_workload.fbo_rebinds)
 #define PERF_ATTACHMENT() (++perf_workload.attachments)
 #define PERF_STATE_APPLY() (++perf_state_applies)
@@ -321,12 +328,15 @@ static void perf_report(void)
         perf_workload.arrays, perf_workload.indexed, perf_workload.vertices,
         perf_workload.small, perf_workload.medium, perf_workload.large, perf_workload.huge,
         perf_workload.fbo_rebinds, perf_workload.attachments);
+    android_trace("[perf-gles-small] vertexid=%llu attributes=%llu triangle_list=%llu triangle_strip=%llu other=%llu",
+        perf_workload.small_vertexid, perf_workload.small_attributes, perf_workload.small_triangles,
+        perf_workload.small_strips, perf_workload.small_other);
 #undef AVG
     perf_start = now; perf_state_applies = 0; memset(&perf_workload, 0, sizeof(perf_workload)); memset(&perf_map, 0, sizeof(perf_map)); memset(&perf_unmap, 0, sizeof(perf_unmap)); memset(&perf_draw, 0, sizeof(perf_draw)); memset(&perf_drawprep, 0, sizeof(perf_drawprep)); memset(&perf_program, 0, sizeof(perf_program)); memset(&perf_fbstate, 0, sizeof(perf_fbstate)); memset(&perf_fbo, 0, sizeof(perf_fbo)); memset(&perf_state, 0, sizeof(perf_state)); memset(&perf_resources, 0, sizeof(perf_resources)); memset(&perf_vertex, 0, sizeof(perf_vertex)); memset(&perf_issue, 0, sizeof(perf_issue)); memset(&perf_read, 0, sizeof(perf_read)); memset(&perf_ringmap, 0, sizeof(perf_ringmap)); memset(&perf_ringunmap, 0, sizeof(perf_ringunmap));
 }
 #else
 #define PERF_STATE_APPLY() ((void)0)
-#define PERF_DRAW_WORK(count, indexed) ((void)0)
+#define PERF_DRAW_WORK(count, indexed, vertexid, topology) ((void)0)
 #define PERF_FBO_REBIND() ((void)0)
 #define PERF_ATTACHMENT() ((void)0)
 #define PERF_BEGIN(name) ((void)0)

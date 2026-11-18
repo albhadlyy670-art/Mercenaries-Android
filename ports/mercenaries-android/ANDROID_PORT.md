@@ -77,7 +77,10 @@ resource binding, and vertex setup. `[perf-gles-fbstate]` further separates
 framebuffer binding from render-state application. `[perf-gles-workload]` counts
 issued array/indexed draws, submitted vertex or index references, draw sizes
 (disjoint ranges), renderer draw-FBO rebinds and attachment changes; clears and
-blits are not counted as draw-FBO rebinds; attachment updates include clears. Each timing is sampled independently, so their
+blits are not counted as draw-FBO rebinds; attachment updates include clears.
+`[perf-gles-small]` separates small draws (up to 16 vertices/indices) by
+vertex-ID-only versus attribute input and by primitive topology. Vertex-ID-only
+draws can include internal resolve passes; the category is not an exact origin label. Each timing is sampled independently, so their
 averages need not sum exactly to the preparation average. These wall times can
 include driver waits or backpressure; none is a GPU timer. Android normally collects GLES errors at
 presentation instead of after every hot draw/upload. Set `D3DGL_DEBUG=1` for

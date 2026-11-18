@@ -286,6 +286,7 @@ D3DGL_REL(ID3D11RenderTargetView) D3DGL_REL(ID3D11DepthStencilView) D3DGL_REL(ID
 D3DGL_REL(ID3D11GeometryShader) D3DGL_REL(ID3D11Resource) D3DGL_REL(ID3D11Device) D3DGL_REL(ID3D11DeviceContext)
 D3DGL_REL(IDXGISwapChain) D3DGL_REL(IDXGIFactory) D3DGL_REL(IDXGIFactory5) D3DGL_REL(IDXGIFactory6) D3DGL_REL(IDXGIAdapter)
 D3DGL_REL(IDXGIAdapter1) D3DGL_REL(IDXGIDevice)
+#define ID3D11Texture2D_AddRef(p) d3dgl_AddRef(p)
 #define ID3D11ShaderResourceView_AddRef(p) d3dgl_AddRef(p)
 #define ID3D11Device_QueryInterface(p, iid, out) d3dgl_QueryInterface(p, iid, out)
 #define ID3D10Blob_GetBufferPointer(b) d3dgl_Blob_GetBufferPointer(b)

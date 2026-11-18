@@ -15,6 +15,7 @@
 #include "nv2a_regs.h"
 #include "nv2a_state.h"
 #include "nv2a_image_blit.h"
+#include "nv2a_feedback_reuse.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -3063,6 +3064,23 @@ fail:
     if (texture)
         ID3D11Texture2D_Release(texture);
     return NULL;
+}
+
+/* Adjacent texture stages that sample the active color target need the
+ * same pre-draw snapshot. Reuse only within this draw: the next guest draw
+ * may modify the target and must take a fresh copy. Both references are
+ * owned independently so the existing per-stage cleanup remains valid. */
+static ID3D11ShaderResourceView *snapshot_color_for_stage(
+    GuestColorSurface *surface, unsigned stage,
+    ID3D11Texture2D **textures, ID3D11ShaderResourceView **views)
+{
+    if (stage && nv2a_feedback_reuse_previous(stage, textures[stage - 1], views[stage - 1])) {
+        textures[stage] = textures[stage - 1];
+        ID3D11Texture2D_AddRef(textures[stage]);
+        ID3D11ShaderResourceView_AddRef(views[stage - 1]);
+        return views[stage - 1];
+    }
+    return snapshot_bound_color_surface(surface, &textures[stage]);
 }
 
 static GuestDepthSurface *satellite_depth_filter_source(uint32_t stage,
@@ -8110,8 +8128,8 @@ static void submit_array_draw(void)
                  * Array draws can perform the same retail framebuffer-feedback
                  * composites as immediate draws (HUD, PDA, and shop effects),
                  * so give both submission paths the same pre-draw snapshot. */
-                feedback_srvs[i] = snapshot_bound_color_surface(
-                    g_pg.bound_color, &feedback_textures[i]);
+                feedback_srvs[i] = snapshot_color_for_stage(
+                    g_pg.bound_color, i, feedback_textures, feedback_srvs);
                 stage_surface_srv[i] = feedback_srvs[i];
             } else if (!stage_surface_srv[i]) {
                 stage_surface_srv[i] = get_guest_surface_texture(
@@ -9569,8 +9587,8 @@ static void submit_draw(void)
                         g_pg.tex[stage].control0,
                         g_pg.tex[stage].control1) &&
                     guest_color_surface_aliases_bound(stage_surface)) {
-                    feedback_srvs[stage] = snapshot_bound_color_surface(
-                        g_pg.bound_color, &feedback_textures[stage]);
+                    feedback_srvs[stage] = snapshot_color_for_stage(
+                        g_pg.bound_color, stage, feedback_textures, feedback_srvs);
                     stage_surface_srv[stage] = feedback_srvs[stage];
                 } else if (!stage_surface_srv[stage]) {
                     stage_surface_srv[stage] = get_guest_surface_texture(

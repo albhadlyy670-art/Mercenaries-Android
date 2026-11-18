@@ -562,7 +562,7 @@ void d3dgl_Ctx_Draw(ID3D11DeviceContext *cx, UINT count, UINT start)
     Ctx *c = (Ctx *)cx; Program *p; int ready;
     { PERF_BEGIN(drawprep); ready = prepare_draw(c, 0, &p); PERF_END(drawprep); }
     if (!ready) { PERF_END(draw); return; }
-    PERF_DRAW_WORK(count, 0);
+    PERF_DRAW_WORK(count, 0, !c->layout && c->vs->r.n_inputs == 0, c->topo);
     { PERF_BEGIN(issue); glDrawArrays(gl_topology(c->topo), (GLint)start, (GLsizei)count); PERF_END(issue); }
     gl_check_hot("Draw"); PERF_END(draw);
 }
@@ -574,7 +574,7 @@ void d3dgl_Ctx_DrawIndexed(ID3D11DeviceContext *cx, UINT count, UINT start, INT 
     if (!ready) { PERF_END(draw); return; }
     int wide = c->ib_fmt == DXGI_FORMAT_R32_UINT; bind_renderer_vao(); glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, c->ib->buf);
     glEnable(GL_PRIMITIVE_RESTART_FIXED_INDEX);
-    PERF_DRAW_WORK(count, 1);
+    PERF_DRAW_WORK(count, 1, !c->layout && c->vs->r.n_inputs == 0, c->topo);
     { PERF_BEGIN(issue); glDrawElements(gl_topology(c->topo), (GLsizei)count, wide ? GL_UNSIGNED_INT : GL_UNSIGNED_SHORT, (const void *)(uintptr_t)((size_t)c->ib_off + (size_t)start * (wide ? 4 : 2))); PERF_END(issue); }
     gl_check_hot("DrawIndexed"); PERF_END(draw);
 }
