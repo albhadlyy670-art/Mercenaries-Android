@@ -3417,12 +3417,14 @@ int recomp_stream_admit_idle(uint32_t manager,uint32_t bytes)
  * method on the live camera, with all translated CPU state preserved, so the
  * same retail matrix path is used immediately. */
 float recomp_options_camera_far_plane(uint32_t camera, float far_plane) {
-    /* Expand the view frustum only. RedCamera::_fDrawDistance still controls
-     * the terrain cache and must remain at its original 300 metre budget. */
+    /* Only the normal RedCamera's own far plane is eligible. Preserve the
+     * authored terrain cache budget and other perspective cameras. Android's
+     * experimental shorter view fits inside the world streaming margin. */
     if (camera >= 0x10000u && camera <= 0x03FFFF00u &&
         guest_u32(camera) == 0x00300DC4u &&
         far_plane == *(float *)guest_ptr(camera + 0xA0u))
-        return far_plane * recomp_options_object_distance_multiplier();
+        return recomp_options_world_view_distance(
+            far_plane * recomp_options_object_distance_multiplier());
     return far_plane;
 }
 

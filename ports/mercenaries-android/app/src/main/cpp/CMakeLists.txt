@@ -99,7 +99,7 @@ target_include_directories(app_glue PUBLIC "${NDK_GLUE}")
 
 add_library(mercrecomp SHARED
     android/android_main.c android/android_game.c android/android_gl.c android/android_input.c
-    android/android_audio.c android/android_fault.c android/android_jni.c android/xdvdfs_extract.c
+    android/android_audio.c android/android_fault.c android/android_signal_stack.c android/android_jni.c android/xdvdfs_extract.c
     android/preview_log_android.c
     ${GAME_SRC})
 target_link_libraries(mercrecomp PRIVATE merc_common xbox_toolkit app_glue android log EGL GLESv3 aaudio m)

@@ -585,6 +585,11 @@ BOOL ReleaseMutex(HANDLE h)
 static void *thread_trampoline(void *arg)
 {
     w32_object *o = (w32_object *)arg;
+#ifdef __ANDROID__
+    /* The alternate signal stack belongs to this thread, not its creator. */
+    extern int android_install_thread_signal_stack(void);
+    android_install_thread_signal_stack();
+#endif
     t_self_obj = o;
     t_tid      = o->tid;
 

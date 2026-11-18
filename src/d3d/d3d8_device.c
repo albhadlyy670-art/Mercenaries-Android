@@ -16,6 +16,7 @@
  */
 
 #include "d3d8_internal.h"
+#include "d3d8_pixel_selection.h"
 #include <dxgi1_6.h>
 #include "kernel/preview_log.h"
 #include "d3d8_scaled_lines.h"
@@ -3736,7 +3737,9 @@ static void up_ring_shutdown(void)
 /* Upload vertex data to ring buffer, returns offset. Returns (UINT)-1 on failure. */
 static UINT up_ring_upload(const void *data, UINT size)
 {
+#ifndef XBOX_ANDROID
     D3D11_MAPPED_SUBRESOURCE mapped;
+#endif
     D3D11_MAP map_type;
     HRESULT hr;
     UINT offset;
@@ -3755,15 +3758,19 @@ static UINT up_ring_upload(const void *data, UINT size)
         map_type = D3D11_MAP_WRITE_NO_OVERWRITE;
     }
 
+    offset = g_up_ring_offset;
+#ifdef XBOX_ANDROID
+    hr = d3d11gles_upload_vertex_range(g_up_ring_buffer, offset, data, size,
+                                       map_type == D3D11_MAP_WRITE_DISCARD);
+    if (FAILED(hr)) return (UINT)-1;
+#else
     hr = ID3D11DeviceContext_Map(g_device_state.d3d11_context,
         (ID3D11Resource *)g_up_ring_buffer, 0, map_type, 0, &mapped);
     if (FAILED(hr)) return (UINT)-1;
-
-    offset = g_up_ring_offset;
     memcpy((BYTE *)mapped.pData + offset, data, size);
-
     ID3D11DeviceContext_Unmap(g_device_state.d3d11_context,
         (ID3D11Resource *)g_up_ring_buffer, 0);
+#endif
 
     g_up_ring_offset = (offset + size + 15) & ~15;  /* 16-byte align */
     return offset;
@@ -3784,9 +3791,7 @@ static HRESULT __stdcall dev_DrawPrimitive(IDirect3DDevice8 *self, D3DPRIMITIVET
     const BOOL programmable_vsh = d3d8_vsh_prepare_draw(g_device_state.vertex_shader);
     if (!programmable_vsh)
         d3d8_shaders_prepare_draw(g_device_state.vertex_shader);
-    else
-        d3d8_shaders_prepare_pixel();
-    d3d8_combiners_prepare_draw(); /* overrides PS if combiner shader is active */
+    d3d8_prepare_selected_pixel();
     if (d3d8_cached_getenv("MERCENARIES_DEBUG_SOLID_PIXEL") != NULL)
         d3d8_shaders_bind_debug_pixel();
     d3d8_states_apply();
@@ -3824,9 +3829,7 @@ static HRESULT __stdcall dev_DrawIndexedPrimitive(IDirect3DDevice8 *self, D3DPRI
     const BOOL programmable_vsh = d3d8_vsh_prepare_draw(g_device_state.vertex_shader);
     if (!programmable_vsh)
         d3d8_shaders_prepare_draw(g_device_state.vertex_shader);
-    else
-        d3d8_shaders_prepare_pixel();
-    d3d8_combiners_prepare_draw(); /* overrides PS if combiner shader is active */
+    d3d8_prepare_selected_pixel();
     if (d3d8_cached_getenv("MERCENARIES_DEBUG_SOLID_PIXEL") != NULL)
         d3d8_shaders_bind_debug_pixel();
     d3d8_states_apply();
@@ -3897,11 +3900,9 @@ static HRESULT __stdcall dev_DrawPrimitiveUP(IDirect3DDevice8 *self, D3DPRIMITIV
     const BOOL programmable_vsh = d3d8_vsh_prepare_draw(g_device_state.vertex_shader);
     if (!programmable_vsh)
         d3d8_shaders_prepare_draw(g_device_state.vertex_shader);
-    else
-        d3d8_shaders_prepare_pixel();
     if (trace_perf)
         QueryPerformanceCounter(&perf_after_vertex);
-    d3d8_combiners_prepare_draw(); /* overrides PS if combiner shader is active */
+    d3d8_prepare_selected_pixel();
     if (trace_perf)
         QueryPerformanceCounter(&perf_after_pixel);
     if (d3d8_cached_getenv("MERCENARIES_DEBUG_SOLID_PIXEL") != NULL)
@@ -3998,9 +3999,7 @@ static HRESULT __stdcall dev_DrawIndexedPrimitiveUP(IDirect3DDevice8 *self, D3DP
     const BOOL programmable_vsh = d3d8_vsh_prepare_draw(g_device_state.vertex_shader);
     if (!programmable_vsh)
         d3d8_shaders_prepare_draw(g_device_state.vertex_shader);
-    else
-        d3d8_shaders_prepare_pixel();
-    d3d8_combiners_prepare_draw(); /* overrides PS if combiner shader is active */
+    d3d8_prepare_selected_pixel();
     if (d3d8_cached_getenv("MERCENARIES_DEBUG_SOLID_PIXEL") != NULL)
         d3d8_shaders_bind_debug_pixel();
     d3d8_states_apply();
