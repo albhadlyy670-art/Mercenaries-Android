@@ -165,3 +165,12 @@ The trial is not validated on a device, and renderer capture/debug behavior and
 all per-draw side effects have not been proven equivalent. Compare images,
 gameplay and draw counts on the target phone; it may not improve the
 predominantly small-strip workload.
+
+`[perf-nv2a-adjacent]` is a read-only probe of the packet immediately after a
+triangle-strip END, grouped by the current draw source. `boundary` means less
+than two words were available before PUT/DMA end; `barrier` means the next
+packet was not a same-subchannel BEGIN; `begin_other` means BEGIN used a
+non-strip mode. The `strip_*` fields describe only the first packet after a
+same-subchannel strip BEGIN. They do not establish a complete draw, unchanged
+state, texture safety or permission to merge. Counts are per ten-second
+workload interval and do not change PFIFO execution.

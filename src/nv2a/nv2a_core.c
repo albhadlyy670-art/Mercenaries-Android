@@ -1087,6 +1087,20 @@ static void pfifo_process_pushbuffer(NV2AState *d, uint32_t put)
                         "method=%04X param=%08X\n",
                         submission_index, subchannel, method, word);
             }
+#ifdef __ANDROID__
+            if (method == NV097_SET_BEGIN_END && word == 0u && method_count == 1u &&
+                subchannel < 8u && d->pgraph.subchannel_class[subchannel] == NV_KELVIN_PRIMITIVE &&
+                (d->pgraph.regs[NV_PGRAPH_CTX_CACHE1 + subchannel * 4u] &
+                 NV_PGRAPH_CTX_SWITCH1_GRCLASS) == NV_KELVIN_PRIMITIVE) {
+                size_t available = 0u;
+                if (put >= get && dma_len >= get) {
+                    available = put - get;
+                    if (available > dma_len - get) available = (size_t)(dma_len - get);
+                }
+                pgraph_d3d11_probe_strip_adjacency(available ? dma + get : NULL,
+                                                    available, subchannel);
+            }
+#endif
             uint32_t batch_consumed = 0u;
 #if defined(XBOX_ANDROID) && defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
             uint32_t batch_payload = 0u;

@@ -26,6 +26,8 @@ echo "== GLES draw-state cache (mock driver)"
 gcc -O1 -w -ffunction-sections -fdata-sections -I$CPP/compat/include -I$D/include -I$CPP/compat -I$D -I$S -I$S/d3d -I$S/platform -I$S/kernel -I$S/nv2a -DXBOX_ANDROID=1 test_draw_state_cache.c -Wl,--gc-sections -lm -o $T/draw_state_cache && $T/draw_state_cache
 echo "== GLES Android workload diagnostics"
 gcc -O1 -w -ffunction-sections -fdata-sections -I fake_ndk -I$CPP/compat/include -I$D/include -I$CPP/compat -I$D -I$S -I$S/d3d -I$S/platform -I$S/kernel -I$S/nv2a -DXBOX_ANDROID=1 test_gles_workload.c -Wl,--gc-sections -lm -o $T/gles_workload && $T/gles_workload
+echo "== NV2A strip adjacency probe"
+gcc -O1 -Wall -Wextra -Werror -fsanitize=undefined test_batch_probe.c -o $T/batch_probe && $T/batch_probe
 echo "== NV2A guarded live batching"
 gcc -O1 -Wall -Wextra -Werror -fsanitize=undefined test_push_batch.c -o $T/push_batch && $T/push_batch
 python3 test_live_batch.py

@@ -20,6 +20,7 @@
 #include "nv2a_immediate_vertices.h"
 #include "nv2a_indexed_vertices.h"
 #include "nv2a_draw_batch.h"
+#include "nv2a_batch_probe.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -33,12 +34,13 @@
 void android_trace(const char *fmt, ...);
 static Nv2aDrawWorkload g_draw_workload;
 static uint64_t g_inline_batches;
+static uint64_t g_strip_probe[4][9];
 static ULONGLONG g_workload_start_ms;
 static void pgraph_report_workload(void)
 {
     ULONGLONG now = GetTickCount64();
     if (!g_workload_start_ms || now < g_workload_start_ms || now - g_workload_start_ms > 30000u) {
-        memset(&g_draw_workload, 0, sizeof(g_draw_workload)); g_inline_batches = 0; g_workload_start_ms = now; return;
+        memset(&g_draw_workload, 0, sizeof(g_draw_workload)); g_inline_batches = 0; memset(g_strip_probe, 0, sizeof(g_strip_probe)); g_workload_start_ms = now; return;
     }
     if (now - g_workload_start_ms < 10000u) return;
     android_trace("[perf-nv2a-small] interval_s=%.1f array=%llu indexed=%llu inline=%llu immediate=%llu small_strips=%llu small_array=%llu small_indexed=%llu small_inline=%llu small_immediate=%llu small_textured=%llu disjoint_splits=%llu strip_splits=%llu",
@@ -51,6 +53,15 @@ static void pgraph_report_workload(void)
         (unsigned long long)g_draw_workload.disjoint_array_splits, (unsigned long long)g_draw_workload.strip_array_splits);
     android_trace("[perf-nv2a-batch] merged_inline_triangle_draws=%llu",
                   (unsigned long long)g_inline_batches);
+    for (unsigned source = 0; source < 4; ++source) {
+        uint64_t *v = g_strip_probe[source];
+        android_trace("[perf-nv2a-adjacent] source=%s boundary=%llu barrier=%llu begin_other=%llu strip_partial=%llu strip_indexed=%llu strip_array=%llu strip_inline=%llu strip_immediate=%llu strip_other=%llu",
+            source == 0 ? "array" : source == 1 ? "indexed" : source == 2 ? "inline" : "immediate",
+            (unsigned long long)v[0], (unsigned long long)v[1], (unsigned long long)v[2],
+            (unsigned long long)v[3], (unsigned long long)v[4], (unsigned long long)v[5],
+            (unsigned long long)v[6], (unsigned long long)v[7], (unsigned long long)v[8]);
+    }
+    memset(g_strip_probe, 0, sizeof(g_strip_probe));
     memset(&g_draw_workload, 0, sizeof(g_draw_workload)); g_inline_batches = 0; g_workload_start_ms = now;
 }
 #define PGRAPH_BATCH_MERGED() (++g_inline_batches)
@@ -10506,6 +10517,20 @@ uint32_t pgraph_d3d11_inline_batch(uint32_t method, const uint32_t *words,
 /* Only called for a complete adjacent BEGIN/INLINE_ARRAY/END packet inside
  * the same synchronous PFIFO submission. No guest method can intervene. The
  * caller dispatches the current END normally after this append. */
+/* Called before END. Counts packet adjacency only; it never changes draws. */
+void pgraph_d3d11_probe_strip_adjacency(const uint8_t *next, size_t bytes, uint32_t subchannel)
+{
+#ifdef __ANDROID__
+    if (!g_pg.initialized || !g_pg.in_draw || g_pg.draw_mode != 6u) return;
+    unsigned source = g_pg.inline_array_mode ? 2u : g_pg.inline_element_count ? 1u :
+                      g_pg.draw_array_count ? 0u : 3u;
+    Nv2aBatchProbe result = nv2a_probe_next(next, bytes, subchannel);
+    ++g_strip_probe[source][result];
+#else
+    (void)next; (void)bytes; (void)subchannel;
+#endif
+}
+
 int pgraph_d3d11_try_batch_inline_triangles(const uint32_t *words, uint32_t count)
 {
     uint32_t stride, old_vertices, added_vertices;
