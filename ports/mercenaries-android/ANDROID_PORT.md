@@ -74,7 +74,10 @@ and do not measure GPU execution time. `[perf-gles-draw]` separates sampled
 CPU time spent preparing a draw from the driver draw call. `[perf-gles-prepare]`
 breaks preparation into program lookup/creation, framebuffer and state setup,
 resource binding, and vertex setup. `[perf-gles-fbstate]` further separates
-framebuffer binding from render-state application. Each is sampled independently, so their
+framebuffer binding from render-state application. `[perf-gles-workload]` counts
+issued array/indexed draws, submitted vertex or index references, draw sizes
+(disjoint ranges), renderer draw-FBO rebinds and attachment changes; clears and
+blits are not counted as draw-FBO rebinds; attachment updates include clears. Each timing is sampled independently, so their
 averages need not sum exactly to the preparation average. These wall times can
 include driver waits or backpressure; none is a GPU timer. Android normally collects GLES errors at
 presentation instead of after every hot draw/upload. Set `D3DGL_DEBUG=1` for

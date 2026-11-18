@@ -315,7 +315,7 @@ static void att_set(GLuint fbo_target, GLenum point, int slot, const View *v)
     GLuint tex = 0, target = GL_TEXTURE_2D; GLint lvl = 0;
     if (v && v->tex) { tex = v->tex->tex; target = v->tex->cube ? GL_TEXTURE_CUBE_MAP_POSITIVE_X : GL_TEXTURE_2D; lvl = v->mip; }
     if (G.att_tex[slot] == tex && G.att_level[slot] == lvl && G.att_target[slot] == target) return;
-    glFramebufferTexture2D(fbo_target, point, target, tex, lvl); G.att_tex[slot] = tex; G.att_target[slot] = target; G.att_level[slot] = lvl;
+    PERF_ATTACHMENT(); glFramebufferTexture2D(fbo_target, point, target, tex, lvl); G.att_tex[slot] = tex; G.att_target[slot] = target; G.att_level[slot] = lvl;
 }
 static void bind_ctx_fbo(Ctx *c, int *w, int *h)
 {
@@ -324,14 +324,14 @@ static void bind_ctx_fbo(Ctx *c, int *w, int *h)
     if (!G.fbo_dirty && G.fbo_ctx == c) {
         *w = G.fbo_width; *h = G.fbo_height; return;
     }
-    glBindFramebuffer(GL_FRAMEBUFFER, G.fbo);
+    PERF_FBO_REBIND(); glBindFramebuffer(GL_FRAMEBUFFER, G.fbo);
     GLenum bufs[MAX_RT]; int last = -1; unsigned mask = 0;
     for (int i = 0; i < MAX_RT; ++i) { att_set(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + (GLenum)i, i, c->rtv[i]); bufs[i] = c->rtv[i] ? GL_COLOR_ATTACHMENT0 + (GLenum)i : GL_NONE; if (c->rtv[i]) { last = i; mask |= 1u << i; } }
     const Fmt *df = c->dsv ? c->dsv->tex->fmt : NULL;
     if (df && df->stencil) { att_set(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, MAX_RT, c->dsv); }
     else {
         /* depth-only or none: make sure a previous depth-stencil attachment is cleared out */
-        if (G.att_tex[MAX_RT] && !df) { glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D, 0, 0); G.att_tex[MAX_RT] = 0; }
+        if (G.att_tex[MAX_RT] && !df) { PERF_ATTACHMENT(); glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D, 0, 0); G.att_tex[MAX_RT] = 0; }
         else if (df) att_set(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, MAX_RT, c->dsv);
     }
     if (!G.draw_buffers_valid || G.draw_buffer_mask != mask) {
@@ -497,6 +497,7 @@ void d3dgl_Ctx_Draw(ID3D11DeviceContext *cx, UINT count, UINT start)
     Ctx *c = (Ctx *)cx; Program *p; int ready;
     { PERF_BEGIN(drawprep); ready = prepare_draw(c, 0, &p); PERF_END(drawprep); }
     if (!ready) { PERF_END(draw); return; }
+    PERF_DRAW_WORK(count, 0);
     { PERF_BEGIN(issue); glDrawArrays(gl_topology(c->topo), (GLint)start, (GLsizei)count); PERF_END(issue); }
     gl_check_hot("Draw"); PERF_END(draw);
 }
@@ -508,6 +509,7 @@ void d3dgl_Ctx_DrawIndexed(ID3D11DeviceContext *cx, UINT count, UINT start, INT 
     if (!ready) { PERF_END(draw); return; }
     int wide = c->ib_fmt == DXGI_FORMAT_R32_UINT; bind_renderer_vao(); glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, c->ib->buf);
     glEnable(GL_PRIMITIVE_RESTART_FIXED_INDEX);
+    PERF_DRAW_WORK(count, 1);
     { PERF_BEGIN(issue); glDrawElements(gl_topology(c->topo), (GLsizei)count, wide ? GL_UNSIGNED_INT : GL_UNSIGNED_SHORT, (const void *)(uintptr_t)((size_t)c->ib_off + (size_t)start * (wide ? 4 : 2))); PERF_END(issue); }
     gl_check_hot("DrawIndexed"); PERF_END(draw);
 }
