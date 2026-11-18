@@ -24,6 +24,7 @@
 #define NV2A_PGRAPH_D3D11_H
 
 #include <stdint.h>
+#include <stddef.h>
 
 /* Initialize the PGRAPH→D3D11 translator. Call after D3D11 device is created. */
 void pgraph_d3d11_init(void);
@@ -45,6 +46,8 @@ int pgraph_d3d11_method(int subchannel, uint32_t method, uint32_t param);
  * method. Returns consumed words, or zero for unsupported state/methods. */
 uint32_t pgraph_d3d11_inline_batch(uint32_t method, const uint32_t *words,
                                   uint32_t count);
+/* Observe the next packet at strip END without consuming it. */
+void pgraph_d3d11_probe_strip_adjacency(const uint8_t *next, size_t bytes, uint32_t subchannel);
 
 /* Execute an explicit NV09F SRCCOPY between compatible GPU color surfaces. */
 int pgraph_d3d11_image_blit(void);

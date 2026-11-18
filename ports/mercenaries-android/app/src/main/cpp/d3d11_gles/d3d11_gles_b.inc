@@ -58,7 +58,7 @@ void d3dgl_BlendState_GetDesc(ID3D11BlendState *s, D3D11_BLEND_DESC *d) { *d = (
 
 static GLenum wrap_mode(D3D11_TEXTURE_ADDRESS_MODE m)
 { switch (m) { case D3D11_TEXTURE_ADDRESS_WRAP: return GL_REPEAT; case D3D11_TEXTURE_ADDRESS_MIRROR: return GL_MIRRORED_REPEAT; default: return GL_CLAMP_TO_EDGE; } }
-static void sampler_destroy(Obj *o) { Sampler *s = (Sampler *)o; if (s->gl) glDeleteSamplers(1, &s->gl); if (s->gl_point) glDeleteSamplers(1, &s->gl_point); }
+static void sampler_destroy(Obj *o) { Sampler *s = (Sampler *)o; G.sampler_valid = 0; if (s->gl) glDeleteSamplers(1, &s->gl); if (s->gl_point) glDeleteSamplers(1, &s->gl_point); }
 HRESULT d3dgl_Device_CreateSamplerState(ID3D11Device *dev, const D3D11_SAMPLER_DESC *d, ID3D11SamplerState **out)
 {
     (void)dev; if (!d || !out) return E_INVALIDARG;
@@ -101,7 +101,9 @@ static HRESULT make_shader(int kind, int stage, const void *code, SIZE_T len, vo
     s->stage = stage; s->r = h->r; s->r.glsl = NULL; s->unsupported = (int)h->gs;
     if (!h->gs) {
         if (len < sizeof(BlobHdr) + h->glsl_len) { d3dgl_Release(s); return E_INVALIDARG; }
-        s->glsl = (char *)malloc((size_t)h->glsl_len + 1); memcpy(s->glsl, (const char *)code + sizeof(BlobHdr), h->glsl_len); s->glsl[h->glsl_len] = 0;
+        s->glsl = (char *)malloc((size_t)h->glsl_len + 1);
+        if (!s->glsl) { d3dgl_Release(s); return E_OUTOFMEMORY; }
+        memcpy(s->glsl, (const char *)code + sizeof(BlobHdr), h->glsl_len); s->glsl[h->glsl_len] = 0;
     }
     *out = s; return S_OK;
 }
@@ -137,7 +139,17 @@ static GLuint compile_stage(GLenum type, const char *src, const char *what)
 {
     GLuint s = glCreateShader(type); glShaderSource(s, 1, &src, NULL); glCompileShader(s);
     GLint ok = 0; glGetShaderiv(s, GL_COMPILE_STATUS, &ok);
-    if (!ok) { char log[2048]; glGetShaderInfoLog(s, sizeof(log), NULL, log); D3DGL_LOG("%s shader failed to compile: %s", what, log); glDeleteShader(s); return 0; }
+    if (!ok) {
+        char log[2048]; glGetShaderInfoLog(s, sizeof(log), NULL, log);
+        D3DGL_LOG("%s shader failed to compile: %s", what, log);
+#ifdef __ANDROID__
+        /* The in-app Share log cannot read logcat. Keep a bounded sample of
+         * shader failures in game.log so graphical faults can be diagnosed. */
+        static unsigned reports;
+        if (reports++ < 20) fprintf(stderr, "[d3d11gles] %s shader failed to compile: %s\n", what, log);
+#endif
+        glDeleteShader(s); return 0;
+    }
     return s;
 }
 static char *str_replace_once(const char *s, const char *needle, const char *repl)
@@ -169,9 +181,43 @@ static char *build_vs_source(Shader *vs, Shader *ps, uint32_t bgra_mask)
     }
     return b;
 }
+/* These GL bindings persist across draws in the renderer-owned context.
+ * Presentation and other external GL work invalidate the cached values. */
+static void use_renderer_program(GLuint program)
+{
+    if (!G.program_valid || G.current_program != program) {
+        glUseProgram(program); G.current_program = program; G.program_valid = 1;
+    }
+}
+static void bind_renderer_vao(void)
+{
+    if (!G.vao_bound) { glBindVertexArray(G.vao); G.vao_bound = 1; }
+}
+static void bind_uniform_buffer(GLuint index, GLuint buffer)
+{
+    if (index >= 32u) { glBindBufferBase(GL_UNIFORM_BUFFER, index, buffer); return; }
+    uint32_t bit = 1u << index;
+    if (!(G.uniform_valid & bit) || G.uniform_buffers[index] != buffer) {
+        glBindBufferBase(GL_UNIFORM_BUFFER, index, buffer);
+        G.uniform_buffers[index] = buffer; G.uniform_valid |= bit;
+    }
+}
+static Program *find_cached_program(Shader *vs, Shader *ps, uint32_t bgra_mask)
+{
+    int last = G.last_program - 1;
+    if (last >= 0 && last < G.nprogs && G.progs[last].vs == vs &&
+        G.progs[last].ps == ps && G.progs[last].p->bgra == bgra_mask)
+        return G.progs[last].p;
+    for (int i = 0; i < G.nprogs; ++i) {
+        if (G.progs[i].vs == vs && G.progs[i].ps == ps && G.progs[i].p->bgra == bgra_mask) {
+            G.last_program = i + 1; return G.progs[i].p;
+        }
+    }
+    return NULL;
+}
 static Program *get_program(Shader *vs, Shader *ps, uint32_t bgra_mask)
 {
-    for (int i = 0; i < G.nprogs; ++i) if (G.progs[i].vs == vs && G.progs[i].ps == ps && G.progs[i].p->bgra == bgra_mask) return G.progs[i].p;
+    Program *cached = find_cached_program(vs, ps, bgra_mask); if (cached) return cached;
     if (G.nprogs >= MAX_PROGRAMS) { D3DGL_LOG("program cache full"); return NULL; }
     Program *p = (Program *)calloc(1, sizeof(Program)); if (!p) return NULL;
     char *vsrc = build_vs_source(vs, ps, bgra_mask);
@@ -180,15 +226,23 @@ static Program *get_program(Shader *vs, Shader *ps, uint32_t bgra_mask)
     p->prog = glCreateProgram(); glAttachShader(p->prog, v); glAttachShader(p->prog, f); glLinkProgram(p->prog);
     glDeleteShader(v); glDeleteShader(f);
     GLint ok = 0; glGetProgramiv(p->prog, GL_LINK_STATUS, &ok);
-    if (!ok) { char log[2048]; glGetProgramInfoLog(p->prog, sizeof(log), NULL, log); D3DGL_LOG("program link failed: %s", log); glDeleteProgram(p->prog); free(p); return NULL; }
+    if (!ok) {
+        char log[2048]; glGetProgramInfoLog(p->prog, sizeof(log), NULL, log);
+        D3DGL_LOG("program link failed: %s", log);
+#ifdef __ANDROID__
+        static unsigned reports;
+        if (reports++ < 20) fprintf(stderr, "[d3d11gles] program link failed: %s\n", log);
+#endif
+        glDeleteProgram(p->prog); free(p); return NULL;
+    }
     p->vs = vs; p->ps = ps; p->n_vs = vs->r.n_samplers; p->n_ps = ps->r.n_samplers; p->bgra = bgra_mask; p->ps_unit0 = vs->r.n_samplers;
     if (p->n_vs + p->n_ps > G.max_units) D3DGL_LOG("shader pair needs %d texture units, device has %d", p->n_vs + p->n_ps, G.max_units);
-    glUseProgram(p->prog);
+    use_renderer_program(p->prog);
     for (int i = 0; i < vs->r.n_cbufs; ++i) { GLuint idx = glGetUniformBlockIndex(p->prog, vs->r.cbufs[i].name); if (idx != GL_INVALID_INDEX) glUniformBlockBinding(p->prog, idx, vs->r.cbufs[i].slot); }
     for (int i = 0; i < ps->r.n_cbufs; ++i) { GLuint idx = glGetUniformBlockIndex(p->prog, ps->r.cbufs[i].name); if (idx != GL_INVALID_INDEX) glUniformBlockBinding(p->prog, idx, 16u + ps->r.cbufs[i].slot); }
     for (int i = 0; i < vs->r.n_samplers; ++i) { GLint l = glGetUniformLocation(p->prog, vs->r.samplers[i].name); if (l >= 0) glUniform1i(l, vs->r.samplers[i].unit); }
     for (int i = 0; i < ps->r.n_samplers; ++i) { GLint l = glGetUniformLocation(p->prog, ps->r.samplers[i].name); if (l >= 0) glUniform1i(l, p->ps_unit0 + ps->r.samplers[i].unit); }
-    G.progs[G.nprogs].vs = vs; G.progs[G.nprogs].ps = ps; G.progs[G.nprogs].p = p; G.nprogs++;
+    G.progs[G.nprogs].vs = vs; G.progs[G.nprogs].ps = ps; G.progs[G.nprogs].p = p; G.nprogs++; G.last_program = G.nprogs;
     REF(vs); REF(ps);
     return p;
 }
@@ -221,7 +275,16 @@ void d3dgl_Ctx_RSSetState(ID3D11DeviceContext *c, ID3D11RasterizerState *s) { SE
 void d3dgl_Ctx_RSGetState(ID3D11DeviceContext *c, ID3D11RasterizerState **s) { *s = (ID3D11RasterizerState *)((Ctx *)c)->rs; REF(*s); }
 void d3dgl_Ctx_RSSetScissorRects(ID3D11DeviceContext *c, UINT n, const D3D11_RECT *r) { Ctx *x = (Ctx *)c; x->nsc = n > MAX_VP ? MAX_VP : n; for (UINT i = 0; i < x->nsc; ++i) x->sc[i] = r[i]; }
 void d3dgl_Ctx_OMSetRenderTargets(ID3D11DeviceContext *c, UINT n, ID3D11RenderTargetView *const *r, ID3D11DepthStencilView *d)
-{ Ctx *x = (Ctx *)c; for (UINT i = 0; i < MAX_RT; ++i) SETREF(x->rtv[i], (i < n && r) ? r[i] : NULL); SETREF(x->dsv, d); G.fbo_dirty = 1; }
+{
+    Ctx *x = (Ctx *)c; int changed = x->dsv != (View *)d;
+    for (UINT i = 0; i < MAX_RT; ++i) {
+        ID3D11RenderTargetView *next = (i < n && r) ? r[i] : NULL;
+        if (x->rtv[i] != (View *)next) changed = 1;
+        SETREF(x->rtv[i], next);
+    }
+    SETREF(x->dsv, d);
+    if (changed) G.fbo_dirty = 1;
+}
 void d3dgl_Ctx_OMGetRenderTargets(ID3D11DeviceContext *c, UINT n, ID3D11RenderTargetView **r, ID3D11DepthStencilView **d)
 { Ctx *x = (Ctx *)c; for (UINT i = 0; i < n && r; ++i) { r[i] = (i < MAX_RT) ? (ID3D11RenderTargetView *)x->rtv[i] : NULL; REF(r[i]); } if (d) { *d = (ID3D11DepthStencilView *)x->dsv; REF(*d); } }
 void d3dgl_Ctx_OMSetBlendState(ID3D11DeviceContext *c, ID3D11BlendState *b, const FLOAT *f, UINT m)
@@ -232,63 +295,186 @@ void d3dgl_Ctx_OMSetDepthStencilState(ID3D11DeviceContext *c, ID3D11DepthStencil
 void d3dgl_Ctx_OMGetDepthStencilState(ID3D11DeviceContext *c, ID3D11DepthStencilState **s, UINT *ref) { Ctx *x = (Ctx *)c; *s = (ID3D11DepthStencilState *)x->dss; REF(*s); if (ref) *ref = x->stencil_ref; }
 void d3dgl_Ctx_Flush(ID3D11DeviceContext *c) { (void)c; glFlush(); }
 
+/* Only applied GL state is cached; D3D context setters still update their
+ * full state and own references normally. Clears, blits and presentation can
+ * change GL state behind the context, so invalidate_att also invalidates it. */
+typedef struct {
+    D3D11_VIEWPORT vp;
+    D3D11_RECT sc;
+    D3D11_RASTERIZER_DESC rs;
+    D3D11_DEPTH_STENCIL_DESC ds;
+    D3D11_BLEND_DESC blend;
+    FLOAT blend_factor[4];
+    UINT stencil_ref;
+    int has_rs, has_ds, has_blend, has_sc;
+} DrawStateKey;
+static DrawStateKey applied_draw_state;
+static int applied_draw_state_valid;
+
 /* ---- framebuffer binding -------------------------------------------------------------------------------------------- */
 static void att_set(GLuint fbo_target, GLenum point, int slot, const View *v)
 {
     GLuint tex = 0, target = GL_TEXTURE_2D; GLint lvl = 0;
     if (v && v->tex) { tex = v->tex->tex; target = v->tex->cube ? GL_TEXTURE_CUBE_MAP_POSITIVE_X : GL_TEXTURE_2D; lvl = v->mip; }
     if (G.att_tex[slot] == tex && G.att_level[slot] == lvl && G.att_target[slot] == target) return;
-    glFramebufferTexture2D(fbo_target, point, target, tex, lvl); G.att_tex[slot] = tex; G.att_target[slot] = target; G.att_level[slot] = lvl;
+    PERF_ATTACHMENT(); glFramebufferTexture2D(fbo_target, point, target, tex, lvl); G.att_tex[slot] = tex; G.att_target[slot] = target; G.att_level[slot] = lvl;
 }
-static void bind_ctx_fbo(Ctx *c, int *w, int *h)
+static void bind_ctx_fbo_uncached(Ctx *c, int *w, int *h)
 {
-    glBindFramebuffer(GL_FRAMEBUFFER, G.fbo);
-    GLenum bufs[MAX_RT]; int last = -1;
-    for (int i = 0; i < MAX_RT; ++i) { att_set(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + (GLenum)i, i, c->rtv[i]); bufs[i] = c->rtv[i] ? GL_COLOR_ATTACHMENT0 + (GLenum)i : GL_NONE; if (c->rtv[i]) last = i; }
+    /* Only the draw framebuffer matters here; readback binds READ separately.
+     * Clears, copies and host presentation invalidate this shortcut. */
+    if (!G.fbo_dirty && G.fbo_ctx == c) {
+        *w = G.fbo_width; *h = G.fbo_height; return;
+    }
+    PERF_FBO_REBIND(); glBindFramebuffer(GL_FRAMEBUFFER, G.fbo);
+    GLenum bufs[MAX_RT]; int last = -1; unsigned mask = 0;
+    for (int i = 0; i < MAX_RT; ++i) { att_set(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + (GLenum)i, i, c->rtv[i]); bufs[i] = c->rtv[i] ? GL_COLOR_ATTACHMENT0 + (GLenum)i : GL_NONE; if (c->rtv[i]) { last = i; mask |= 1u << i; } }
     const Fmt *df = c->dsv ? c->dsv->tex->fmt : NULL;
     if (df && df->stencil) { att_set(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, MAX_RT, c->dsv); }
     else {
         /* depth-only or none: make sure a previous depth-stencil attachment is cleared out */
-        if (G.att_tex[MAX_RT] && !df) { glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D, 0, 0); G.att_tex[MAX_RT] = 0; }
+        if (G.att_tex[MAX_RT] && !df) { PERF_ATTACHMENT(); glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D, 0, 0); G.att_tex[MAX_RT] = 0; }
         else if (df) att_set(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, MAX_RT, c->dsv);
     }
-    if (last < 0) { GLenum none = GL_NONE; glDrawBuffers(1, &none); } else glDrawBuffers(last + 1, bufs);
+    if (!G.draw_buffers_valid || G.draw_buffer_mask != mask) {
+        if (last < 0) { GLenum none = GL_NONE; glDrawBuffers(1, &none); } else glDrawBuffers(last + 1, bufs);
+        G.draw_buffer_mask = mask; G.draw_buffers_valid = 1;
+    }
     const View *ref = c->rtv[0] ? c->rtv[0] : c->dsv; UINT mw = 0, mh = 0;
     if (ref) { mw = dimu(ref->tex->d.Width, (UINT)ref->mip); mh = dimu(ref->tex->d.Height, (UINT)ref->mip); }
-    *w = (int)mw; *h = (int)mh; G.fbo_dirty = 0;
+    *w = G.fbo_width = (int)mw; *h = G.fbo_height = (int)mh;
+    G.fbo_ctx = c; G.fbo_dirty = 0;
 }
-static void invalidate_att(void) { memset(G.att_tex, 0, sizeof(G.att_tex)); memset(G.att_target, 0, sizeof(G.att_target)); memset(G.att_level, 0, sizeof(G.att_level)); G.fbo_dirty = 1; }
+/* Draw FBOs are immutable once configured. Switching between recurring
+ * render targets then binds an existing FBO instead of repeatedly changing
+ * attachments on the same object (expensive on tile-based mobile GPUs).
+ * Clear/copy/present continue to use separate scratch FBOs. */
+static void invalidate_draw_fbos_for_texture(GLuint tex)
+{
+    if (!tex) return;
+    for (unsigned i = 0; i < DRAW_FBO_CACHE_SIZE; ++i) {
+        DrawFboEntry *e = &G.draw_fbos[i];
+        if (!e->fbo) continue;
+        for (int j = 0; j <= MAX_RT; ++j) {
+            if (e->key.att[j].tex == tex) {
+                glDeleteFramebuffers(1, &e->fbo);
+                memset(e, 0, sizeof(*e));
+                G.fbo_dirty = 1; G.fbo_ctx = NULL;
+                break;
+            }
+        }
+    }
+}
+static void bind_ctx_fbo(Ctx *c, int *w, int *h)
+{
+    if (!G.fbo_dirty && G.fbo_ctx == c) { *w = G.fbo_width; *h = G.fbo_height; return; }
+    DrawFboKey key; memset(&key, 0, sizeof(key));
+    for (int i = 0; i <= MAX_RT; ++i) {
+        const View *v = i == MAX_RT ? c->dsv : c->rtv[i];
+        if (v && v->tex && v->tex->tex) {
+            key.att[i].tex = v->tex->tex;
+            key.att[i].target = v->tex->cube ? GL_TEXTURE_CUBE_MAP_POSITIVE_X : GL_TEXTURE_2D;
+            key.att[i].mip = v->mip;
+        }
+    }
+    if (c->dsv) key.depth_point = c->dsv->tex->fmt->stencil ? GL_DEPTH_STENCIL_ATTACHMENT : GL_DEPTH_ATTACHMENT;
+    DrawFboEntry *entry = NULL;
+    for (unsigned i = 0; i < DRAW_FBO_CACHE_SIZE; ++i) {
+        if (G.draw_fbos[i].fbo && memcmp(&G.draw_fbos[i].key, &key, sizeof(key)) == 0) {
+            entry = &G.draw_fbos[i]; break;
+        }
+    }
+    if (!entry) {
+        entry = &G.draw_fbos[G.draw_fbo_next++ % DRAW_FBO_CACHE_SIZE];
+        if (entry->fbo) glDeleteFramebuffers(1, &entry->fbo);
+        memset(entry, 0, sizeof(*entry));
+        glGenFramebuffers(1, &entry->fbo);
+        if (!entry->fbo) { bind_ctx_fbo_uncached(c, w, h); return; }
+        entry->key = key;
+        PERF_FBO_REBIND(); glBindFramebuffer(GL_FRAMEBUFFER, entry->fbo);
+        GLenum bufs[MAX_RT]; int last = -1;
+        for (int i = 0; i < MAX_RT; ++i) {
+            const DrawFboAttachment *a = &key.att[i];
+            bufs[i] = a->tex ? GL_COLOR_ATTACHMENT0 + (GLenum)i : GL_NONE;
+            if (a->tex) { PERF_ATTACHMENT(); glFramebufferTexture2D(GL_FRAMEBUFFER, bufs[i], a->target, a->tex, a->mip); last = i; }
+        }
+        const DrawFboAttachment *depth = &key.att[MAX_RT];
+        if (depth->tex) { PERF_ATTACHMENT(); glFramebufferTexture2D(GL_FRAMEBUFFER, key.depth_point, depth->target, depth->tex, depth->mip); }
+        if (last < 0) { GLenum none = GL_NONE; glDrawBuffers(1, &none); }
+        else glDrawBuffers(last + 1, bufs);
+    } else {
+        PERF_FBO_REBIND(); glBindFramebuffer(GL_FRAMEBUFFER, entry->fbo);
+    }
+    const View *ref = c->rtv[0] ? c->rtv[0] : c->dsv;
+    *w = G.fbo_width = ref ? (int)dimu(ref->tex->d.Width, (UINT)ref->mip) : 0;
+    *h = G.fbo_height = ref ? (int)dimu(ref->tex->d.Height, (UINT)ref->mip) : 0;
+    G.fbo_ctx = c; G.fbo_dirty = 0;
+}
+static void invalidate_att(void) { memset(G.att_tex, 0, sizeof(G.att_tex)); memset(G.att_target, 0, sizeof(G.att_target)); memset(G.att_level, 0, sizeof(G.att_level)); G.fbo_dirty = 1; G.draw_buffers_valid = 0; G.program_valid = 0; G.vao_bound = 0; G.uniform_valid = 0; G.copy_write_valid = 0; invalidate_texture_bindings(); applied_draw_state_valid = 0; }
 
 /* ---- state application + draw --------------------------------------------------------------------------------------------- */
 static void apply_state(Ctx *c, int rt_w, int rt_h)
 {
     const D3D11_RASTERIZER_DESC *rs = c->rs ? &c->rs->u.rs : NULL;
     D3D11_VIEWPORT vp = c->nvp ? c->vp[0] : (D3D11_VIEWPORT){ 0, 0, (FLOAT)rt_w, (FLOAT)rt_h, 0.f, 1.f };
-    glViewport((GLint)vp.TopLeftX, (GLint)vp.TopLeftY, (GLsizei)vp.Width, (GLsizei)vp.Height); glDepthRangef(vp.MinDepth, vp.MaxDepth);
-    if (rs && rs->ScissorEnable && c->nsc) { glEnable(GL_SCISSOR_TEST); glScissor(c->sc[0].left, c->sc[0].top, c->sc[0].right - c->sc[0].left, c->sc[0].bottom - c->sc[0].top); }
-    else glDisable(GL_SCISSOR_TEST);
-    /* Rendering is vertically flipped (see hlsl2glsl.h), so D3D's clockwise front face is GL's counter-clockwise. */
-    glFrontFace(rs && rs->FrontCounterClockwise ? GL_CW : GL_CCW);
-    if (!rs || rs->CullMode == D3D11_CULL_NONE) glDisable(GL_CULL_FACE); else { glEnable(GL_CULL_FACE); glCullFace(rs->CullMode == D3D11_CULL_FRONT ? GL_FRONT : GL_BACK); }
-    if (rs && (rs->DepthBias || rs->SlopeScaledDepthBias != 0.f)) { glEnable(GL_POLYGON_OFFSET_FILL); glPolygonOffset(rs->SlopeScaledDepthBias, (GLfloat)rs->DepthBias); } else glDisable(GL_POLYGON_OFFSET_FILL);
-    const D3D11_DEPTH_STENCIL_DESC *ds = c->dss ? &c->dss->u.ds : NULL;
-    if (ds && ds->DepthEnable) { glEnable(GL_DEPTH_TEST); glDepthFunc(cmp_func(ds->DepthFunc)); glDepthMask(ds->DepthWriteMask == D3D11_DEPTH_WRITE_MASK_ALL ? GL_TRUE : GL_FALSE); }
-    else { glDisable(GL_DEPTH_TEST); glDepthMask(GL_FALSE); }
-    if (ds && ds->StencilEnable) {
-        glEnable(GL_STENCIL_TEST);
-        glStencilFuncSeparate(GL_FRONT, cmp_func(ds->FrontFace.StencilFunc), (GLint)c->stencil_ref, ds->StencilReadMask);
-        glStencilFuncSeparate(GL_BACK, cmp_func(ds->BackFace.StencilFunc), (GLint)c->stencil_ref, ds->StencilReadMask);
-        glStencilOpSeparate(GL_FRONT, stencil_op(ds->FrontFace.StencilFailOp), stencil_op(ds->FrontFace.StencilDepthFailOp), stencil_op(ds->FrontFace.StencilPassOp));
-        glStencilOpSeparate(GL_BACK, stencil_op(ds->BackFace.StencilFailOp), stencil_op(ds->BackFace.StencilDepthFailOp), stencil_op(ds->BackFace.StencilPassOp));
-        glStencilMaskSeparate(GL_FRONT_AND_BACK, ds->StencilWriteMask);
-    } else glDisable(GL_STENCIL_TEST);
-    const D3D11_BLEND_DESC *bs = c->blend ? &c->blend->u.blend : NULL; const D3D11_RENDER_TARGET_BLEND_DESC *b0 = bs ? &bs->RenderTarget[0] : NULL;
-    if (b0 && b0->BlendEnable) {
-        glEnable(GL_BLEND); glBlendFuncSeparate(blend_factor(b0->SrcBlend), blend_factor(b0->DestBlend), blend_factor(b0->SrcBlendAlpha), blend_factor(b0->DestBlendAlpha));
-        glBlendEquationSeparate(blend_op(b0->BlendOp), blend_op(b0->BlendOpAlpha)); glBlendColor(c->blend_factor[0], c->blend_factor[1], c->blend_factor[2], c->blend_factor[3]);
-    } else glDisable(GL_BLEND);
-    unsigned m = b0 ? b0->RenderTargetWriteMask : 15u; glColorMask((m & 1) != 0, (m & 2) != 0, (m & 4) != 0, (m & 8) != 0);
-    if (bs && bs->AlphaToCoverageEnable) glEnable(GL_SAMPLE_ALPHA_TO_COVERAGE); else glDisable(GL_SAMPLE_ALPHA_TO_COVERAGE);
+    DrawStateKey key;
+    memset(&key, 0, sizeof(key));
+    key.vp = vp;
+    key.has_sc = c->nsc != 0;
+    if (key.has_sc) key.sc = c->sc[0];
+    key.has_rs = c->rs != NULL; if (key.has_rs) key.rs = c->rs->u.rs;
+    key.has_ds = c->dss != NULL; if (key.has_ds) key.ds = c->dss->u.ds;
+    key.has_blend = c->blend != NULL; if (key.has_blend) key.blend = c->blend->u.blend;
+    memcpy(key.blend_factor, c->blend_factor, sizeof(key.blend_factor));
+    key.stencil_ref = c->stencil_ref;
+    if (applied_draw_state_valid && memcmp(&key, &applied_draw_state, sizeof(key)) == 0) return;
+    int viewport_changed = !applied_draw_state_valid ||
+        memcmp(&key.vp, &applied_draw_state.vp, sizeof(key.vp)) != 0;
+    int raster_changed = !applied_draw_state_valid ||
+        key.has_rs != applied_draw_state.has_rs || key.has_sc != applied_draw_state.has_sc ||
+        memcmp(&key.rs, &applied_draw_state.rs, sizeof(key.rs)) != 0 ||
+        memcmp(&key.sc, &applied_draw_state.sc, sizeof(key.sc)) != 0;
+    int depth_changed = !applied_draw_state_valid ||
+        key.has_ds != applied_draw_state.has_ds || key.stencil_ref != applied_draw_state.stencil_ref ||
+        memcmp(&key.ds, &applied_draw_state.ds, sizeof(key.ds)) != 0;
+    int blend_changed = !applied_draw_state_valid ||
+        key.has_blend != applied_draw_state.has_blend ||
+        memcmp(&key.blend, &applied_draw_state.blend, sizeof(key.blend)) != 0 ||
+        memcmp(key.blend_factor, applied_draw_state.blend_factor, sizeof(key.blend_factor)) != 0;
+    applied_draw_state = key;
+    applied_draw_state_valid = 1;
+    PERF_STATE_APPLY();
+    if (viewport_changed) { glViewport((GLint)vp.TopLeftX, (GLint)vp.TopLeftY, (GLsizei)vp.Width, (GLsizei)vp.Height); glDepthRangef(vp.MinDepth, vp.MaxDepth); }
+    if (raster_changed) {
+        if (rs && rs->ScissorEnable && c->nsc) { glEnable(GL_SCISSOR_TEST); glScissor(c->sc[0].left, c->sc[0].top, c->sc[0].right - c->sc[0].left, c->sc[0].bottom - c->sc[0].top); }
+        else glDisable(GL_SCISSOR_TEST);
+        /* Rendering is vertically flipped (see hlsl2glsl.h), so D3D's clockwise front face is GL's counter-clockwise. */
+        glFrontFace(rs && rs->FrontCounterClockwise ? GL_CW : GL_CCW);
+        if (!rs || rs->CullMode == D3D11_CULL_NONE) glDisable(GL_CULL_FACE); else { glEnable(GL_CULL_FACE); glCullFace(rs->CullMode == D3D11_CULL_FRONT ? GL_FRONT : GL_BACK); }
+        if (rs && (rs->DepthBias || rs->SlopeScaledDepthBias != 0.f)) { glEnable(GL_POLYGON_OFFSET_FILL); glPolygonOffset(rs->SlopeScaledDepthBias, (GLfloat)rs->DepthBias); } else glDisable(GL_POLYGON_OFFSET_FILL);
+    }
+    if (depth_changed) {
+        const D3D11_DEPTH_STENCIL_DESC *ds = c->dss ? &c->dss->u.ds : NULL;
+        if (ds && ds->DepthEnable) { glEnable(GL_DEPTH_TEST); glDepthFunc(cmp_func(ds->DepthFunc)); glDepthMask(ds->DepthWriteMask == D3D11_DEPTH_WRITE_MASK_ALL ? GL_TRUE : GL_FALSE); }
+        else { glDisable(GL_DEPTH_TEST); glDepthMask(GL_FALSE); }
+        if (ds && ds->StencilEnable) {
+            glEnable(GL_STENCIL_TEST);
+            glStencilFuncSeparate(GL_FRONT, cmp_func(ds->FrontFace.StencilFunc), (GLint)c->stencil_ref, ds->StencilReadMask);
+            glStencilFuncSeparate(GL_BACK, cmp_func(ds->BackFace.StencilFunc), (GLint)c->stencil_ref, ds->StencilReadMask);
+            glStencilOpSeparate(GL_FRONT, stencil_op(ds->FrontFace.StencilFailOp), stencil_op(ds->FrontFace.StencilDepthFailOp), stencil_op(ds->FrontFace.StencilPassOp));
+            glStencilOpSeparate(GL_BACK, stencil_op(ds->BackFace.StencilFailOp), stencil_op(ds->BackFace.StencilDepthFailOp), stencil_op(ds->BackFace.StencilPassOp));
+            glStencilMaskSeparate(GL_FRONT_AND_BACK, ds->StencilWriteMask);
+        } else glDisable(GL_STENCIL_TEST);
+    }
+    if (blend_changed) {
+        const D3D11_BLEND_DESC *bs = c->blend ? &c->blend->u.blend : NULL; const D3D11_RENDER_TARGET_BLEND_DESC *b0 = bs ? &bs->RenderTarget[0] : NULL;
+        if (b0 && b0->BlendEnable) {
+            glEnable(GL_BLEND); glBlendFuncSeparate(blend_factor(b0->SrcBlend), blend_factor(b0->DestBlend), blend_factor(b0->SrcBlendAlpha), blend_factor(b0->DestBlendAlpha));
+            glBlendEquationSeparate(blend_op(b0->BlendOp), blend_op(b0->BlendOpAlpha)); glBlendColor(c->blend_factor[0], c->blend_factor[1], c->blend_factor[2], c->blend_factor[3]);
+        } else glDisable(GL_BLEND);
+        unsigned m = b0 ? b0->RenderTargetWriteMask : 15u; glColorMask((m & 1) != 0, (m & 2) != 0, (m & 4) != 0, (m & 8) != 0);
+        if (bs && bs->AlphaToCoverageEnable) glEnable(GL_SAMPLE_ALPHA_TO_COVERAGE); else glDisable(GL_SAMPLE_ALPHA_TO_COVERAGE);
+    }
 }
 
 static void bind_resources(Ctx *c, Program *p)
@@ -300,15 +486,20 @@ static void bind_resources(Ctx *c, Program *p)
             const HlslSamplerUse *u = &s->r.samplers[i]; GLuint unit = (GLuint)(unit0 + u->unit);
             View *v = u->tex_slot < MAX_TEXSLOT ? srv[u->tex_slot] : NULL; Tex *t = v ? v->tex : NULL;
             GLenum target = u->dim == HLSL_DIM_CUBE ? GL_TEXTURE_CUBE_MAP : GL_TEXTURE_2D;
-            glActiveTexture(GL_TEXTURE0 + unit); glBindTexture(target, (t && !t->staging) ? t->tex : 0);
+            bind_texture_unit(unit, target, (t && !t->staging) ? t->tex : 0);
             Sampler *sm = (u->samp_slot != HLSL_NO_SLOT && u->samp_slot < MAX_TEXSLOT) ? smp[u->samp_slot] : NULL;
             int force_point = !sm || !t || t->fmt->depth || t->fmt->integer || u->samp_slot == HLSL_NO_SLOT;
-            glBindSampler(unit, (sm && !force_point) ? sm->gl : (sm ? sm->gl_point : 0));
-            if (force_point && !sm) { /* no sampler bound: texture's own (default) parameters apply, force nearest */
-                glBindSampler(unit, 0); if (t && !t->staging) { glTexParameteri(target, GL_TEXTURE_MIN_FILTER, GL_NEAREST); glTexParameteri(target, GL_TEXTURE_MAG_FILTER, GL_NEAREST); } }
+            bind_sampler_unit(unit, (sm && !force_point) ? sm->gl : (sm ? sm->gl_point : 0));
+            if (force_point && !sm && t && !t->staging && !t->point_params) {
+                /* No sampler: configure the texture object once, not per draw. */
+                activate_texture_unit(unit);
+                glTexParameteri(target, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+                glTexParameteri(target, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+                t->point_params = 1;
+            }
         }
         Buf **cbs = stage ? c->cb_ps : c->cb_vs;
-        for (int i = 0; i < s->r.n_cbufs; ++i) { UINT slot = s->r.cbufs[i].slot; glBindBufferBase(GL_UNIFORM_BUFFER, (stage ? 16u : 0u) + slot, (slot < MAX_CB && cbs[slot]) ? cbs[slot]->buf : 0); }
+        for (int i = 0; i < s->r.n_cbufs; ++i) { UINT slot = s->r.cbufs[i].slot; bind_uniform_buffer((stage ? 16u : 0u) + slot, (slot < MAX_CB && cbs[slot]) ? cbs[slot]->buf : 0); }
     }
 }
 
@@ -331,27 +522,36 @@ static UINT vertex_fmt_bytes(DXGI_FORMAT f) { VFmt v; if (!vertex_fmt(f, &v)) re
 
 static int prepare_draw(Ctx *c, int base_vertex, Program **out_prog)
 {
-    if (!c->vs || !c->ps || !c->vs->glsl || !c->ps->glsl || !c->layout) return 0;
-    uint32_t bgra = 0; Layout *L = c->layout;
-    for (int i = 0; i < L->n; ++i) if (L->el[i].Format == DXGI_FORMAT_B8G8R8A8_UNORM && L->loc[i] >= 0) bgra |= 1u << L->loc[i];
-    Program *p = get_program(c->vs, c->ps, bgra); if (!p) return 0;
-    int w = 0, h = 0; bind_ctx_fbo(c, &w, &h); apply_state(c, w, h);
-    glUseProgram(p->prog); bind_resources(c, p);
-    glBindVertexArray(G.vao); UINT running[MAX_VB] = { 0 }; uint32_t used = 0;
-    for (int i = 0; i < L->n; ++i) {
+    if (!c->vs || !c->ps || !c->vs->glsl || !c->ps->glsl) return 0;
+    /* Full-screen resolve/depth-alias shaders synthesize positions from
+     * SV_VertexID and intentionally bind no input layout. Reject only a
+     * missing layout for shaders that actually need vertex attributes. */
+    Layout *L = c->layout;
+    if (!L && c->vs->r.n_inputs != 0) return 0;
+    uint32_t bgra = 0;
+    for (int i = 0; L && i < L->n; ++i) if (L->el[i].Format == DXGI_FORMAT_B8G8R8A8_UNORM && L->loc[i] >= 0) bgra |= 1u << L->loc[i];
+    Program *p; { PERF_BEGIN(program); p = get_program(c->vs, c->ps, bgra); PERF_END(program); } if (!p) return 0;
+    int w = 0, h = 0; { PERF_BEGIN(fbstate); { PERF_BEGIN(fbo); bind_ctx_fbo(c, &w, &h); PERF_END(fbo); } { PERF_BEGIN(state); apply_state(c, w, h); PERF_END(state); } PERF_END(fbstate); }
+    { PERF_BEGIN(resources); use_renderer_program(p->prog); bind_resources(c, p); PERF_END(resources); }
+    { PERF_BEGIN(vertex); bind_renderer_vao(); UINT running[MAX_VB] = { 0 }; uint32_t used = 0;
+    GLuint array_buffer = 0; int array_buffer_valid = 0;
+    for (int i = 0; L && i < L->n; ++i) {
         const D3D11_INPUT_ELEMENT_DESC *e = &L->el[i]; if (e->InputSlot >= MAX_VB) continue;
         UINT off = e->AlignedByteOffset == 0xFFFFFFFFu ? running[e->InputSlot] : e->AlignedByteOffset; running[e->InputSlot] = off + vertex_fmt_bytes(e->Format);
         if (L->loc[i] < 0) continue; VBind *vb = &c->vb[e->InputSlot]; VFmt f; if (!vb->b || !vertex_fmt(e->Format, &f)) continue;
         GLuint loc = (GLuint)L->loc[i]; int shader_int = 0;
         for (int a = 0; a < p->vs->r.n_inputs; ++a) if (p->vs->r.inputs[a].location == loc) shader_int = p->vs->r.inputs[a].base != HLSL_BASE_FLOAT;
-        glBindBuffer(GL_ARRAY_BUFFER, vb->b->buf);
+        if (!array_buffer_valid || array_buffer != vb->b->buf) {
+            glBindBuffer(GL_ARRAY_BUFFER, vb->b->buf);
+            array_buffer = vb->b->buf; array_buffer_valid = 1;
+        }
         const void *ptr = (const void *)(uintptr_t)((size_t)vb->offset + off + (size_t)(base_vertex > 0 ? base_vertex : 0) * vb->stride);
         if (shader_int && f.is_int) glVertexAttribIPointer(loc, f.size, f.type, (GLsizei)vb->stride, ptr);
         else glVertexAttribPointer(loc, f.size, f.type, f.norm, (GLsizei)vb->stride, ptr);
-        glVertexAttribDivisor(loc, e->InputSlotClass == D3D11_INPUT_PER_INSTANCE_DATA ? (e->InstanceDataStepRate ? e->InstanceDataStepRate : 1u) : 0u);
-        glEnableVertexAttribArray(loc); used |= 1u << loc;
+        sync_vertex_divisor(loc, e->InputSlotClass == D3D11_INPUT_PER_INSTANCE_DATA ? (e->InstanceDataStepRate ? e->InstanceDataStepRate : 1u) : 0u, &G.divisor_valid, G.attrib_divisors);
+        used |= 1u << loc;
     }
-    for (GLuint a = 0; a < 16; ++a) if (!(used & (1u << a))) { glDisableVertexAttribArray(a); glVertexAttrib4f(a, 0.f, 0.f, 0.f, 1.f); }
+    sync_vertex_attribs(used, &G.enabled_attribs, &G.attribs_initialized); PERF_END(vertex); }
     *out_prog = p; return 1;
 }
 static GLenum gl_topology(D3D11_PRIMITIVE_TOPOLOGY t)
@@ -360,16 +560,29 @@ static GLenum gl_topology(D3D11_PRIMITIVE_TOPOLOGY t)
 
 void d3dgl_Ctx_Draw(ID3D11DeviceContext *cx, UINT count, UINT start)
 {
-    Ctx *c = (Ctx *)cx; Program *p; if (!prepare_draw(c, 0, &p)) return;
-    glDrawArrays(gl_topology(c->topo), (GLint)start, (GLsizei)count); gl_check("Draw");
+    if (draw_limit_skip()) return;
+    PERF_BEGIN(draw);
+    Ctx *c = (Ctx *)cx; Program *p; int ready;
+    { PERF_BEGIN(drawprep); ready = prepare_draw(c, 0, &p); PERF_END(drawprep); }
+    if (!ready) { PERF_END(draw); return; }
+    draw_limit_record();
+    PERF_DRAW_WORK(count, 0, !c->layout && c->vs->r.n_inputs == 0, c->topo);
+    { PERF_BEGIN(issue); glDrawArrays(gl_topology(c->topo), (GLint)start, (GLsizei)count); PERF_END(issue); }
+    gl_check_hot("Draw"); PERF_END(draw);
 }
 void d3dgl_Ctx_DrawIndexed(ID3D11DeviceContext *cx, UINT count, UINT start, INT base)
 {
-    Ctx *c = (Ctx *)cx; Program *p; if (!c->ib || !prepare_draw(c, base, &p)) return;
-    int wide = c->ib_fmt == DXGI_FORMAT_R32_UINT; glBindVertexArray(G.vao); glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, c->ib->buf);
+    if (draw_limit_skip()) return;
+    PERF_BEGIN(draw);
+    Ctx *c = (Ctx *)cx; Program *p; int ready;
+    { PERF_BEGIN(drawprep); ready = c->ib && prepare_draw(c, base, &p); PERF_END(drawprep); }
+    if (!ready) { PERF_END(draw); return; }
+    int wide = c->ib_fmt == DXGI_FORMAT_R32_UINT; bind_renderer_vao(); glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, c->ib->buf);
     glEnable(GL_PRIMITIVE_RESTART_FIXED_INDEX);
-    glDrawElements(gl_topology(c->topo), (GLsizei)count, wide ? GL_UNSIGNED_INT : GL_UNSIGNED_SHORT, (const void *)(uintptr_t)((size_t)c->ib_off + (size_t)start * (wide ? 4 : 2)));
-    gl_check("DrawIndexed");
+    draw_limit_record();
+    PERF_DRAW_WORK(count, 1, !c->layout && c->vs->r.n_inputs == 0, c->topo);
+    { PERF_BEGIN(issue); glDrawElements(gl_topology(c->topo), (GLsizei)count, wide ? GL_UNSIGNED_INT : GL_UNSIGNED_SHORT, (const void *)(uintptr_t)((size_t)c->ib_off + (size_t)start * (wide ? 4 : 2))); PERF_END(issue); }
+    gl_check_hot("DrawIndexed"); PERF_END(draw);
 }
 
 /* ---- clears -------------------------------------------------------------------------------------------------------------------- */
@@ -400,7 +613,7 @@ void d3dgl_Ctx_CopySubresourceRegion(ID3D11DeviceContext *cx, ID3D11Resource *ds
     (void)cx; (void)dz; Obj *d = (Obj *)dst, *s = (Obj *)src; if (!d || !s) return;
     if (d->kind == K_BUFFER && s->kind == K_BUFFER) {
         Buf *db = (Buf *)d, *sb = (Buf *)s; UINT so = box ? box->left : 0, n = box ? box->right - box->left : sb->d.ByteWidth;
-        glBindBuffer(GL_COPY_READ_BUFFER, sb->buf); glBindBuffer(GL_COPY_WRITE_BUFFER, db->buf);
+        glBindBuffer(GL_COPY_READ_BUFFER, sb->buf); bind_copy_write_buffer(db->buf);
         glCopyBufferSubData(GL_COPY_READ_BUFFER, GL_COPY_WRITE_BUFFER, (GLintptr)so, (GLintptr)dx, (GLsizeiptr)n); gl_check("CopyBuffer"); return;
     }
     if (d->kind != K_TEX || s->kind != K_TEX) return;
@@ -409,12 +622,15 @@ void d3dgl_Ctx_CopySubresourceRegion(ID3D11DeviceContext *cx, ID3D11Resource *ds
     if (st->staging && dt->staging) {                                                   /* CPU -> CPU */
         UINT sp = d3d_row_bytes(st->fmt, sw), rows = d3d_rows(st->fmt, h);
         UINT dw; sub_info(dt, dsub, &dw, NULL, NULL, NULL); UINT dp = d3d_row_bytes(dt->fmt, dw);
-        for (UINT r = 0; r < rows; ++r) memcpy(dt->cpu[dsub] + (size_t)(dy + r) * dp + d3d_row_bytes(dt->fmt, dx), st->cpu[ssub] + (size_t)(y0 + r) * sp + d3d_row_bytes(st->fmt, x0), d3d_row_bytes(st->fmt, w));
+        UINT src_block_height = is_bc(st->fmt) ? 4u : 1u;
+        UINT dst_block_height = is_bc(dt->fmt) ? 4u : 1u;
+        for (UINT r = 0; r < rows; ++r) memcpy(dt->cpu[dsub] + (size_t)(dy / dst_block_height + r) * dp + d3d_row_bytes(dt->fmt, dx), st->cpu[ssub] + (size_t)(y0 / src_block_height + r) * sp + d3d_row_bytes(st->fmt, x0), d3d_row_bytes(st->fmt, w));
         return;
     }
     if (st->staging) {                                                                  /* CPU -> GPU */
         UINT sp = d3d_row_bytes(st->fmt, sw);
-        tex_upload(dt, dsub, dx, dy, w, h, st->cpu[ssub] + (size_t)y0 * sp + d3d_row_bytes(st->fmt, x0), sp); return;
+        UINT block_height = is_bc(st->fmt) ? 4u : 1u;
+        tex_upload(dt, dsub, dx, dy, w, h, st->cpu[ssub] + (size_t)(y0 / block_height) * sp + d3d_row_bytes(st->fmt, x0), sp); return;
     }
     if (dt->staging) {                                                                  /* GPU -> CPU */
         UINT dw; sub_info(dt, dsub, &dw, NULL, NULL, NULL); UINT dp = d3d_row_bytes(dt->fmt, dw);
