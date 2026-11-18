@@ -361,34 +361,53 @@ static void apply_state(Ctx *c, int rt_w, int rt_h)
     memcpy(key.blend_factor, c->blend_factor, sizeof(key.blend_factor));
     key.stencil_ref = c->stencil_ref;
     if (applied_draw_state_valid && memcmp(&key, &applied_draw_state, sizeof(key)) == 0) return;
+    int viewport_changed = !applied_draw_state_valid ||
+        memcmp(&key.vp, &applied_draw_state.vp, sizeof(key.vp)) != 0;
+    int raster_changed = !applied_draw_state_valid ||
+        key.has_rs != applied_draw_state.has_rs || key.has_sc != applied_draw_state.has_sc ||
+        memcmp(&key.rs, &applied_draw_state.rs, sizeof(key.rs)) != 0 ||
+        memcmp(&key.sc, &applied_draw_state.sc, sizeof(key.sc)) != 0;
+    int depth_changed = !applied_draw_state_valid ||
+        key.has_ds != applied_draw_state.has_ds || key.stencil_ref != applied_draw_state.stencil_ref ||
+        memcmp(&key.ds, &applied_draw_state.ds, sizeof(key.ds)) != 0;
+    int blend_changed = !applied_draw_state_valid ||
+        key.has_blend != applied_draw_state.has_blend ||
+        memcmp(&key.blend, &applied_draw_state.blend, sizeof(key.blend)) != 0 ||
+        memcmp(key.blend_factor, applied_draw_state.blend_factor, sizeof(key.blend_factor)) != 0;
     applied_draw_state = key;
     applied_draw_state_valid = 1;
     PERF_STATE_APPLY();
-    glViewport((GLint)vp.TopLeftX, (GLint)vp.TopLeftY, (GLsizei)vp.Width, (GLsizei)vp.Height); glDepthRangef(vp.MinDepth, vp.MaxDepth);
-    if (rs && rs->ScissorEnable && c->nsc) { glEnable(GL_SCISSOR_TEST); glScissor(c->sc[0].left, c->sc[0].top, c->sc[0].right - c->sc[0].left, c->sc[0].bottom - c->sc[0].top); }
-    else glDisable(GL_SCISSOR_TEST);
-    /* Rendering is vertically flipped (see hlsl2glsl.h), so D3D's clockwise front face is GL's counter-clockwise. */
-    glFrontFace(rs && rs->FrontCounterClockwise ? GL_CW : GL_CCW);
-    if (!rs || rs->CullMode == D3D11_CULL_NONE) glDisable(GL_CULL_FACE); else { glEnable(GL_CULL_FACE); glCullFace(rs->CullMode == D3D11_CULL_FRONT ? GL_FRONT : GL_BACK); }
-    if (rs && (rs->DepthBias || rs->SlopeScaledDepthBias != 0.f)) { glEnable(GL_POLYGON_OFFSET_FILL); glPolygonOffset(rs->SlopeScaledDepthBias, (GLfloat)rs->DepthBias); } else glDisable(GL_POLYGON_OFFSET_FILL);
-    const D3D11_DEPTH_STENCIL_DESC *ds = c->dss ? &c->dss->u.ds : NULL;
-    if (ds && ds->DepthEnable) { glEnable(GL_DEPTH_TEST); glDepthFunc(cmp_func(ds->DepthFunc)); glDepthMask(ds->DepthWriteMask == D3D11_DEPTH_WRITE_MASK_ALL ? GL_TRUE : GL_FALSE); }
-    else { glDisable(GL_DEPTH_TEST); glDepthMask(GL_FALSE); }
-    if (ds && ds->StencilEnable) {
-        glEnable(GL_STENCIL_TEST);
-        glStencilFuncSeparate(GL_FRONT, cmp_func(ds->FrontFace.StencilFunc), (GLint)c->stencil_ref, ds->StencilReadMask);
-        glStencilFuncSeparate(GL_BACK, cmp_func(ds->BackFace.StencilFunc), (GLint)c->stencil_ref, ds->StencilReadMask);
-        glStencilOpSeparate(GL_FRONT, stencil_op(ds->FrontFace.StencilFailOp), stencil_op(ds->FrontFace.StencilDepthFailOp), stencil_op(ds->FrontFace.StencilPassOp));
-        glStencilOpSeparate(GL_BACK, stencil_op(ds->BackFace.StencilFailOp), stencil_op(ds->BackFace.StencilDepthFailOp), stencil_op(ds->BackFace.StencilPassOp));
-        glStencilMaskSeparate(GL_FRONT_AND_BACK, ds->StencilWriteMask);
-    } else glDisable(GL_STENCIL_TEST);
-    const D3D11_BLEND_DESC *bs = c->blend ? &c->blend->u.blend : NULL; const D3D11_RENDER_TARGET_BLEND_DESC *b0 = bs ? &bs->RenderTarget[0] : NULL;
-    if (b0 && b0->BlendEnable) {
-        glEnable(GL_BLEND); glBlendFuncSeparate(blend_factor(b0->SrcBlend), blend_factor(b0->DestBlend), blend_factor(b0->SrcBlendAlpha), blend_factor(b0->DestBlendAlpha));
-        glBlendEquationSeparate(blend_op(b0->BlendOp), blend_op(b0->BlendOpAlpha)); glBlendColor(c->blend_factor[0], c->blend_factor[1], c->blend_factor[2], c->blend_factor[3]);
-    } else glDisable(GL_BLEND);
-    unsigned m = b0 ? b0->RenderTargetWriteMask : 15u; glColorMask((m & 1) != 0, (m & 2) != 0, (m & 4) != 0, (m & 8) != 0);
-    if (bs && bs->AlphaToCoverageEnable) glEnable(GL_SAMPLE_ALPHA_TO_COVERAGE); else glDisable(GL_SAMPLE_ALPHA_TO_COVERAGE);
+    if (viewport_changed) { glViewport((GLint)vp.TopLeftX, (GLint)vp.TopLeftY, (GLsizei)vp.Width, (GLsizei)vp.Height); glDepthRangef(vp.MinDepth, vp.MaxDepth); }
+    if (raster_changed) {
+        if (rs && rs->ScissorEnable && c->nsc) { glEnable(GL_SCISSOR_TEST); glScissor(c->sc[0].left, c->sc[0].top, c->sc[0].right - c->sc[0].left, c->sc[0].bottom - c->sc[0].top); }
+        else glDisable(GL_SCISSOR_TEST);
+        /* Rendering is vertically flipped (see hlsl2glsl.h), so D3D's clockwise front face is GL's counter-clockwise. */
+        glFrontFace(rs && rs->FrontCounterClockwise ? GL_CW : GL_CCW);
+        if (!rs || rs->CullMode == D3D11_CULL_NONE) glDisable(GL_CULL_FACE); else { glEnable(GL_CULL_FACE); glCullFace(rs->CullMode == D3D11_CULL_FRONT ? GL_FRONT : GL_BACK); }
+        if (rs && (rs->DepthBias || rs->SlopeScaledDepthBias != 0.f)) { glEnable(GL_POLYGON_OFFSET_FILL); glPolygonOffset(rs->SlopeScaledDepthBias, (GLfloat)rs->DepthBias); } else glDisable(GL_POLYGON_OFFSET_FILL);
+    }
+    if (depth_changed) {
+        const D3D11_DEPTH_STENCIL_DESC *ds = c->dss ? &c->dss->u.ds : NULL;
+        if (ds && ds->DepthEnable) { glEnable(GL_DEPTH_TEST); glDepthFunc(cmp_func(ds->DepthFunc)); glDepthMask(ds->DepthWriteMask == D3D11_DEPTH_WRITE_MASK_ALL ? GL_TRUE : GL_FALSE); }
+        else { glDisable(GL_DEPTH_TEST); glDepthMask(GL_FALSE); }
+        if (ds && ds->StencilEnable) {
+            glEnable(GL_STENCIL_TEST);
+            glStencilFuncSeparate(GL_FRONT, cmp_func(ds->FrontFace.StencilFunc), (GLint)c->stencil_ref, ds->StencilReadMask);
+            glStencilFuncSeparate(GL_BACK, cmp_func(ds->BackFace.StencilFunc), (GLint)c->stencil_ref, ds->StencilReadMask);
+            glStencilOpSeparate(GL_FRONT, stencil_op(ds->FrontFace.StencilFailOp), stencil_op(ds->FrontFace.StencilDepthFailOp), stencil_op(ds->FrontFace.StencilPassOp));
+            glStencilOpSeparate(GL_BACK, stencil_op(ds->BackFace.StencilFailOp), stencil_op(ds->BackFace.StencilDepthFailOp), stencil_op(ds->BackFace.StencilPassOp));
+            glStencilMaskSeparate(GL_FRONT_AND_BACK, ds->StencilWriteMask);
+        } else glDisable(GL_STENCIL_TEST);
+    }
+    if (blend_changed) {
+        const D3D11_BLEND_DESC *bs = c->blend ? &c->blend->u.blend : NULL; const D3D11_RENDER_TARGET_BLEND_DESC *b0 = bs ? &bs->RenderTarget[0] : NULL;
+        if (b0 && b0->BlendEnable) {
+            glEnable(GL_BLEND); glBlendFuncSeparate(blend_factor(b0->SrcBlend), blend_factor(b0->DestBlend), blend_factor(b0->SrcBlendAlpha), blend_factor(b0->DestBlendAlpha));
+            glBlendEquationSeparate(blend_op(b0->BlendOp), blend_op(b0->BlendOpAlpha)); glBlendColor(c->blend_factor[0], c->blend_factor[1], c->blend_factor[2], c->blend_factor[3]);
+        } else glDisable(GL_BLEND);
+        unsigned m = b0 ? b0->RenderTargetWriteMask : 15u; glColorMask((m & 1) != 0, (m & 2) != 0, (m & 4) != 0, (m & 8) != 0);
+        if (bs && bs->AlphaToCoverageEnable) glEnable(GL_SAMPLE_ALPHA_TO_COVERAGE); else glDisable(GL_SAMPLE_ALPHA_TO_COVERAGE);
+    }
 }
 
 static void bind_resources(Ctx *c, Program *p)
@@ -445,7 +464,7 @@ static int prepare_draw(Ctx *c, int base_vertex, Program **out_prog)
     uint32_t bgra = 0;
     for (int i = 0; L && i < L->n; ++i) if (L->el[i].Format == DXGI_FORMAT_B8G8R8A8_UNORM && L->loc[i] >= 0) bgra |= 1u << L->loc[i];
     Program *p; { PERF_BEGIN(program); p = get_program(c->vs, c->ps, bgra); PERF_END(program); } if (!p) return 0;
-    int w = 0, h = 0; { PERF_BEGIN(fbstate); bind_ctx_fbo(c, &w, &h); apply_state(c, w, h); PERF_END(fbstate); }
+    int w = 0, h = 0; { PERF_BEGIN(fbstate); { PERF_BEGIN(fbo); bind_ctx_fbo(c, &w, &h); PERF_END(fbo); } { PERF_BEGIN(state); apply_state(c, w, h); PERF_END(state); } PERF_END(fbstate); }
     { PERF_BEGIN(resources); use_renderer_program(p->prog); bind_resources(c, p); PERF_END(resources); }
     { PERF_BEGIN(vertex); bind_renderer_vao(); UINT running[MAX_VB] = { 0 }; uint32_t used = 0;
     GLuint array_buffer = 0; int array_buffer_valid = 0;

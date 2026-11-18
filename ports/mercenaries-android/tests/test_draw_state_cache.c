@@ -5,17 +5,21 @@
 #include "../app/src/main/cpp/d3d11_gles/d3d11_gles.c"
 static int calls, destroyed, draw_buffers_calls, framebuffer_calls, program_calls, vao_calls, uniform_calls, delete_calls, error_checks;
 static GLenum pending_error;
+static int viewport_calls, raster_calls, depth_calls, blend_calls;
 GLenum glGetError(void) { ++error_checks; GLenum e = pending_error; pending_error = 0; return e; }
 static void destroy_mock(Obj *o) { (void)o; ++destroyed; }
 #define V1(n,t) void n(t a) { (void)a; ++calls; }
 #define V2(n,t,u) void n(t a,u b) { (void)a; (void)b; ++calls; }
 #define V4(n,t,u,v,w) void n(t a,u b,v c,w d) { (void)a; (void)b; (void)c; (void)d; ++calls; }
 V1(glEnable,GLenum) V1(glDisable,GLenum) V1(glDepthFunc,GLenum)
-V1(glDepthMask,GLboolean) V1(glCullFace,GLenum) V1(glFrontFace,GLenum)
+V1(glCullFace,GLenum)
+void glDepthMask(GLboolean a) { (void)a; ++calls; ++depth_calls; }
+void glFrontFace(GLenum a) { (void)a; ++calls; ++raster_calls; }
 V2(glDepthRangef,GLfloat,GLfloat) V2(glPolygonOffset,GLfloat,GLfloat)
 V2(glStencilMaskSeparate,GLenum,GLuint) V2(glBlendEquationSeparate,GLenum,GLenum)
-V4(glViewport,GLint,GLint,GLsizei,GLsizei) V4(glScissor,GLint,GLint,GLsizei,GLsizei)
-V4(glColorMask,GLboolean,GLboolean,GLboolean,GLboolean)
+V4(glScissor,GLint,GLint,GLsizei,GLsizei)
+void glViewport(GLint a, GLint b, GLsizei c, GLsizei d) { (void)a; (void)b; (void)c; (void)d; ++calls; ++viewport_calls; }
+void glColorMask(GLboolean a, GLboolean b, GLboolean c, GLboolean d) { (void)a; (void)b; (void)c; (void)d; ++calls; ++blend_calls; }
 V4(glStencilFuncSeparate,GLenum,GLenum,GLint,GLuint)
 V4(glStencilOpSeparate,GLenum,GLenum,GLenum,GLenum)
 V4(glBlendFuncSeparate,GLenum,GLenum,GLenum,GLenum)
@@ -58,6 +62,19 @@ int main(void)
     c.blend = &blend; apply_state(&c, 320, 240); assert(calls > first); first = calls;
     c.blend_factor[0] = 0.5f; apply_state(&c, 320, 240); assert(calls > first); first = calls;
     invalidate_att(); apply_state(&c, 320, 240); assert(calls > first);
+    /* A change to one state group must not reissue unrelated GL state.
+     * Full invalidation must still restore every group. */
+    int v = viewport_calls, r = raster_calls, d = depth_calls, b = blend_calls;
+    c.blend_factor[0] = 0.75f; apply_state(&c, 320, 240);
+    assert(viewport_calls == v && raster_calls == r && depth_calls == d && blend_calls == b + 1); b++;
+    c.stencil_ref++; apply_state(&c, 320, 240);
+    assert(viewport_calls == v && raster_calls == r && depth_calls == d + 1 && blend_calls == b); d++;
+    c.sc[0].right++; apply_state(&c, 320, 240);
+    assert(viewport_calls == v && raster_calls == r + 1 && depth_calls == d && blend_calls == b); r++;
+    c.vp[0].Width++; apply_state(&c, 320, 240);
+    assert(viewport_calls == v + 1 && raster_calls == r && depth_calls == d && blend_calls == b); v++;
+    invalidate_att(); apply_state(&c, 320, 240);
+    assert(viewport_calls == v + 1 && raster_calls == r + 1 && depth_calls == d + 1 && blend_calls == b + 1);
     /* Draw-buffer routing is FBO state: unchanged targets reuse it; clear,
      * presentation and copy invalidate it before the next draw. */
     Tex tex; View view; int width, height;
