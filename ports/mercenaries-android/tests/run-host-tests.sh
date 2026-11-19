@@ -68,6 +68,8 @@ echo "== D3D8 vertex ring upload and reuse integration"
 gcc -O1 -w -ffunction-sections -fdata-sections -I$CPP/compat/include -I$D/include -I$CPP/compat -I$D -I$S -I$S/d3d -I$S/platform -I$S/kernel -I$S/nv2a -DXBOX_ANDROID=1 test_vertex_ring_integration.c -Wl,--gc-sections -lm -o $T/vertex_ring_integration && $T/vertex_ring_integration
 echo "== GLES transient vertex range upload (mock driver)"
 gcc -O1 -w -ffunction-sections -fdata-sections -I$CPP/compat/include -I$D/include -I$CPP/compat -I$D -I$S -I$S/d3d -I$S/platform -I$S/kernel -I$S/nv2a -DXBOX_ANDROID=1 $D/d3d11_gles.c test_vertex_upload.c -Wl,--gc-sections -lm -o $T/vertex_upload && $T/vertex_upload
+echo "== Programmable VS constant snapshot uploads"
+gcc -O1 -w -ffunction-sections -fdata-sections -I$CPP/compat/include -I$D/include -I$CPP/compat -I$D -I$S -I$S/d3d -I$S/platform -I$S/kernel -I$S/nv2a -DXBOX_ANDROID=1 test_vsh_constant_upload.c -Wl,--gc-sections -lm -o $T/vsh_constant_upload && $T/vsh_constant_upload
 echo "== Fixed-function constant buffer cache"
 gcc -O1 -Wall -Wextra -Werror test_constant_cache.c -o $T/constant_cache && $T/constant_cache
 echo "== Touch stick input and multitouch"

@@ -21,6 +21,7 @@
 
 #include "d3d8_internal.h"
 #include "d3d8_vsh.h"
+#include "d3d8_constant_cache.h"
 #include "d3d8_shader_cache.h"
 #include "d3d8_compiler.h"
 #include <string.h>
@@ -244,6 +245,9 @@ static int g_vsh_slot_count = 0;
 /* Constant registers (192 float4) */
 static NV2AVSConstants g_vsh_constants;
 static BOOL g_vsh_constants_dirty = TRUE;
+/* Most recently uploaded bytes, independent of transient guest writes. */
+static NV2AVSConstants g_vsh_uploaded_constants;
+static BOOL g_vsh_uploaded_constants_valid = FALSE;
 static DXGI_FORMAT g_vsh_input_formats[NV2A_VS_MAX_INPUTS];
 static UINT g_vsh_input_offsets[NV2A_VS_MAX_INPUTS];
 static UINT g_vsh_input_components[NV2A_VS_MAX_INPUTS];
@@ -1688,6 +1692,7 @@ HRESULT d3d8_vsh_init(void)
     g_vsh_input_layout_key = 0;
     g_vsh_slot_count = 0;
     g_vsh_constants_dirty = TRUE;
+    g_vsh_uploaded_constants_valid = FALSE;
     g_vsh_host_constants_valid = FALSE;
 
     /* Create the constant buffer for VS constants (192 * float4 = 3072 bytes) */
@@ -1746,6 +1751,8 @@ void d3d8_vsh_shutdown(void)
         g_vsh_host_cb = NULL;
     }
     g_vsh_host_constants_valid = FALSE;
+    g_vsh_uploaded_constants_valid = FALSE;
+    g_vsh_constants_dirty = TRUE;
 
     memset(g_vsh_slots, 0, sizeof(g_vsh_slots));
     g_vsh_slot_count = 0;
@@ -1822,12 +1829,12 @@ void d3d8_vsh_set_constant(int start_reg, const float *data, int count)
     int end_reg;
     size_t byte_count;
 
-    if (!data || start_reg < 0)
+    if (!data || start_reg < 0 || start_reg >= NV2A_VS_MAX_CONSTANTS || count <= 0)
         return;
 
+    if (count > NV2A_VS_MAX_CONSTANTS - start_reg)
+        count = NV2A_VS_MAX_CONSTANTS - start_reg;
     end_reg = start_reg + count;
-    if (end_reg > NV2A_VS_MAX_CONSTANTS)
-        end_reg = NV2A_VS_MAX_CONSTANTS;
     if (end_reg <= start_reg)
         return;
 
@@ -1914,6 +1921,15 @@ BOOL d3d8_vsh_is_programmable(DWORD handle)
     return (handle >= 0x10000) ? TRUE : FALSE;
 }
 
+/* Preserve dirty state after a failed map, so a later draw retries. */
+static void d3d8_vsh_upload_guest_constants(ID3D11DeviceContext *ctx)
+{
+    if (g_vsh_constants_dirty && d3d8_upload_cached_constants(
+            ctx, g_vsh_cb, &g_vsh_constants, &g_vsh_uploaded_constants,
+            sizeof(g_vsh_constants), &g_vsh_uploaded_constants_valid))
+        g_vsh_constants_dirty = FALSE;
+}
+
 BOOL d3d8_vsh_prepare_draw(DWORD handle)
 {
     ID3D11DeviceContext *ctx;
@@ -1965,16 +1981,10 @@ BOOL d3d8_vsh_prepare_draw(DWORD handle)
     if (layout)
         ID3D11DeviceContext_IASetInputLayout(ctx, layout);
 
-    /* Update constant buffer if dirty */
-    if (g_vsh_constants_dirty) {
-        hr = ID3D11DeviceContext_Map(ctx, (ID3D11Resource *)g_vsh_cb,
-                                     0, D3D11_MAP_WRITE_DISCARD, 0, &mapped);
-        if (SUCCEEDED(hr)) {
-            memcpy(mapped.pData, &g_vsh_constants, sizeof(g_vsh_constants));
-            ID3D11DeviceContext_Unmap(ctx, (ID3D11Resource *)g_vsh_cb, 0);
-        }
-        g_vsh_constants_dirty = FALSE;
-    }
+    /* Constants may change A -> B -> A before a draw. Compare against what
+     * actually reached the buffer, not only the previous guest write. Failed
+     * maps stay dirty so a later draw retries rather than retaining stale data. */
+    d3d8_vsh_upload_guest_constants(ctx);
 
     /* Bind guest constants to b1. Xbox programmable shaders leave oPos in
      * screen space, so b2 supplies the host conversion parameters used by

@@ -3648,6 +3648,7 @@ static UINT          g_up_ring_offset = 0;
 static ID3D11Buffer *g_up_index_ring_buffer = NULL;
 static UINT g_up_index_ring_offset = 0;
 static D3D8VertexRingCache g_up_vertex_cache;
+static D3D8VertexRingCache g_up_index_cache;
 #endif
 
 typedef struct D3D8DrawPerfTotals {
@@ -3748,6 +3749,7 @@ static void up_ring_shutdown(void)
     g_up_index_ring_buffer = NULL;
     g_up_index_ring_offset = 0;
     d3d8_vertex_cache_clear(&g_up_vertex_cache);
+    d3d8_vertex_cache_clear(&g_up_index_cache);
 #endif
 }
 
@@ -3755,6 +3757,18 @@ static void up_ring_shutdown(void)
 static UINT up_index_ring_upload(const void *data, UINT size)
 {
     D3D8RingReservation r;
+    UINT offset;
+    uint8_t snapshot[D3D8_VERTEX_CACHE_MAX_BYTES];
+    const void *upload_data = data;
+    if (!data || !size || size > UP_RING_BUFFER_SIZE) return (UINT)-1;
+    if (size <= sizeof(snapshot)) {
+        memcpy(snapshot, data, size);
+        upload_data = snapshot;
+        if (d3d8_vertex_cache_find(&g_up_index_cache, snapshot, size, &offset)) {
+            d3d11gles_note_index_ring_reuse();
+            return offset;
+        }
+    }
     if (!d3d8_ring_reserve(UP_RING_BUFFER_SIZE, g_up_index_ring_offset, size, &r)) return (UINT)-1;
     if (!g_up_index_ring_buffer) {
         D3D11_BUFFER_DESC bd; memset(&bd, 0, sizeof(bd));
@@ -3762,7 +3776,13 @@ static UINT up_index_ring_upload(const void *data, UINT size)
         bd.BindFlags = D3D11_BIND_INDEX_BUFFER; bd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
         if (FAILED(ID3D11Device_CreateBuffer(g_device_state.d3d11_device, &bd, NULL, &g_up_index_ring_buffer))) return (UINT)-1;
     }
-    if (FAILED(d3d11gles_upload_index_range(g_up_index_ring_buffer, r.offset, data, size, r.discard))) return (UINT)-1;
+    if (r.discard) d3d8_vertex_cache_clear(&g_up_index_cache);
+    if (FAILED(d3d11gles_upload_index_range(g_up_index_ring_buffer, r.offset, upload_data, size, r.discard))) {
+        d3d8_vertex_cache_clear(&g_up_index_cache);
+        g_up_index_ring_offset = UP_RING_BUFFER_SIZE;
+        return (UINT)-1;
+    }
+    d3d8_vertex_cache_store(&g_up_index_cache, upload_data, size, r.offset);
     g_up_index_ring_offset = r.next;
     return r.offset;
 }

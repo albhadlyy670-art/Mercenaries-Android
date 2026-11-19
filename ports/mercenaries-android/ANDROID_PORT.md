@@ -213,9 +213,11 @@ the expansion pass, avoiding a second compaction pass while keeping the ordered
 snapshot for diagnostics. CPU expansion still occurs; any FPS benefit needs
 on-device validation.
 
-The Android vertex ring can reuse up to four recent, byte-identical uploads of
-at most 128 bytes. It still issues every draw; it never merges draws. Entries
-are invalidated on ring discard, upload failure, or shutdown. The
-`[perf-gles-workload] ring_vertex_reuses` counter reports uploads avoided per
-interval; test FPS and graphics on-device, since a low hit rate can make the
-cache overhead outweigh its benefit.
+The Android vertex and index rings can each reuse up to four recent,
+byte-identical uploads of at most 128 bytes. Every draw still executes; none
+are merged. Entries are invalidated on ring discard, upload failure, or
+shutdown. `[perf-gles-workload]` reports `ring_vertex_reuses` and
+`ring_index_reuses` per interval. Test FPS and graphics on-device, since a low
+hit rate can make the cache overhead outweigh its benefit. Programmable vertex
+shader constants also skip upload if guest writes return to the last uploaded
+bytes before a draw; a failed map stays dirty for a later retry.

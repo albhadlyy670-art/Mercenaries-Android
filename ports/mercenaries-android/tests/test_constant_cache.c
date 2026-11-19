@@ -31,12 +31,12 @@ int main(void)
 {
     ID3D11DeviceContext ctx = {0}; ID3D11Buffer b = {{0}};
     unsigned char value[16] = {1,2,3}, previous[16] = {0}; BOOL valid = FALSE;
-    d3d8_upload_cached_constants(&ctx, &b, value, previous, sizeof(value), &valid);
+    assert(d3d8_upload_cached_constants(&ctx, &b, value, previous, sizeof(value), &valid));
     assert(valid && maps == 1 && unmaps == 1 && !memcmp(value, b.bytes, sizeof(value)));
     d3d8_upload_cached_constants(&ctx, &b, value, previous, sizeof(value), &valid);
     assert(maps == 1 && unmaps == 1);
     value[15] = 42; fail_map = 1;
-    d3d8_upload_cached_constants(&ctx, &b, value, previous, sizeof(value), &valid);
+    assert(!d3d8_upload_cached_constants(&ctx, &b, value, previous, sizeof(value), &valid));
     assert(maps == 2 && unmaps == 1 && previous[15] == 0 && b.bytes[15] == 0);
     fail_map = 0;
     d3d8_upload_cached_constants(&ctx, &b, value, previous, sizeof(value), &valid);
