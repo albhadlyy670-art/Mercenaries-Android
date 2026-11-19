@@ -11,12 +11,14 @@ typedef struct {
     APerformanceHintManager *(*manager)(void);
     APerformanceHintSession *(*create)(APerformanceHintManager *, const int32_t *, size_t, int64_t);
     int (*report)(APerformanceHintSession *, int64_t);
+    int (*update)(APerformanceHintSession *, int64_t);
     void (*close)(APerformanceHintSession *);
 } AndroidHintApi;
 typedef struct {
     AndroidHintApi api;
     APerformanceHintSession *session;
     double last_end;
+    int requested_fps;
 } AndroidHint;
 
 static int android_hint_start(AndroidHint *h, AndroidHintApi api, int32_t tid)
@@ -29,7 +31,19 @@ static int android_hint_start(AndroidHint *h, AndroidHintApi api, int32_t tid)
     h->session = api.create(manager, &tid, 1, 33333333LL);
     if (!h->session) return 0;
     h->api = api;
+    h->requested_fps = 30;
     return 1;
+}
+/* Uncapped rendering uses a conservative 60 FPS hint. This does not cap the
+ * game or modify its frame pacing, and Android may ignore the hint. */
+static inline int android_hint_set_fps(AndroidHint *h, int fps)
+{
+    if (!h->session) return 0;
+    if (fps != 30 && fps != 60 && fps != 90 && fps != 120) fps = 60;
+    if (h->requested_fps == fps) return 0;
+    h->requested_fps = fps; /* avoid repeatedly calling an unsupported HAL */
+    if (!h->api.update) return 0;
+    return h->api.update(h->session, 1000000000LL / fps);
 }
 static int android_hint_frame(AndroidHint *h, double swap_start, double swap_end)
 {

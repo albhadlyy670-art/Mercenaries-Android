@@ -194,8 +194,9 @@ configured cap at that instant, not necessarily thermal throttling; sampled
 frequencies and policy values do not measure sustained clock speeds.
 
 On supported Android devices the game requests an Android performance-hint
-session for the game thread, with a 30 FPS work-duration target. It reports
-frame work before swap, skipping long lifecycle gaps. This is a scheduler hint,
+session for the game thread. Its work-duration target follows the selected FPS
+cap; uncapped uses a 60 FPS target, and unsupported devices keep the initial
+30 FPS target. It reports frame work before swap, skipping long lifecycle gaps. This is a scheduler hint,
 not a frame cap or guaranteed clock boost; Android may reject or ignore it.
 `[cpu] Android performance hint session active/unavailable` reports session setup.
 

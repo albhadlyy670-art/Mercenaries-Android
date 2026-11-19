@@ -54,13 +54,25 @@ static void android_performance_hint_start(void)
     *(void **)(&api.manager) = dlsym(RTLD_DEFAULT, "APerformanceHint_getManager");
     *(void **)(&api.create) = dlsym(RTLD_DEFAULT, "APerformanceHint_createSession");
     *(void **)(&api.report) = dlsym(RTLD_DEFAULT, "APerformanceHint_reportActualWorkDuration");
+    *(void **)(&api.update) = dlsym(RTLD_DEFAULT, "APerformanceHint_updateTargetWorkDuration");
     *(void **)(&api.close) = dlsym(RTLD_DEFAULT, "APerformanceHint_closeSession");
     int ok = android_hint_start(&g_android_hint, api, (int32_t)syscall(SYS_gettid));
-    android_trace("[cpu] Android performance hint session %s (30 fps target)", ok ? "active" : "unavailable");
+    android_trace("[cpu] Android performance hint session %s (initial 30 fps target)", ok ? "active" : "unavailable");
 }
 void android_performance_hint_frame(double swap_start, double swap_end)
 {
     static int reported_error;
+#ifdef MERC_HAVE_GAME
+    /* Match the selected cap; 0 (uncapped) requests a 60 FPS work target. */
+    extern int recomp_options_fps_cap(void);
+    if (g_android_hint.session && g_android_hint.api.update) {
+        int target_rc = android_hint_set_fps(&g_android_hint, recomp_options_fps_cap());
+        if (target_rc && !reported_error) {
+            android_trace("[cpu] Android performance hint target update failed rc=%d", target_rc);
+            reported_error = 1;
+        }
+    }
+#endif
     int rc = android_hint_frame(&g_android_hint, swap_start, swap_end);
     if (rc && !reported_error) {
         android_trace("[cpu] Android performance hint report failed rc=%d", rc);
