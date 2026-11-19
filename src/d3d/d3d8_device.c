@@ -3637,6 +3637,7 @@ static void *convert_fan_or_quad(D3DPRIMITIVETYPE pt, const void *src,
 
 #ifdef XBOX_ANDROID
 #include "d3d8_indexed_ring.h"
+#include "d3d8_vertex_ring_cache.h"
 #endif
 
 #define UP_RING_BUFFER_SIZE (4 * 1024 * 1024)  /* 4MB ring buffer */
@@ -3646,6 +3647,7 @@ static UINT          g_up_ring_offset = 0;
 #ifdef XBOX_ANDROID
 static ID3D11Buffer *g_up_index_ring_buffer = NULL;
 static UINT g_up_index_ring_offset = 0;
+static D3D8VertexRingCache g_up_vertex_cache;
 #endif
 
 typedef struct D3D8DrawPerfTotals {
@@ -3745,6 +3747,7 @@ static void up_ring_shutdown(void)
     if (g_up_index_ring_buffer) ID3D11Buffer_Release(g_up_index_ring_buffer);
     g_up_index_ring_buffer = NULL;
     g_up_index_ring_offset = 0;
+    d3d8_vertex_cache_clear(&g_up_vertex_cache);
 #endif
 }
 
@@ -3779,7 +3782,21 @@ static UINT up_ring_upload(const void *data, UINT size)
         if (FAILED(up_ring_init())) return (UINT)-1;
     }
 
-    if (size > UP_RING_BUFFER_SIZE) return (UINT)-1;
+    if (!data || !size || size > UP_RING_BUFFER_SIZE) return (UINT)-1;
+#ifdef XBOX_ANDROID
+    /* Snapshot before lookup and upload, so concurrently modified guest data
+     * cannot make the cache describe bytes different from those uploaded. */
+    uint8_t snapshot[D3D8_VERTEX_CACHE_MAX_BYTES];
+    const void *upload_data = data;
+    if (size <= sizeof(snapshot)) {
+        memcpy(snapshot, data, size);
+        upload_data = snapshot;
+        if (d3d8_vertex_cache_find(&g_up_vertex_cache, snapshot, size, &offset)) {
+            d3d11gles_note_vertex_ring_reuse();
+            return offset;
+        }
+    }
+#endif
 
     /* Wrap around if not enough space */
     if (g_up_ring_offset + size > UP_RING_BUFFER_SIZE) {
@@ -3791,9 +3808,17 @@ static UINT up_ring_upload(const void *data, UINT size)
 
     offset = g_up_ring_offset;
 #ifdef XBOX_ANDROID
-    hr = d3d11gles_upload_vertex_range(g_up_ring_buffer, offset, data, size,
+    if (map_type == D3D11_MAP_WRITE_DISCARD)
+        d3d8_vertex_cache_clear(&g_up_vertex_cache);
+    hr = d3d11gles_upload_vertex_range(g_up_ring_buffer, offset, upload_data, size,
                                        map_type == D3D11_MAP_WRITE_DISCARD);
-    if (FAILED(hr)) return (UINT)-1;
+    if (FAILED(hr)) {
+        /* A failed unmap can invalidate all contents, not just this range. */
+        d3d8_vertex_cache_clear(&g_up_vertex_cache);
+        g_up_ring_offset = UP_RING_BUFFER_SIZE;
+        return (UINT)-1;
+    }
+    d3d8_vertex_cache_store(&g_up_vertex_cache, upload_data, size, offset);
 #else
     hr = ID3D11DeviceContext_Map(g_device_state.d3d11_context,
         (ID3D11Resource *)g_up_ring_buffer, 0, map_type, 0, &mapped);

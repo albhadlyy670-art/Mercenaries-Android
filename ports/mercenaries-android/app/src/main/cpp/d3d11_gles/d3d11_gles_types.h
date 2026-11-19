@@ -183,6 +183,7 @@ HRESULT d3d11gles_upload_vertex_range(ID3D11Buffer *buffer, UINT offset,
                                       const void *data, UINT size, BOOL discard);
 HRESULT d3d11gles_upload_index_range(ID3D11Buffer *buffer, UINT offset,
                                      const void *data, UINT size, BOOL discard);
+void d3d11gles_note_vertex_ring_reuse(void);
 
 /* ---- creation -------------------------------------------------------------------- */
 HRESULT D3D11CreateDeviceAndSwapChain(IDXGIAdapter *adapter, D3D_DRIVER_TYPE type, HMODULE software, UINT flags,

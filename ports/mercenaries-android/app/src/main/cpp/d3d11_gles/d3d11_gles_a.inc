@@ -270,7 +270,7 @@ static double perf_start;
 static unsigned long long perf_state_applies;
 typedef struct {
     unsigned long long arrays, indexed, vertices, small, medium, large, huge;
-    unsigned long long fbo_rebinds, attachments;
+    unsigned long long fbo_rebinds, attachments, ring_vertex_reuses;
     unsigned long long small_vertexid, small_attributes, small_triangles, small_strips, small_other;
 } PerfWorkload;
 static PerfWorkload perf_workload;
@@ -289,6 +289,7 @@ static void perf_record_draw(UINT count, int indexed, int vertexid, D3D11_PRIMIT
     else if (count <= 256) ++perf_workload.large;
     else ++perf_workload.huge;
 }
+void d3d11gles_note_vertex_ring_reuse(void) { ++perf_workload.ring_vertex_reuses; }
 #define PERF_DRAW_WORK(count, indexed, vertexid, topology) perf_record_draw((count), (indexed), (vertexid), (topology))
 #define PERF_FBO_REBIND() (++perf_workload.fbo_rebinds)
 #define PERF_ATTACHMENT() (++perf_workload.attachments)
@@ -324,10 +325,10 @@ static void perf_report(void)
         perf_program.samples, AVG(perf_program), perf_fbstate.samples, AVG(perf_fbstate), perf_resources.samples, AVG(perf_resources), perf_vertex.samples, AVG(perf_vertex));
     android_trace("[perf-gles-fbstate] fbo_samples=%llu fbo_avg_ms=%.3f state_samples=%llu state_avg_ms=%.3f",
         perf_fbo.samples, AVG(perf_fbo), perf_state.samples, AVG(perf_state));
-    android_trace("[perf-gles-workload] arrays=%llu indexed=%llu vertices=%llu draws_le16=%llu draws_le64=%llu draws_le256=%llu draws_gt256=%llu fbo_rebinds=%llu attachment_updates=%llu",
+    android_trace("[perf-gles-workload] arrays=%llu indexed=%llu vertices=%llu draws_le16=%llu draws_le64=%llu draws_le256=%llu draws_gt256=%llu fbo_rebinds=%llu attachment_updates=%llu ring_vertex_reuses=%llu",
         perf_workload.arrays, perf_workload.indexed, perf_workload.vertices,
         perf_workload.small, perf_workload.medium, perf_workload.large, perf_workload.huge,
-        perf_workload.fbo_rebinds, perf_workload.attachments);
+        perf_workload.fbo_rebinds, perf_workload.attachments, perf_workload.ring_vertex_reuses);
     android_trace("[perf-gles-small] vertexid=%llu attributes=%llu triangle_list=%llu triangle_strip=%llu other=%llu",
         perf_workload.small_vertexid, perf_workload.small_attributes, perf_workload.small_triangles,
         perf_workload.small_strips, perf_workload.small_other);
@@ -335,6 +336,7 @@ static void perf_report(void)
     perf_start = now; perf_state_applies = 0; memset(&perf_workload, 0, sizeof(perf_workload)); memset(&perf_map, 0, sizeof(perf_map)); memset(&perf_unmap, 0, sizeof(perf_unmap)); memset(&perf_draw, 0, sizeof(perf_draw)); memset(&perf_drawprep, 0, sizeof(perf_drawprep)); memset(&perf_program, 0, sizeof(perf_program)); memset(&perf_fbstate, 0, sizeof(perf_fbstate)); memset(&perf_fbo, 0, sizeof(perf_fbo)); memset(&perf_state, 0, sizeof(perf_state)); memset(&perf_resources, 0, sizeof(perf_resources)); memset(&perf_vertex, 0, sizeof(perf_vertex)); memset(&perf_issue, 0, sizeof(perf_issue)); memset(&perf_read, 0, sizeof(perf_read)); memset(&perf_ringmap, 0, sizeof(perf_ringmap)); memset(&perf_ringunmap, 0, sizeof(perf_ringunmap));
 }
 #else
+void d3d11gles_note_vertex_ring_reuse(void) { }
 #define PERF_STATE_APPLY() ((void)0)
 #define PERF_DRAW_WORK(count, indexed, vertexid, topology) ((void)0)
 #define PERF_FBO_REBIND() ((void)0)

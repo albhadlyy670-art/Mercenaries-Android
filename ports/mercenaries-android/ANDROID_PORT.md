@@ -211,3 +211,10 @@ the expanded path. Small eligible draws now build their compact input during
 the expansion pass, avoiding a second compaction pass while keeping the ordered
 snapshot for diagnostics. CPU expansion still occurs; any FPS benefit needs
 on-device validation.
+
+The Android vertex ring can reuse up to four recent, byte-identical uploads of
+at most 128 bytes. It still issues every draw; it never merges draws. Entries
+are invalidated on ring discard, upload failure, or shutdown. The
+`[perf-gles-workload] ring_vertex_reuses` counter reports uploads avoided per
+interval; test FPS and graphics on-device, since a low hit rate can make the
+cache overhead outweigh its benefit.
