@@ -1,7 +1,7 @@
 /*
  * android_input.c - implements input/xinput_xbox.h for Android.
  * Sources: physical gamepads (key + joystick motion events) and an on-screen
- * touch overlay (left stick, A/B/X/Y, triggers, Start/Back/Black/White).
+ * touch overlay (two sticks, A/B/X/Y, triggers, Start/Back/Black/White).
  * Events arrive on the UI thread; the guest polls from the game thread.
  */
 #include "input/xinput_xbox.h"
@@ -19,11 +19,19 @@ static DWORD g_packet;
 static XBOX_INPUT_MAPPER g_mapper;
 
 /* touch tracking */
-typedef struct { int32_t id; float x, y; int down; } finger_t;
+/* A stick owns its initiating finger until up/cancel, even outside its rim. */
+typedef struct { int32_t id; float x, y; int down, stick; } finger_t;
 static finger_t g_fingers[10];
 static int g_sw = 1280, g_sh = 720;
 
-void android_input_set_screen(int w, int h) { g_sw = w > 0 ? w : 1280; g_sh = h > 0 ? h : 720; }
+void android_input_set_screen(int w, int h)
+{
+    pthread_mutex_lock(&g_lock);
+    g_sw = w > 0 ? w : 1280; g_sh = h > 0 ? h : 720;
+    memset(g_fingers, 0, sizeof(g_fingers));
+    memset(&g_pad_touch, 0, sizeof(g_pad_touch)); ++g_packet;
+    pthread_mutex_unlock(&g_lock);
+}
 
 /* Overlay layout shared with android_gl.c (normalised 0..1 of screen). */
 const android_touch_btn_t k_buttons[ANDROID_TOUCH_BUTTONS] = {
@@ -33,7 +41,35 @@ const android_touch_btn_t k_buttons[ANDROID_TOUCH_BUTTONS] = {
     { "BLK", 0.72f, 0.88f, 0.045f, XBOX_BUTTON_BLACK }, { "WHT", 0.64f, 0.88f, 0.045f, XBOX_BUTTON_WHITE },
     { "STA", 0.54f, 0.90f, 0.04f, 100 }, { "BCK", 0.46f, 0.90f, 0.04f, 101 },
 };
-const float k_stick_cx = 0.16f, k_stick_cy = 0.70f, k_stick_r = 0.13f;
+const android_touch_stick_t k_sticks[ANDROID_TOUCH_STICKS] = {
+    { 0.16f, 0.70f, 0.13f }, { 0.72f, 0.68f, 0.105f }
+};
+
+static int touch_hits_button(float fx, float fy, float ar)
+{
+    for (int b = 0; b < ANDROID_TOUCH_BUTTONS; ++b) {
+        float dx = (fx - k_buttons[b].x) * ar, dy = fy - k_buttons[b].y;
+        float r = k_buttons[b].r * 1.4f;
+        if (dx * dx + dy * dy <= r * r) return 1;
+    }
+    return 0;
+}
+/* Called while holding g_lock. Buttons take priority where hit areas overlap. */
+static int claim_stick(float x, float y)
+{
+    float fx = x / g_sw, fy = y / g_sh, ar = (float)g_sw / g_sh;
+    if (touch_hits_button(fx, fy, ar)) return 0;
+    for (int s = 0; s < ANDROID_TOUCH_STICKS; ++s) {
+        float dx = (fx - k_sticks[s].x) * ar, dy = fy - k_sticks[s].y;
+        float r = k_sticks[s].r * 1.2f;
+        if (dx * dx + dy * dy > r * r) continue;
+        int occupied = 0;
+        for (int i = 0; i < 10; ++i)
+            if (g_fingers[i].down && g_fingers[i].stick == s + 1) occupied = 1;
+        if (!occupied) return s + 1;
+    }
+    return 0;
+}
 
 static void rebuild_touch(void)
 {
@@ -42,16 +78,19 @@ static void rebuild_touch(void)
     for (int i = 0; i < 10; ++i) {
         if (!g_fingers[i].down) continue;
         float fx = g_fingers[i].x / g_sw, fy = g_fingers[i].y / g_sh;
-        float dx = (fx - k_stick_cx) * ar, dy = fy - k_stick_cy;           /* aspect-correct */
-        if (sqrtf(dx * dx + dy * dy) < k_stick_r * 1.6f) {
-            float m = k_stick_r * 1.0f;
-            float nx = fmaxf(-1.f, fminf(1.f, dx / m)), ny = fmaxf(-1.f, fminf(1.f, dy / m));
-            p.sThumbLX = (SHORT)(nx * 32767.f); p.sThumbLY = (SHORT)(-ny * 32767.f);
+        if (g_fingers[i].stick) {
+            const android_touch_stick_t *s = &k_sticks[g_fingers[i].stick - 1];
+            float nx = (fx - s->x) * ar / s->r, ny = (fy - s->y) / s->r;
+            float length = sqrtf(nx * nx + ny * ny);
+            if (length > 1.f) { nx /= length; ny /= length; }
+            if (g_fingers[i].stick == 1) { p.sThumbLX = (SHORT)(nx * 32767.f); p.sThumbLY = (SHORT)(-ny * 32767.f); }
+            else { p.sThumbRX = (SHORT)(nx * 32767.f); p.sThumbRY = (SHORT)(-ny * 32767.f); }
             continue;
         }
         for (int b = 0; b < ANDROID_TOUCH_BUTTONS; ++b) {
             float bx = (fx - k_buttons[b].x) * ar, by = fy - k_buttons[b].y;
-            if (sqrtf(bx * bx + by * by) > k_buttons[b].r * 1.4f) continue;
+            float r = k_buttons[b].r * 1.4f;
+            if (bx * bx + by * by > r * r) continue;
             int id = k_buttons[b].id;
             if (id < 8) p.bAnalogButtons[id] = 255;
             else if (id == 100) p.wButtons |= XBOX_GAMEPAD_START;
@@ -76,8 +115,9 @@ static void handle_touch(AInputEvent *e)
         }
     } else if (kind == AMOTION_EVENT_ACTION_DOWN || kind == AMOTION_EVENT_ACTION_POINTER_DOWN) {
         for (int f = 0; f < 10; ++f) if (!g_fingers[f].down) {
-            g_fingers[f] = (finger_t){ AMotionEvent_getPointerId(e, idx),
-                AMotionEvent_getX(e, idx), AMotionEvent_getY(e, idx), 1 };
+            float x = AMotionEvent_getX(e, idx), y = AMotionEvent_getY(e, idx);
+            int stick = claim_stick(x, y);
+            g_fingers[f] = (finger_t){ AMotionEvent_getPointerId(e, idx), x, y, 1, stick };
             break;
         }
     } else if (kind == AMOTION_EVENT_ACTION_UP || kind == AMOTION_EVENT_ACTION_POINTER_UP ||
@@ -163,6 +203,22 @@ int android_input_overlay_pressed(int id)      /* for drawing pressed state */
     return r;
 }
 
+void android_input_overlay_snapshot(android_touch_overlay_t *out)
+{
+    if (!out) return;
+    pthread_mutex_lock(&g_lock);
+    memset(out, 0, sizeof(*out));
+    for (int i = 0; i < ANDROID_TOUCH_BUTTONS; ++i) {
+        int id = k_buttons[i].id;
+        if ((id < 8 && g_pad_touch.bAnalogButtons[id]) ||
+            (id == 100 && (g_pad_touch.wButtons & XBOX_GAMEPAD_START)) ||
+            (id == 101 && (g_pad_touch.wButtons & XBOX_GAMEPAD_BACK))) out->pressed |= 1u << i;
+    }
+    out->lx = g_pad_touch.sThumbLX; out->ly = g_pad_touch.sThumbLY;
+    out->rx = g_pad_touch.sThumbRX; out->ry = g_pad_touch.sThumbRY;
+    pthread_mutex_unlock(&g_lock);
+}
+
 /* ---- xinput_xbox.h ------------------------------------------------------ */
 void xbox_InputSetMapper(XBOX_INPUT_MAPPER m) { g_mapper = m; }
 int xbox_InputPromptDevice(void) { return g_prompt; }
@@ -186,6 +242,7 @@ DWORD xbox_InputGetState(DWORD port, XBOX_INPUT_STATE *out)
     for (int i = 0; i < 8; ++i) if (g_pad_touch.bAnalogButtons[i] > g.bAnalogButtons[i]) g.bAnalogButtons[i] = g_pad_touch.bAnalogButtons[i];
     g.wButtons |= g_pad_touch.wButtons;
     if (abs(g_pad_touch.sThumbLX) + abs(g_pad_touch.sThumbLY) > abs(g.sThumbLX) + abs(g.sThumbLY)) { g.sThumbLX = g_pad_touch.sThumbLX; g.sThumbLY = g_pad_touch.sThumbLY; }
+    if (abs(g_pad_touch.sThumbRX) + abs(g_pad_touch.sThumbRY) > abs(g.sThumbRX) + abs(g.sThumbRY)) { g.sThumbRX = g_pad_touch.sThumbRX; g.sThumbRY = g_pad_touch.sThumbRY; }
     out->Gamepad = g; out->dwPacketNumber = g_packet;
     pthread_mutex_unlock(&g_lock);
     if (g_mapper) g_mapper(out, FALSE);

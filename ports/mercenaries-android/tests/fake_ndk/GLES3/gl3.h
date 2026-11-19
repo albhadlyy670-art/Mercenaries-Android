@@ -176,7 +176,7 @@ GLenum glGetError(void); const GLubyte *glGetString(GLenum); void glGetIntegerv(
 void glEnable(GLenum); void glDisable(GLenum); void glViewport(GLint, GLint, GLsizei, GLsizei); void glScissor(GLint, GLint, GLsizei, GLsizei);
 void glDepthRangef(GLfloat, GLfloat); void glDepthFunc(GLenum); void glDepthMask(GLboolean); void glColorMask(GLboolean, GLboolean, GLboolean, GLboolean);
 void glStencilFuncSeparate(GLenum, GLenum, GLint, GLuint); void glStencilOpSeparate(GLenum, GLenum, GLenum, GLenum); void glStencilMaskSeparate(GLenum, GLuint);
-void glBlendFuncSeparate(GLenum, GLenum, GLenum, GLenum); void glBlendEquationSeparate(GLenum, GLenum); void glBlendColor(GLfloat, GLfloat, GLfloat, GLfloat);
+void glBlendFunc(GLenum, GLenum); void glBlendFuncSeparate(GLenum, GLenum, GLenum, GLenum); void glBlendEquationSeparate(GLenum, GLenum); void glBlendColor(GLfloat, GLfloat, GLfloat, GLfloat);
 void glCullFace(GLenum); void glFrontFace(GLenum); void glPolygonOffset(GLfloat, GLfloat); void glPixelStorei(GLenum, GLint);
 void glClearColor(GLfloat, GLfloat, GLfloat, GLfloat); void glClear(GLbitfield); void glFlush(void);
 void glClearBufferfv(GLenum, GLint, const GLfloat *); void glClearBufferiv(GLenum, GLint, const GLint *); void glClearBufferuiv(GLenum, GLint, const GLuint *); void glClearBufferfi(GLenum, GLint, GLfloat, GLint);
@@ -195,7 +195,7 @@ GLuint glCreateShader(GLenum); void glShaderSource(GLuint, GLsizei, const GLchar
 void glGetShaderiv(GLuint, GLenum, GLint *); void glGetShaderInfoLog(GLuint, GLsizei, GLsizei *, GLchar *);
 GLuint glCreateProgram(void); void glAttachShader(GLuint, GLuint); void glLinkProgram(GLuint); void glUseProgram(GLuint); void glDeleteProgram(GLuint);
 void glGetProgramiv(GLuint, GLenum, GLint *); void glGetProgramInfoLog(GLuint, GLsizei, GLsizei *, GLchar *);
-GLint glGetUniformLocation(GLuint, const GLchar *); GLuint glGetUniformBlockIndex(GLuint, const GLchar *); void glUniformBlockBinding(GLuint, GLuint, GLuint); void glUniform1i(GLint, GLint);
+GLint glGetUniformLocation(GLuint, const GLchar *); GLuint glGetUniformBlockIndex(GLuint, const GLchar *); void glUniformBlockBinding(GLuint, GLuint, GLuint); void glUniform1i(GLint, GLint); void glUniform4f(GLint, GLfloat, GLfloat, GLfloat, GLfloat);
 void glGenVertexArrays(GLsizei, GLuint *); void glBindVertexArray(GLuint); void glEnableVertexAttribArray(GLuint); void glDisableVertexAttribArray(GLuint);
 void glVertexAttribPointer(GLuint, GLint, GLenum, GLboolean, GLsizei, const void *); void glVertexAttribIPointer(GLuint, GLint, GLenum, GLsizei, const void *);
 void glVertexAttrib4f(GLuint, GLfloat, GLfloat, GLfloat, GLfloat); void glVertexAttribDivisor(GLuint, GLuint);

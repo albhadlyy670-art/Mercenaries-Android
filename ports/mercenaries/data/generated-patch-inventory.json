@@ -9694,12 +9694,12 @@
       "index": 815,
       "name": "Scenery streaming grid covers selected radius",
       "before_sha256": "84aa78a6db558d3e5338a232581e08da014d2b10040dbe570c5a3f7da01c5d3d",
-      "after_sha256": "41854e8579d56a05dffd7416006ea0b9247734a5de63fba748cb4543a5db3f46",
+      "after_sha256": "4e2828639ea23c6594dd84e23149e54802b2b124d3d5f4e8defb9a5e75a4ddd3",
       "guest_sites": [
         "001ED240"
       ],
       "host_helpers": [
-        "recomp_options_object_distance_multiplier"
+        "recomp_options_streaming_grid_radius"
       ]
     },
     {

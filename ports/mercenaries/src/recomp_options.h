@@ -94,6 +94,9 @@ uint32_t recomp_options_high_npc_lod_mask(uint32_t mask);
 float recomp_options_scale_object_distance(float distance, uint32_t type);
 int recomp_options_begin_world_load(void);
 float recomp_options_object_distance_multiplier(void);
+/* Android world camera/scenery cap and matching preload grid budget. */
+float recomp_options_world_view_distance(float distance);
+float recomp_options_streaming_grid_radius(void);
 float recomp_options_perspective_fov(float horizontal_fov,
                                      float guest_aspect);
 float recomp_options_perspective_aspect(float guest_aspect);

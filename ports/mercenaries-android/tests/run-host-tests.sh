@@ -10,6 +10,62 @@ for off in 0 0x18300000; do
   (cd $T/out && find . -type f | sed 's|^\./||' | sort | while read f; do echo "$(sha256sum "$f"|cut -d' ' -f1)  $f"; done) > $T/got
   sort -k2 $T/t.iso.manifest | diff - $T/got && echo "  partition offset $off: OK"
 done
+echo "== Draw limit disabled"
+python3 test_draw_limit_removed.py
+echo "== World visibility conservative bounds"
+gcc -O1 -Wall -Wextra -Werror -fsanitize=undefined test_world_visibility.c -lm -o $T/world_visibility && $T/world_visibility
+echo "== Android world streaming distance policy"
+python3 test_world_streaming_radius.py
+echo "== Android CPU tuning selection and lifecycle"
+gcc -O1 -Wall -Wextra -Werror -Wno-unused-function test_cpu_tuning.c -lpthread -o $T/cpu_tuning && $T/cpu_tuning
+python3 test_apply_cpu_tuning.py
+gcc -O1 -Wall -Wextra -Werror -DMERC_HAVE_GAME=1 -DXBOX_ANDROID=1 -I fake_ndk -I$CPP/compat/include -I$D/include -I$CPP/compat -I$D -I$A -I$S -I$S/d3d -I$S/platform -I$S/kernel -I$S/nv2a -c $A/android_game.c -o $T/android_game.o
+echo "== Android preview logging opt-in"
+gcc -O1 -Wall -Wextra -I fake_ndk -I$S test_preview_log_android.c -lpthread -o $T/preview_log && $T/preview_log
+echo "== GLES texture and sampler binding cache (mock driver)"
+gcc -O1 -w -ffunction-sections -fdata-sections -I$CPP/compat/include -I$D/include -I$CPP/compat -I$D -I$S -I$S/d3d -I$S/platform -I$S/kernel -I$S/nv2a -DXBOX_ANDROID=1 test_texture_bind_cache.c -Wl,--gc-sections -lm -o $T/texture_cache && $T/texture_cache
+echo "== GLES compressed texture chunk copies (mock driver)"
+gcc -O1 -w -ffunction-sections -fdata-sections -I$CPP/compat/include -I$D/include -I$CPP/compat -I$D -I$S -I$S/d3d -I$S/platform -I$S/kernel -I$S/nv2a -DXBOX_ANDROID=1 test_texture_chunks.c -Wl,--gc-sections -lm -o $T/texture_chunks && $T/texture_chunks
+echo "== GLES draw-state cache (mock driver)"
+gcc -O1 -w -ffunction-sections -fdata-sections -I$CPP/compat/include -I$D/include -I$CPP/compat -I$D -I$S -I$S/d3d -I$S/platform -I$S/kernel -I$S/nv2a -DXBOX_ANDROID=1 test_draw_state_cache.c -Wl,--gc-sections -lm -o $T/draw_state_cache && $T/draw_state_cache
+echo "== GLES Android workload diagnostics"
+gcc -O1 -w -ffunction-sections -fdata-sections -I fake_ndk -I$CPP/compat/include -I$D/include -I$CPP/compat -I$D -I$S -I$S/d3d -I$S/platform -I$S/kernel -I$S/nv2a -DXBOX_ANDROID=1 test_gles_workload.c -Wl,--gc-sections -lm -o $T/gles_workload && $T/gles_workload
+echo "== NV2A immediate strip packet validation"
+gcc -O1 -Wall -Wextra -Werror -fsanitize=undefined test_immediate_packet.c -o $T/immediate_packet && $T/immediate_packet
+echo "== NV2A strip adjacency probe"
+gcc -O1 -Wall -Wextra -Werror -fsanitize=undefined test_batch_probe.c -o $T/batch_probe && $T/batch_probe
+echo "== NV2A disabled draw merging and packet helper"
+gcc -O1 -Wall -Wextra -Werror -fsanitize=undefined test_push_batch.c -o $T/push_batch && $T/push_batch
+python3 test_live_batch.py
+echo "== NV2A draw batching primitive safety"
+gcc -O1 -Wall -Wextra -Werror test_draw_batch.c -o $T/draw_batch && $T/draw_batch
+echo "== NV2A indexed vertex chunks"
+gcc -O1 -Wall -Wextra -Werror test_indexed_vertices.c -o $T/indexed_vertices && $T/indexed_vertices
+echo "== NV2A immediate vertex preparation"
+gcc -O1 -Wall -Wextra -Werror test_immediate_vertices.c -o $T/immediate_vertices
+$T/immediate_vertices
+echo "== NV2A small draw origin diagnostics"
+gcc -O1 -Wall -Wextra -Werror test_nv2a_workload.c -o $T/nv2a_workload
+$T/nv2a_workload
+echo "== Adjacent feedback snapshot reuse"
+gcc -O1 -Wall -Wextra -Werror test_feedback_reuse.c -o $T/feedback_reuse
+$T/feedback_reuse
+echo "== Pixel shader selection and fallback"
+gcc -O1 -Wall -Wextra -Werror test_pixel_selection.c -o $T/pixel_selection && $T/pixel_selection
+echo "== GLES vertex attribute state transitions"
+gcc -O1 -Wall -Wextra -Werror test_vertex_attrib_state.c -o $T/vertex_attrib_state && $T/vertex_attrib_state
+echo "== GLES transient vertex range upload (mock driver)"
+gcc -O1 -w -ffunction-sections -fdata-sections -I$CPP/compat/include -I$D/include -I$CPP/compat -I$D -I$S -I$S/d3d -I$S/platform -I$S/kernel -I$S/nv2a -DXBOX_ANDROID=1 $D/d3d11_gles.c test_vertex_upload.c -Wl,--gc-sections -lm -o $T/vertex_upload && $T/vertex_upload
+echo "== Fixed-function constant buffer cache"
+gcc -O1 -Wall -Wextra -Werror test_constant_cache.c -o $T/constant_cache && $T/constant_cache
+echo "== Touch stick input and multitouch"
+gcc -O1 -Wall -Wextra -Wno-misleading-indentation -I fake_ndk -I$A -I$S test_touch_sticks.c $A/android_input.c -lpthread -lm -o $T/touch_sticks && $T/touch_sticks
+echo "== Touch overlay GL state isolation"
+gcc -O1 -Wall -Wextra -Wno-unused-function -ffunction-sections -fdata-sections -I fake_ndk -I$A test_touch_overlay.c -Wl,--gc-sections -lm -o $T/touch_overlay
+$T/touch_overlay
+echo "== Per-thread alternate signal stacks"
+gcc -O1 -Wall -Wextra -I$A test_signal_stack.c $A/android_signal_stack.c -lpthread -o $T/signal_stack
+$T/signal_stack
 echo "== AArch64 MMIO decoder"; gcc -fsanitize=undefined -I$S/platform test_mmio_a64.c -o $T/a && $T/a
 echo "== Guest memory layout (mmap arena, mirrors, aliases, faults)"
 gcc -O1 -w -fsanitize=undefined -I$S -I$S/kernel -I$S/platform test_memory_layout.c $S/kernel/xbox_memory_layout.c $S/platform/win32_compat.c -lpthread -lm -o $T/m && $T/m | tail -1
@@ -20,7 +76,7 @@ echo "== SHA-256 behind the BCrypt shim (NIST vectors, retail-XBE verification)"
 gcc -O1 -w -I$CPP/compat/include -I$CPP/compat -I$CPP/d3d11_gles/include -I$S -I$S/platform test_sha256.c $CPP/compat/bcrypt_sha256.c -o $T/sha && $T/sha
 echo "== Case-insensitive file names (importer lower-cases; path translator folds requests)"
 echo 'void xbox_log(int l,int c,const char*f,...){}' > $T/logstub.c
-gcc -O1 -w -DXBOX_ANDROID=1 -D__ANDROID__ -I$CPP/d3d11_gles/include -I$CPP/compat -I$S -I$S/kernel -I$S/platform test_path_fold.c $S/kernel/kernel_path.c $T/logstub.c $S/platform/win32_compat.c $CPP/compat/winapi_extra.c -lpthread -lm -o $T/fold && $T/fold
+gcc -O1 -w -DXBOX_ANDROID=1 -D__ANDROID__ -I$CPP/d3d11_gles/include -I$CPP/compat -I$S -I$S/kernel -I$S/platform test_path_fold.c $S/kernel/kernel_path.c $T/logstub.c $S/platform/win32_compat.c $A/android_signal_stack.c $CPP/compat/winapi_extra.c -lpthread -lm -o $T/fold && $T/fold
 echo "== Shell build link (no recompiler output): every symbol resolves"
 python3 check_shell_link.py
 echo "== Whole Android source set: CMake lists, NDK-strict compile, every symbol accounted for"

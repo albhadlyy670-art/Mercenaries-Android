@@ -55,3 +55,133 @@ SHA-256 (NIST vectors) · case folding · whole-source-set check · HLSL transla
 Run `tools/recomp` on a PC with your disc image, open this folder in Android Studio (NDK 26.3), then
 `./gradlew assembleDebug`. arm64-v8a only. Needs Python 3 on the build machine (header generation).
 Install, tap *Import*, choose your `.iso`, tap *Play*. Logs: `adb logcat -s MercRecomp MercGame d3d11gles`.
+
+## Touch controls
+The two circular pads are independent analog sticks: left for movement and right for
+camera/aim. Drag from within a pad; the knob follows your finger and stays held even
+if you move outside the circle. Release it to recenter. Face buttons and both sticks
+can be used at the same time, and physical controllers remain supported.
+
+## Android performance diagnostics
+The shared game log includes `[perf]` samples every ten seconds while rendering, with observed FPS and
+average `eglSwapBuffers` wait time and game-thread CPU time as a percentage of one core. Long background/stalled gaps reset the sample. These numbers alone
+do not distinguish CPU from GPU bottlenecks. `[perf-gles]` reports per-interval draw,
+buffer map/unmap and readback counts, sampled CPU-side call times (one in 64 calls),
+the number of full draw-state applications (`state_applies`), and the current shader-program cache size.
+Transient vertex-ring map/unmap calls
+are reported separately as `ring_maps` and `ring_unmaps`. These samples can miss occasional spikes
+and do not measure GPU execution time. `[perf-gles-draw]` separates sampled
+CPU time spent preparing a draw from the driver draw call. `[perf-gles-prepare]`
+breaks preparation into program lookup/creation, framebuffer and state setup,
+resource binding, and vertex setup. `[perf-gles-fbstate]` further separates
+framebuffer binding from render-state application. `[perf-gles-workload]` counts
+issued array/indexed draws, submitted vertex or index references, draw sizes
+(disjoint ranges), renderer draw-FBO rebinds and attachment changes; clears and
+blits are not counted as draw-FBO rebinds; attachment updates include clears.
+`[perf-gles-small]` separates small draws (up to 16 vertices/indices) by
+vertex-ID-only versus attribute input and by primitive topology. Vertex-ID-only
+draws can include internal resolve passes; the category is not an exact origin label.
+`[perf-nv2a-small]` counts guest draw submission paths and small NV2A triangle
+strips, how many have an enabled texture stage, and non-contiguous DRAW_ARRAYS
+splits (all primitive modes and strips respectively). These are diagnostic
+counts, not proof that a particular pair can be safely merged. Each timing is sampled independently, so their
+averages need not sum exactly to the preparation average. These wall times can
+include driver waits or backpressure; none is a GPU timer. Android normally collects GLES errors at
+presentation instead of after every hot draw/upload. Set `D3DGL_DEBUG=1` for
+per-operation GL error checks and attribution when investigating graphics.
+
+Detailed game preview telemetry is disabled unless developer logging is enabled via
+`config/developer.ini` (`[Developer] logging=1`) or the `MERCENARIES_DEVELOPER_LOGGING`
+environment variable. Lifecycle, performance and crash traces remain enabled.
+
+The thread-sampling watchdog is disabled by default to avoid interrupting gameplay. For a hang investigation,
+create a file named `watchdog.enable` in the app's cache directory before starting the game. Remove it to
+turn sampling off. Crash reporting remains enabled without the watchdog.
+
+### Texture and streaming memory
+GLES uploads already-native texture formats directly, using GLES 3 row length
+for representable padded rows; formats requiring conversion retain the CPU
+conversion path. Large BC1/2/3 textures are decoded in block-row chunks (about
+1 MiB of temporary RGBA data at a time) instead of allocating a full decoded
+image. Compressed staging copies address block rows, not pixel rows. Small
+indexed guest draws use a bounded 2 KiB scratch buffer, with heap fallback for
+larger draws. These changes preserve the content and do not alter game draw
+distance. They reduce copying and temporary memory, but do not reduce the
+number of scene draws or prove an FPS gain.
+
+Android uses the POSIX file path and the operating system's buffered file
+cache; the separate Windows-only guest read-ahead cache does not apply to it.
+These texture chunks are upload/decode chunks, not a change to the game's
+world-streaming grid or asset lifetime.
+
+### Android world distance trial
+The normal world-camera far plane and eligible scenery distances are capped at
+260 world units; the world streaming grid uses 300, compared with the previous
+320. Shorter authored distances are not increased. The 40-unit margin is relative
+to the camera's axial far-plane value and scenery threshold: wide-FOV frustum
+corners, large objects and fast vehicles may extend beyond that margin. Other
+camera types, terrain's own budget, and NPC distance settings are not directly
+changed, although shrinking the shared streaming grid can still affect gameplay.
+This is not calibrated to a measured fog cutoff and may cause visible pop-in or
+missing objects; test scenes, fast vehicles and missions on a device. A
+`[world-streaming]` line at world initialization confirms the selected values.
+The patch is applied when the generated game sources are regenerated; existing
+pre-patched generated sources must be rebuilt from the recompiler output.
+
+### CPU affinity and thermal diagnostics
+The game-thread tuning helper is compiled into `android_game.c` for game builds.
+After 15 seconds it attempts to select the highest-capacity cores, intersected
+with the game thread's existing allowed CPU mask. It falls back to maximum CPU
+frequency only when capacity information is unavailable or does not show a
+split. If no reliable split is visible or no selected core is allowed, affinity
+is left unchanged. The priority request can be denied by Android; `[cpu]`
+records the result and errno. Every ten seconds the helper reports the last
+observed game-thread CPU, available core frequencies, and the hottest readable
+thermal zone; unavailable sysfs information is reported as `n/a`. The hottest
+zone is not necessarily the CPU and these measurements alone cannot prove why
+a frame stalls. Pinning may hurt performance, power or thermals. Threads created
+later by the game thread may inherit its affinity.
+
+To override, create `cpu_affinity.txt` in the app's cache directory before
+launch with a hexadecimal mask (for example `c0`). Write `0` to disable both
+affinity and the priority request while retaining telemetry. This file is read
+once after the 15-second delay; restart to apply changes. Core numbering and
+access to sysfs vary by device. `python3 CPUFIX/apply_cpu_tuning.py` reinstalls
+the included helper idempotently; ordinary builds already include it.
+
+### NV2A draw merging
+
+The experimental draw merger is disabled and no startup marker or environment
+variable can enable it. The renderer submits guest draws separately. The PFIFO
+fast path for consecutive data words within one draw remains; it does not merge
+separate draws.
+
+`[perf-nv2a-adjacent]` is a read-only probe of the packet immediately after a
+triangle-strip END, grouped by the current draw source. `boundary` means less
+than two words were available before PUT/DMA end; `barrier` means the next
+packet was not a same-subchannel BEGIN; `begin_other` means BEGIN used a
+non-strip mode. The `strip_*` fields describe only the first packet after a
+same-subchannel strip BEGIN. They do not establish a complete draw, unchanged
+state, texture safety or permission to merge. Counts are per ten-second
+workload interval and do not change PFIFO execution.
+
+The Android `[world-visibility]` sample observes the retail RedScene query list
+once every ten seconds. `behind_candidate` means a finite bounding sphere lies
+wholly behind the camera plane, not that it is safe to skip: objects may be
+needed for shadows or other passes. It never removes objects (`culled=0`). The
+fog cutoff remains unknown; these samples do not change streaming, gameplay or
+draw submission. The retail query's use of the negative camera axis is based
+on its instructions at 0x002034A0; camera/pass and bounds semantics still need
+device validation before using the observation to affect rendering.
+
+`[world-fog]` counts NV2A draws with fog enabled/disabled and enabled draws
+using a programmable vertex shader; the two reported mode values are the last
+observed enabled-draw state in the interval, not a measured cutoff. Programmable
+shaders can compute their own `oFog`, and fog can vary by scene and material.
+Neither that state nor the camera far plane alone proves a safe distance at
+which to omit geometry, depth, shadows, or reflections.
+
+### Draw limit
+
+The experimental 25,000-draw limit was removed. Game draw calls are not
+dropped by a draw-count limit, and no cache marker is required.

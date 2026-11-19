@@ -48,6 +48,8 @@ static struct { struct { int object_distance; } applied; } g_options;
     code += function(options,'uint32_t recomp_options_high_npc_lod_mask(')
     code += function(options,'int recomp_options_begin_world_load(')
     code += function(options,'float recomp_options_object_distance_multiplier(')
+    code += function(options,'float recomp_options_world_view_distance(')
+    code += function(options,'float recomp_options_streaming_grid_radius(')
     code += function(options,'float recomp_options_scale_object_distance(')
     code += function(manual,'float recomp_options_camera_far_plane(')
     code += r"""
@@ -100,7 +102,7 @@ int main(void){
 """
     with tempfile.TemporaryDirectory(prefix='merc-visual-audio-') as d:
         c=Path(d)/'test.c'; exe=Path(d)/'test.exe';c.write_text(code,encoding='utf-8')
-        subprocess.run([shutil.which('gcc'),'-O2','-std=c11',str(c),'-o',str(exe)],check=True)
+        subprocess.run([shutil.which('gcc'),'-O2','-std=c11',str(c),'-o',str(exe),'-lm'],check=True)
         subprocess.run([str(exe)],check=True,timeout=10)
 
 
