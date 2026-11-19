@@ -23,7 +23,6 @@
 #include "d3d8_triangle_depth.h"
 #include "d3d8_compiler.h"
 #include <stdio.h>
-#include <limits.h>
 #include <string.h>
 #include <stdlib.h>
 
@@ -3635,18 +3634,10 @@ static void *convert_fan_or_quad(D3DPRIMITIVETYPE pt, const void *src,
  * DrawPrimitiveUP call, use a persistent ring buffer.
  * ================================================================ */
 
-#ifdef XBOX_ANDROID
-#include "d3d8_indexed_ring.h"
-#endif
-
 #define UP_RING_BUFFER_SIZE (4 * 1024 * 1024)  /* 4MB ring buffer */
 
 static ID3D11Buffer *g_up_ring_buffer = NULL;
 static UINT          g_up_ring_offset = 0;
-#ifdef XBOX_ANDROID
-static ID3D11Buffer *g_up_index_ring_buffer = NULL;
-static UINT g_up_index_ring_offset = 0;
-#endif
 
 typedef struct D3D8DrawPerfTotals {
     UINT64 calls;
@@ -3741,29 +3732,7 @@ static void up_ring_shutdown(void)
         g_up_ring_buffer = NULL;
     }
     g_up_ring_offset = 0;
-#ifdef XBOX_ANDROID
-    if (g_up_index_ring_buffer) ID3D11Buffer_Release(g_up_index_ring_buffer);
-    g_up_index_ring_buffer = NULL;
-    g_up_index_ring_offset = 0;
-#endif
 }
-
-#ifdef XBOX_ANDROID
-static UINT up_index_ring_upload(const void *data, UINT size)
-{
-    D3D8RingReservation r;
-    if (!d3d8_ring_reserve(UP_RING_BUFFER_SIZE, g_up_index_ring_offset, size, &r)) return (UINT)-1;
-    if (!g_up_index_ring_buffer) {
-        D3D11_BUFFER_DESC bd; memset(&bd, 0, sizeof(bd));
-        bd.ByteWidth = UP_RING_BUFFER_SIZE; bd.Usage = D3D11_USAGE_DYNAMIC;
-        bd.BindFlags = D3D11_BIND_INDEX_BUFFER; bd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
-        if (FAILED(ID3D11Device_CreateBuffer(g_device_state.d3d11_device, &bd, NULL, &g_up_index_ring_buffer))) return (UINT)-1;
-    }
-    if (FAILED(d3d11gles_upload_index_range(g_up_index_ring_buffer, r.offset, data, size, r.discard))) return (UINT)-1;
-    g_up_index_ring_offset = r.next;
-    return r.offset;
-}
-#endif
 
 /* Upload vertex data to ring buffer, returns offset. Returns (UINT)-1 on failure. */
 static UINT up_ring_upload(const void *data, UINT size)
@@ -3988,46 +3957,21 @@ static HRESULT __stdcall dev_DrawIndexedPrimitiveUP(IDirect3DDevice8 *self, D3DP
     D3D11_BUFFER_DESC bd;
     D3D11_SUBRESOURCE_DATA sd;
     ID3D11Buffer *tmp_vb = NULL, *tmp_ib = NULL;
-    UINT index_count, vb_size, ib_size, offset = 0, index_offset = 0;
-    int use_ring = 0;
+    UINT index_count, vb_size, ib_size, offset = 0;
     UINT idx_bytes;
     DXGI_FORMAT ib_fmt;
     HRESULT hr;
 
     if (!pVertexData || !pIndexData || !VertexStreamZeroStride) return E_INVALIDARG;
 
-    /* Reject primitive-count arithmetic overflow before map_primitive_type. */
-    if (((PrimitiveType == D3DPT_TRIANGLELIST || PrimitiveType == D3DPT_TRIANGLEFAN) && PrimitiveCount > UINT_MAX / 3u) ||
-        (PrimitiveType == D3DPT_QUADLIST && PrimitiveCount > UINT_MAX / 6u) ||
-        (PrimitiveType == D3DPT_LINELIST && PrimitiveCount > UINT_MAX / 2u) ||
-        (PrimitiveType == D3DPT_TRIANGLESTRIP && PrimitiveCount > UINT_MAX - 2u) ||
-        (PrimitiveType == D3DPT_LINESTRIP && PrimitiveCount == UINT_MAX)) return E_INVALIDARG;
     topology = map_primitive_type(PrimitiveType, PrimitiveCount, &index_count);
     if (index_count == 0) return E_INVALIDARG;
 
     idx_bytes = (IndexDataFormat == D3DFMT_INDEX32) ? 4 : 2;
     ib_fmt = (IndexDataFormat == D3DFMT_INDEX32) ? DXGI_FORMAT_R32_UINT : DXGI_FORMAT_R16_UINT;
-    if (!NumVertices || NumVertices > UINT_MAX / VertexStreamZeroStride ||
-        index_count > UINT_MAX / idx_bytes) return E_INVALIDARG;
     vb_size = NumVertices * VertexStreamZeroStride;
     ib_size = index_count * idx_bytes;
 
-#ifdef XBOX_ANDROID
-    /* Keep the old route for unsupported or ambiguous input. In particular,
-     * GLES restart indices, fans/quads and non-zero MinVertexIndex require
-     * different handling and must not silently change primitive semantics. */
-    if (MinVertexIndex == 0 && (IndexDataFormat == D3DFMT_INDEX16 || IndexDataFormat == D3DFMT_INDEX32) &&
-        PrimitiveType != D3DPT_TRIANGLEFAN && PrimitiveType != D3DPT_QUADLIST &&
-        vb_size <= UP_RING_BUFFER_SIZE && ib_size <= UP_RING_BUFFER_SIZE &&
-        d3d8_ring_indices_safe(pIndexData, index_count, idx_bytes, NumVertices)) {
-        offset = up_ring_upload(pVertexData, vb_size);
-        if (offset == (UINT)-1) return E_OUTOFMEMORY;
-        index_offset = up_index_ring_upload(pIndexData, ib_size);
-        if (index_offset == (UINT)-1) return E_OUTOFMEMORY;
-        tmp_vb = g_up_ring_buffer; tmp_ib = g_up_index_ring_buffer; use_ring = 1;
-    }
-#endif
-    if (!use_ring) {
     /* Create temp vertex buffer */
     memset(&bd, 0, sizeof(bd));
     bd.ByteWidth = vb_size;
@@ -4044,13 +3988,12 @@ static HRESULT __stdcall dev_DrawIndexedPrimitiveUP(IDirect3DDevice8 *self, D3DP
     sd.pSysMem = pIndexData;
     hr = ID3D11Device_CreateBuffer(g_device_state.d3d11_device, &bd, &sd, &tmp_ib);
     if (FAILED(hr)) { ID3D11Buffer_Release(tmp_vb); return hr; }
-    }
 
     /* Bind, prepare, draw */
     ID3D11DeviceContext_IASetVertexBuffers(g_device_state.d3d11_context,
         0, 1, &tmp_vb, &VertexStreamZeroStride, &offset);
     ID3D11DeviceContext_IASetIndexBuffer(g_device_state.d3d11_context,
-        tmp_ib, ib_fmt, index_offset);
+        tmp_ib, ib_fmt, 0);
 
     /* Vertex shader: try programmable VS first, fall back to FVF fixed-function */
     const BOOL programmable_vsh = d3d8_vsh_prepare_draw(g_device_state.vertex_shader);
@@ -4079,7 +4022,8 @@ static HRESULT __stdcall dev_DrawIndexedPrimitiveUP(IDirect3DDevice8 *self, D3DP
     d3d8_triangle_depth_end(g_device_state.d3d11_context, &depth_scope);
 
     /* Cleanup temp buffers */
-    if (!use_ring) { ID3D11Buffer_Release(tmp_ib); ID3D11Buffer_Release(tmp_vb); }
+    ID3D11Buffer_Release(tmp_ib);
+    ID3D11Buffer_Release(tmp_vb);
 
     /* Restore previous bindings */
     if (g_cur_vb) {
@@ -4088,16 +4032,12 @@ static HRESULT __stdcall dev_DrawIndexedPrimitiveUP(IDirect3DDevice8 *self, D3DP
         ID3D11DeviceContext_IASetVertexBuffers(g_device_state.d3d11_context,
             0, 1, &vb->d3d11_buffer, &g_cur_vb_stride, &offset);
     }
-    else if (use_ring) {
-        ID3D11Buffer *none = NULL; UINT zero = 0;
-        ID3D11DeviceContext_IASetVertexBuffers(g_device_state.d3d11_context, 0, 1, &none, &zero, &zero);
-    }
     if (g_cur_ib) {
         D3D8IndexBuffer *ib = (D3D8IndexBuffer *)g_cur_ib;
         DXGI_FORMAT fmt = (ib->format == D3DFMT_INDEX32) ? DXGI_FORMAT_R32_UINT : DXGI_FORMAT_R16_UINT;
         ID3D11DeviceContext_IASetIndexBuffer(g_device_state.d3d11_context,
             ib->d3d11_buffer, fmt, 0);
-    } else if (use_ring) ID3D11DeviceContext_IASetIndexBuffer(g_device_state.d3d11_context, NULL, DXGI_FORMAT_R16_UINT, 0);
+    }
     return S_OK;
 }
 

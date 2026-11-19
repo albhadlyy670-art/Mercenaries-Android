@@ -28,7 +28,6 @@ void android_gl_present(const char *status, float progress);
 int  android_gl_ready(void);
 void android_gl_present_texture(void *user, uint32_t tex, int w, int h, int sync_interval);  /* D3d11GlesHost.present */
 extern int g_android_rendering;
-void android_performance_hint_frame(double swap_start, double swap_end);
 
 void android_install_fault_handler(void);
 

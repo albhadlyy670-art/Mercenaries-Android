@@ -192,28 +192,3 @@ or invalid; CPU6 may not be a big core on other devices. Battery temperature is
 not CPU temperature. A policy limit below the hardware maximum indicates a
 configured cap at that instant, not necessarily thermal throttling; sampled
 frequencies and policy values do not measure sustained clock speeds.
-
-The Android transient vertex ring uses immediate `glBufferSubData` uploads and
-orphans its buffer on wrap; it does not combine or reorder draws. `[perf-gles]`
-reports `ring_uploads`, `ring_upload_samples` and `ring_upload_avg_ms` (including
-orphaning). Compare the same scene/device against the older ring map/unmap
-measurements; driver synchronization can make this experiment faster or slower.
-
-On supported Android devices the game requests an Android performance-hint
-session for the game thread, with a 30 FPS work-duration target. It reports
-frame work before swap, skipping long lifecycle gaps. This is a scheduler hint,
-not a frame cap or guaranteed clock boost; Android may reject or ignore it.
-`[cpu] Android performance hint session active/unavailable` reports session setup.
-
-Android `DrawIndexedPrimitiveUP` can reuse transient vertex and index buffers
-for supported indexed draws instead of creating two buffers each time. Buffer
-wrap orphans old storage. Unsupported formats, primitive conversions, restart
-indices, nonzero minimum vertices and oversized draws remain on the older path.
-On Android, eligible NV2A programmable indexed draws are compacted from their
-existing vertex snapshots and submitted through the indexed path when upload
-bytes fall by at least 25%. Draw order stays unchanged; unsupported topologies,
-sparse indices, inconsistent snapshots, fixed-function draws and failures keep
-the expanded path. Small eligible draws now build their compact input during
-the expansion pass, avoiding a second compaction pass while keeping the ordered
-snapshot for diagnostics. CPU expansion still occurs; any FPS benefit needs
-on-device validation.

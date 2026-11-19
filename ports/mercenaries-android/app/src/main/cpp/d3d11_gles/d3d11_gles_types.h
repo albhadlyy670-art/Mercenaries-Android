@@ -181,8 +181,6 @@ int  d3d11gles_take_error_count(void);
  * caller to avoid ranges still used by queued draws; discard replaces storage. */
 HRESULT d3d11gles_upload_vertex_range(ID3D11Buffer *buffer, UINT offset,
                                       const void *data, UINT size, BOOL discard);
-HRESULT d3d11gles_upload_index_range(ID3D11Buffer *buffer, UINT offset,
-                                     const void *data, UINT size, BOOL discard);
 
 /* ---- creation -------------------------------------------------------------------- */
 HRESULT D3D11CreateDeviceAndSwapChain(IDXGIAdapter *adapter, D3D_DRIVER_TYPE type, HMODULE software, UINT flags,
