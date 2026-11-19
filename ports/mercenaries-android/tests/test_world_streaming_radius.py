@@ -29,20 +29,16 @@ int main(void) {
     *(uint32_t *)(memory+camera)=0x00300DC4;
     *(float *)(memory+camera+0xA0)=300.f;
 #ifdef XBOX_ANDROID
-    assert(recomp_options_streaming_grid_radius()==80.f);
-    assert(recomp_options_camera_far_plane(camera,300.f)==80.f);
-    assert(recomp_options_scale_object_distance(300.f,0x6D8B34D5u)==80.f);
+    assert(recomp_options_streaming_grid_radius()==320.f);
+    assert(recomp_options_camera_far_plane(camera,300.f)==260.f);
+    assert(recomp_options_scale_object_distance(300.f,0x6D8B34D5u)==260.f);
 #else
     assert(recomp_options_streaming_grid_radius()==320.f);
     assert(recomp_options_camera_far_plane(camera,300.f)==300.f);
     assert(recomp_options_scale_object_distance(300.f,0x6D8B34D5u)==300.f);
 #endif
     assert(recomp_options_scale_object_distance(60.f,0x6D8B34D5u)==60.f);
-#ifdef XBOX_ANDROID
-    assert(recomp_options_scale_object_distance(150.f,0x6D8B34D5u)==80.f);
-#else
     assert(recomp_options_scale_object_distance(150.f,0x6D8B34D5u)==150.f);
-#endif
     assert(recomp_options_scale_object_distance(300.f,0x12345678u)==300.f);
     assert(recomp_options_camera_far_plane(camera,600.f)==600.f);
     assert(recomp_options_camera_far_plane(0,300.f)==300.f);

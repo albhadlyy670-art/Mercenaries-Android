@@ -116,12 +116,11 @@ world-streaming grid or asset lifetime.
 
 ### Android world distance trial
 The normal world-camera far plane and eligible scenery distances are capped at
-80 game units, and the shared world streaming grid also uses 80. Previously
-these values were 260 and 300. Shorter authored distances are not increased.
-There is **no streaming margin** beyond the camera cap: wide-FOV edges, large
-objects and fast movement can expose unloaded areas. Other camera types,
-terrain's own budget and NPC distance settings are not directly changed, but
-shrinking the shared grid can affect gameplay, collision or AI.
+260 game units, and the shared world streaming grid uses 320. Shorter authored
+distances are not increased. The 60-unit difference is relative to the camera's
+axial far-plane value and scenery threshold; wide-FOV corners, large objects and
+fast movement can still reach outside the grid. Other camera types, terrain's
+own budget and NPC distance settings are not directly changed.
 
 This experiment is not calibrated to the fog cutoff and may cause pop-in or
 missing objects. Test fast vehicles and missions on a device. A `[world-streaming]`

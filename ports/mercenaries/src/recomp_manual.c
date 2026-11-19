@@ -3420,7 +3420,7 @@ int recomp_stream_admit_idle(uint32_t manager,uint32_t bytes)
 float recomp_options_camera_far_plane(uint32_t camera, float far_plane) {
     /* Only the normal RedCamera's own far plane is eligible. Preserve the
      * authored terrain cache budget and other perspective cameras. Android's
-     * experimental shorter view may reach the streaming boundary. */
+     * experimental shorter view has a 60-unit axial streaming margin. */
     if (camera >= 0x10000u && camera <= 0x03FFFF00u &&
         guest_u32(camera) == 0x00300DC4u &&
         far_plane == *(float *)guest_ptr(camera + 0xA0u))

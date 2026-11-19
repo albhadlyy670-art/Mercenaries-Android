@@ -396,18 +396,18 @@ float recomp_options_object_distance_multiplier(void) {
      * Deliberately independent of saved/pending values while disabled. */
     return 1.0f;
 }
-/* User-requested Android trial: fog cutoff is unmeasured. The 80-unit
- * streaming radius has no margin beyond the camera/scenery cap and may cause
- * pop-in or affect systems that share the grid. */
+/* User-requested Android trial: the fog cutoff is unmeasured. The 320-unit
+ * streaming radius exceeds the 260-unit camera/scenery cap, but grid changes
+ * can still cause pop-in or affect other systems that share the grid. */
 float recomp_options_world_view_distance(float distance) {
 #ifdef XBOX_ANDROID
-    if (distance > 80.0f) return 80.0f;
+    if (distance > 260.0f) return 260.0f;
 #endif
     return distance;
 }
 float recomp_options_streaming_grid_radius(void) {
 #ifdef XBOX_ANDROID
-    return 80.0f; /* User requested the same radius as the view cap. */
+    return 320.0f; /* 60 units beyond the normal camera/scenery cap. */
 #else
     return 300.0f * recomp_options_object_distance_multiplier() + 20.0f;
 #endif
