@@ -574,15 +574,14 @@ HRESULT d3dgl_Device_CreateBuffer(ID3D11Device *dev, const D3D11_BUFFER_DESC *d,
     gl_check("CreateBuffer"); *out = (ID3D11Buffer *)b; return S_OK;
 }
 
-/* The D3D map API exposes the entire buffer, but the transient ring knows
- * exactly which bytes it will write. Mapping that range avoids making Mali
- * unmap/flush the entire multi-megabyte allocation on every small draw. */
-HRESULT d3d11gles_upload_vertex_range(ID3D11Buffer *buffer, UINT offset,
-                                      const void *data, UINT size, BOOL discard)
+/* Map only the written range. On wrap, discard old storage so queued draws
+ * retain their data; disjoint ranges use NO_OVERWRITE. */
+static HRESULT upload_transient_range(ID3D11Buffer *buffer, UINT offset,
+                                      const void *data, UINT size, BOOL discard, UINT bind_flag)
 {
     Buf *b = (Buf *)buffer;
     if (!b || b->o.kind != K_BUFFER || !data || !size ||
-        b->d.Usage != D3D11_USAGE_DYNAMIC || !(b->d.BindFlags & D3D11_BIND_VERTEX_BUFFER) ||
+        b->d.Usage != D3D11_USAGE_DYNAMIC || !(b->d.BindFlags & bind_flag) ||
         offset > b->d.ByteWidth || size > b->d.ByteWidth - offset || b->mapped_gl || b->tmp)
         return E_INVALIDARG;
     bind_copy_write_buffer(b->buf);
@@ -602,6 +601,13 @@ HRESULT d3d11gles_upload_vertex_range(ID3D11Buffer *buffer, UINT offset,
     gl_check_hot("upload_vertex_range");
     return S_OK;
 }
+
+HRESULT d3d11gles_upload_vertex_range(ID3D11Buffer *buffer, UINT offset,
+                                      const void *data, UINT size, BOOL discard)
+{ return upload_transient_range(buffer, offset, data, size, discard, D3D11_BIND_VERTEX_BUFFER); }
+HRESULT d3d11gles_upload_index_range(ID3D11Buffer *buffer, UINT offset,
+                                     const void *data, UINT size, BOOL discard)
+{ return upload_transient_range(buffer, offset, data, size, discard, D3D11_BIND_INDEX_BUFFER); }
 
 /* ---- Map / Unmap / UpdateSubresource ------------------------------------------------------------------ */
 HRESULT d3dgl_Ctx_Map(ID3D11DeviceContext *c, ID3D11Resource *res, UINT sub, D3D11_MAP type, UINT flags, D3D11_MAPPED_SUBRESOURCE *m)

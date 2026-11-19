@@ -20,6 +20,8 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <sys/syscall.h>
+#include "android_performance_hint.h"
 
 void android_trace(const char *fmt, ...);
 
@@ -41,6 +43,29 @@ static void trace_memory(void)
     FILE *f = fopen("/proc/meminfo", "r"); char l[160]; int n = 0;
     while (f && n < 3 && fgets(l, sizeof(l), f)) { size_t k = strlen(l); if (k && l[k-1]=='\n') l[k-1]=0; android_trace("[app] %s", l); ++n; }
     if (f) fclose(f);
+}
+
+static AndroidHint g_android_hint;
+static void android_performance_hint_start(void)
+{
+    AndroidHintApi api = {0};
+    /* Resolve at runtime: older Android releases and devices without ADPF
+     * must continue to work without a new minimum API level. */
+    *(void **)(&api.manager) = dlsym(RTLD_DEFAULT, "APerformanceHint_getManager");
+    *(void **)(&api.create) = dlsym(RTLD_DEFAULT, "APerformanceHint_createSession");
+    *(void **)(&api.report) = dlsym(RTLD_DEFAULT, "APerformanceHint_reportActualWorkDuration");
+    *(void **)(&api.close) = dlsym(RTLD_DEFAULT, "APerformanceHint_closeSession");
+    int ok = android_hint_start(&g_android_hint, api, (int32_t)syscall(SYS_gettid));
+    android_trace("[cpu] Android performance hint session %s (30 fps target)", ok ? "active" : "unavailable");
+}
+void android_performance_hint_frame(double swap_start, double swap_end)
+{
+    static int reported_error;
+    int rc = android_hint_frame(&g_android_hint, swap_start, swap_end);
+    if (rc && !reported_error) {
+        android_trace("[cpu] Android performance hint report failed rc=%d", rc);
+        reported_error = 1;
+    }
 }
 
 static void show(const char *status, float progress)
@@ -136,9 +161,11 @@ int android_game_run(const char *game_dir, const char *save_dir, const char *tmp
     trace_memory();
     atexit(on_exit_trace);
     android_cpu_tuning_start(tmp_dir);
+    android_performance_hint_start();
     android_trace("[app] entering mercenaries_android_main");
     fprintf(stderr, "[app] entering mercenaries_android_main\n");
     int rc = mercenaries_android_main();                /* does not normally return */
+    android_hint_stop(&g_android_hint);
     android_cpu_tuning_stop();
     LOG("mercenaries_android_main returned %d", rc);
     return rc;

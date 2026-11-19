@@ -16,6 +16,8 @@ echo "== World visibility conservative bounds"
 gcc -O1 -Wall -Wextra -Werror -fsanitize=undefined test_world_visibility.c -lm -o $T/world_visibility && $T/world_visibility
 echo "== Android world streaming distance policy"
 python3 test_world_streaming_radius.py
+echo "== Android performance hints"
+gcc -O1 -Wall -Wextra -Werror test_performance_hint.c -o $T/performance_hint && $T/performance_hint
 echo "== Android CPU tuning selection and lifecycle"
 gcc -O1 -Wall -Wextra -Werror -Wno-unused-function test_cpu_tuning.c -lpthread -o $T/cpu_tuning && $T/cpu_tuning
 python3 test_apply_cpu_tuning.py
@@ -41,6 +43,10 @@ echo "== NV2A draw batching primitive safety"
 gcc -O1 -Wall -Wextra -Werror test_draw_batch.c -o $T/draw_batch && $T/draw_batch
 echo "== NV2A indexed vertex chunks"
 gcc -O1 -Wall -Wextra -Werror test_indexed_vertices.c -o $T/indexed_vertices && $T/indexed_vertices
+echo "== NV2A fused indexed snapshot"
+gcc -O1 -Wall -Wextra -Werror -Wno-unused-function -fsanitize=undefined test_nv2a_fused_indexed.c -o $T/fused_indexed && $T/fused_indexed
+echo "== NV2A compact indexed vertices"
+gcc -O1 -Wall -Wextra -Werror -Wno-unused-function -fsanitize=undefined test_nv2a_compact_indexed.c -o $T/compact_indexed && $T/compact_indexed
 echo "== NV2A immediate vertex preparation"
 gcc -O1 -Wall -Wextra -Werror test_immediate_vertices.c -o $T/immediate_vertices
 $T/immediate_vertices
@@ -54,6 +60,8 @@ echo "== Pixel shader selection and fallback"
 gcc -O1 -Wall -Wextra -Werror test_pixel_selection.c -o $T/pixel_selection && $T/pixel_selection
 echo "== GLES vertex attribute state transitions"
 gcc -O1 -Wall -Wextra -Werror test_vertex_attrib_state.c -o $T/vertex_attrib_state && $T/vertex_attrib_state
+echo "== D3D8 indexed ring allocation and indices"
+gcc -O1 -Wall -Wextra -Werror test_indexed_ring.c -o $T/indexed_ring && $T/indexed_ring
 echo "== GLES transient vertex range upload (mock driver)"
 gcc -O1 -w -ffunction-sections -fdata-sections -I$CPP/compat/include -I$D/include -I$CPP/compat -I$D -I$S -I$S/d3d -I$S/platform -I$S/kernel -I$S/nv2a -DXBOX_ANDROID=1 $D/d3d11_gles.c test_vertex_upload.c -Wl,--gc-sections -lm -o $T/vertex_upload && $T/vertex_upload
 echo "== Fixed-function constant buffer cache"

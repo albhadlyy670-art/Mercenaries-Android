@@ -46,8 +46,26 @@ int main(void)
     assert(orphan_count == before + 1 && !memcmp(storage, b, sizeof(b)) && storage[40] == 0);
     map_fail = 0; unmap_fail = 1;
     assert(FAILED(d3d11gles_upload_vertex_range(buffer, 0, a, sizeof(a), FALSE)));
-    before = map_count;
+    unmap_fail = 0; before = map_count;
     assert(FAILED(d3d11gles_upload_vertex_range(buffer, 127, a, sizeof(a), FALSE)) && map_count == before);
+    assert(FAILED(d3d11gles_upload_index_range(buffer, 0, a, sizeof(a), FALSE)));
     d3dgl_Release(buffer);
-    puts("vertex upload: ranges, discard, fallback and failures OK"); return 0;
+    desc.BindFlags = D3D11_BIND_INDEX_BUFFER;
+    assert(SUCCEEDED(d3dgl_Device_CreateBuffer(NULL, &desc, NULL, &buffer)));
+    assert(FAILED(d3d11gles_upload_vertex_range(buffer, 0, a, sizeof(a), FALSE)));
+    assert(SUCCEEDED(d3d11gles_upload_index_range(buffer, 16, a, sizeof(a), FALSE)));
+    assert(mapped_offset == 16 && mapped_size == sizeof(a) && (mapped_flags & GL_MAP_UNSYNCHRONIZED_BIT));
+    assert(SUCCEEDED(d3d11gles_upload_index_range(buffer, 40, b, sizeof(b), FALSE)));
+    assert(!memcmp(storage + 16, a, sizeof(a)) && !memcmp(storage + 40, b, sizeof(b)));
+    assert(SUCCEEDED(d3d11gles_upload_index_range(buffer, 0, a, sizeof(a), TRUE)));
+    assert((mapped_flags & GL_MAP_INVALIDATE_BUFFER_BIT) && !memcmp(storage, a, sizeof(a)) && storage[40] == 0);
+    map_fail = 1; before = orphan_count;
+    assert(SUCCEEDED(d3d11gles_upload_index_range(buffer, 0, b, sizeof(b), TRUE)));
+    assert(orphan_count == before + 1 && !memcmp(storage, b, sizeof(b)));
+    map_fail = 0; unmap_fail = 1;
+    assert(FAILED(d3d11gles_upload_index_range(buffer, 0, a, sizeof(a), FALSE)));
+    unmap_fail = 0; before = map_count;
+    assert(FAILED(d3d11gles_upload_index_range(buffer, 127, a, sizeof(a), FALSE)) && map_count == before);
+    d3dgl_Release(buffer);
+    puts("vertex and index uploads: mapped ranges, wrap, fallback and errors OK"); return 0;
 }

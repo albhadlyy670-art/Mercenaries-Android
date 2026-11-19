@@ -296,5 +296,7 @@ void android_gl_present_texture(void *user, uint32_t tex, int w, int h, int sync
     if (g_swap_interval != interval && eglSwapInterval(g_dpy, interval)) g_swap_interval = interval;
     double swap_start = monotonic_seconds();
     eglSwapBuffers(g_dpy, g_surf);
-    note_frame(swap_start, monotonic_seconds());
+    double swap_end = monotonic_seconds();
+    android_performance_hint_frame(swap_start, swap_end);
+    note_frame(swap_start, swap_end);
 }
