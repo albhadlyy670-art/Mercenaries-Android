@@ -14329,7 +14329,7 @@ PATCHES += (
     GeneratedPatch('Scenery draw distance range 0017015D', 'loc_0017015D: ;\n    fp_push(MEMF(0x2FC658)); /* fld float */', 'loc_0017015D: ;\n    fp_push(recomp_options_scale_object_distance(MEMF(0x2FC658), eax));'),
     GeneratedPatch('Scenery draw distance range 00170182', 'loc_00170182: ;\n    fp_push(MEMF(0x2FC658)); /* fld float */', 'loc_00170182: ;\n    fp_push(recomp_options_scale_object_distance(MEMF(0x2FC658), eax));'),
     GeneratedPatch('Scenery draw distance range 0017018B', 'loc_0017018B: ;\n    fp_push(MEMF(0x2FC65C)); /* fld float */', 'loc_0017018B: ;\n    fp_push(recomp_options_scale_object_distance(MEMF(0x2FC65C), eax));'),
-    GeneratedPatch('Scenery streaming grid covers selected radius', 'loc_001ED240: ;\n    PUSH32(esp, 0x43A00000);', 'loc_001ED240: ;\n    esp -= 4u;\n    MEMF(esp) = recomp_options_streaming_grid_radius(); /* camera/scenery radius plus streaming margin */'),
+    GeneratedPatch('Scenery streaming grid covers selected radius', 'loc_001ED240: ;\n    PUSH32(esp, 0x43A00000);', 'loc_001ED240: ;\n    esp -= 4u;\n    MEMF(esp) = recomp_options_streaming_grid_radius(); /* platform-selected streaming grid radius */'),
 )
 
 PATCHES += (

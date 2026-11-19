@@ -2,7 +2,7 @@
   "schema": 1,
   "retail_xbe_sha256": "aa08ea21d952ac35f49c02c7e2ed08aa25ad7535fbbbccc95636775f37be99d7",
   "scope": "Mechanical inventory of maintained textual transformations, not a proof of each patch. Retail instruction/ABI evidence for flagged dependencies is indexed in docs/runtime/dependency-maintenance-basis.md. Functional patch_* and trace_* passes are separately listed.",
-  "patch_script_sha256": "0cde92d7e076da9fedeb510aed4d3d5a6f69030d49c69cbf3a8493b0acc36b6d",
+  "patch_script_sha256": "927f6db91e045d49a66b9b415de5a6a28f9058dc0fdf947361210dfbc169d51f",
   "transformations": [
     {
       "index": 0,
@@ -9694,7 +9694,7 @@
       "index": 815,
       "name": "Scenery streaming grid covers selected radius",
       "before_sha256": "84aa78a6db558d3e5338a232581e08da014d2b10040dbe570c5a3f7da01c5d3d",
-      "after_sha256": "4e2828639ea23c6594dd84e23149e54802b2b124d3d5f4e8defb9a5e75a4ddd3",
+      "after_sha256": "b111f77e6f8e01a2435c0dec8d4914e1c8a31db15303b7d82f022bf858995c74",
       "guest_sites": [
         "001ED240"
       ],

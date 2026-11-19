@@ -396,18 +396,18 @@ float recomp_options_object_distance_multiplier(void) {
      * Deliberately independent of saved/pending values while disabled. */
     return 1.0f;
 }
-/* A conservative, Android-only trial: the actual fog cutoff varies by scene
- * and has not been measured. Keep the grid beyond the capped camera and the
- * scenery radius; leave terrain's authored cache and gameplay logic intact. */
+/* User-requested Android trial: fog cutoff is unmeasured. The 80-unit
+ * streaming radius has no margin beyond the camera/scenery cap and may cause
+ * pop-in or affect systems that share the grid. */
 float recomp_options_world_view_distance(float distance) {
 #ifdef XBOX_ANDROID
-    if (distance > 260.0f) return 260.0f;
+    if (distance > 80.0f) return 80.0f;
 #endif
     return distance;
 }
 float recomp_options_streaming_grid_radius(void) {
 #ifdef XBOX_ANDROID
-    return 300.0f; /* 40 units beyond the maximum normal world camera. */
+    return 80.0f; /* User requested the same radius as the view cap. */
 #else
     return 300.0f * recomp_options_object_distance_multiplier() + 20.0f;
 #endif

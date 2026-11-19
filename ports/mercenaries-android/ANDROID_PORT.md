@@ -116,17 +116,17 @@ world-streaming grid or asset lifetime.
 
 ### Android world distance trial
 The normal world-camera far plane and eligible scenery distances are capped at
-260 world units; the world streaming grid uses 300, compared with the previous
-320. Shorter authored distances are not increased. The 40-unit margin is relative
-to the camera's axial far-plane value and scenery threshold: wide-FOV frustum
-corners, large objects and fast vehicles may extend beyond that margin. Other
-camera types, terrain's own budget, and NPC distance settings are not directly
-changed, although shrinking the shared streaming grid can still affect gameplay.
-This is not calibrated to a measured fog cutoff and may cause visible pop-in or
-missing objects; test scenes, fast vehicles and missions on a device. A
-`[world-streaming]` line at world initialization confirms the selected values.
-The patch is applied when the generated game sources are regenerated; existing
-pre-patched generated sources must be rebuilt from the recompiler output.
+80 game units, and the shared world streaming grid also uses 80. Previously
+these values were 260 and 300. Shorter authored distances are not increased.
+There is **no streaming margin** beyond the camera cap: wide-FOV edges, large
+objects and fast movement can expose unloaded areas. Other camera types,
+terrain's own budget and NPC distance settings are not directly changed, but
+shrinking the shared grid can affect gameplay, collision or AI.
+
+This experiment is not calibrated to the fog cutoff and may cause pop-in or
+missing objects. Test fast vehicles and missions on a device. A `[world-streaming]`
+line at world initialization reports the values. The grid patch requires the
+game's generated sources to be regenerated when building.
 
 ### CPU affinity and thermal diagnostics
 The game-thread tuning helper is compiled into `android_game.c` for game builds.
