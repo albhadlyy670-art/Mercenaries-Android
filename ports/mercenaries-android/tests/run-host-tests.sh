@@ -43,6 +43,8 @@ echo "== NV2A draw batching primitive safety"
 gcc -O1 -Wall -Wextra -Werror test_draw_batch.c -o $T/draw_batch && $T/draw_batch
 echo "== NV2A indexed vertex chunks"
 gcc -O1 -Wall -Wextra -Werror test_indexed_vertices.c -o $T/indexed_vertices && $T/indexed_vertices
+echo "== NV2A fused indexed snapshot"
+gcc -O1 -Wall -Wextra -Werror -Wno-unused-function -fsanitize=undefined test_nv2a_fused_indexed.c -o $T/fused_indexed && $T/fused_indexed
 echo "== NV2A compact indexed vertices"
 gcc -O1 -Wall -Wextra -Werror -Wno-unused-function -fsanitize=undefined test_nv2a_compact_indexed.c -o $T/compact_indexed && $T/compact_indexed
 echo "== NV2A immediate vertex preparation"

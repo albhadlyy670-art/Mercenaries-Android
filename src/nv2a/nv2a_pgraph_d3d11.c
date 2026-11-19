@@ -7273,6 +7273,11 @@ static void submit_array_draw(void)
     const uint8_t *vertex_bytes;
     uint8_t *expanded_elements = NULL;
     uint8_t indexed_scratch[2048];
+#ifdef XBOX_ANDROID
+    uint8_t indexed_compact_scratch[4096];
+    uint32_t indexed_compact_indices[256];
+    uint32_t indexed_compact_count = 0;
+#endif
     int host_depth_test;
     GuestDepthSurface *depth_alias_source;
     int colored_overlay_capture_pending = 0;
@@ -7327,9 +7332,28 @@ static void submit_array_draw(void)
         end = (uint64_t)offset + ((uint64_t)max_index + 1u) * stride;
         if (end > (uint64_t)memory_region_size(d->vram))
             return;
+#ifdef XBOX_ANDROID
+        uint32_t compact_used = 0;
+        if ((g_pg.transform_execution_mode & 3u) == 2u && g_pg.draw_mode != 8u && g_pg.draw_mode != 3u) {
+            if (g_pg.d3d_prim_type == D3DPT_TRIANGLELIST) compact_used = count / 3u * 3u;
+            else if (g_pg.d3d_prim_type == D3DPT_LINELIST) compact_used = count / 2u * 2u;
+            else if (g_pg.d3d_prim_type == D3DPT_TRIANGLESTRIP || g_pg.d3d_prim_type == D3DPT_LINESTRIP) compact_used = count;
+        }
+        if (compact_used >= 12u && compact_used <= sizeof(indexed_compact_indices) / sizeof(indexed_compact_indices[0]))
+            expanded_elements = nv2a_expand_indexed_fused(
+                d->vram_ptr + offset, g_pg.inline_elements, count, compact_used, stride,
+                indexed_scratch, sizeof(indexed_scratch), indexed_compact_scratch,
+                sizeof(indexed_compact_scratch), indexed_compact_indices,
+                sizeof(indexed_compact_indices) / sizeof(indexed_compact_indices[0]),
+                &indexed_compact_count);
+        else expanded_elements = nv2a_expand_indexed_vertices(
+            d->vram_ptr + offset, g_pg.inline_elements, count, stride,
+            indexed_scratch, sizeof(indexed_scratch));
+#else
         expanded_elements = nv2a_expand_indexed_vertices(
             d->vram_ptr + offset, g_pg.inline_elements, count, stride,
             indexed_scratch, sizeof(indexed_scratch));
+#endif
         if (!expanded_elements)
             return;
         vertex_bytes = expanded_elements;
@@ -8805,16 +8829,21 @@ static void submit_array_draw(void)
         uint32_t used = g_pg.d3d_prim_type == D3DPT_TRIANGLELIST ? prim_count * 3u :
             g_pg.d3d_prim_type == D3DPT_LINELIST ? prim_count * 2u :
             g_pg.d3d_prim_type == D3DPT_TRIANGLESTRIP ? prim_count + 2u : prim_count + 1u;
-        uint8_t vertex_scratch[4096]; uint32_t index_scratch[256];
         Nv2aCompactIndexed compact;
-        if (used <= count && nv2a_compact_indexed_vertices((const uint8_t *)draw_data,
-                g_pg.inline_elements, used, draw_stride, vertex_scratch, sizeof(vertex_scratch),
-                index_scratch, sizeof(index_scratch) / sizeof(index_scratch[0]), &compact)) {
+        if (indexed_compact_count && used <= count) {
+            HRESULT hr = dev->lpVtbl->DrawIndexedPrimitiveUP(dev,
+                (D3DPRIMITIVETYPE)g_pg.d3d_prim_type, 0, indexed_compact_count,
+                prim_count, indexed_compact_indices, D3DFMT_INDEX32,
+                indexed_compact_scratch, draw_stride);
+            submitted_indexed = SUCCEEDED(hr);
+        } else if (used <= count && nv2a_compact_indexed_vertices((const uint8_t *)draw_data,
+                g_pg.inline_elements, used, draw_stride, indexed_compact_scratch, sizeof(indexed_compact_scratch),
+                indexed_compact_indices, sizeof(indexed_compact_indices) / sizeof(indexed_compact_indices[0]), &compact)) {
             HRESULT hr = dev->lpVtbl->DrawIndexedPrimitiveUP(dev,
                 (D3DPRIMITIVETYPE)g_pg.d3d_prim_type, 0, compact.vertex_count,
                 prim_count, compact.indices, D3DFMT_INDEX32, compact.vertices, draw_stride);
             submitted_indexed = SUCCEEDED(hr);
-            nv2a_free_compact_indexed(&compact, vertex_scratch, index_scratch);
+            nv2a_free_compact_indexed(&compact, indexed_compact_scratch, indexed_compact_indices);
         }
     }
     if (!submitted_indexed)

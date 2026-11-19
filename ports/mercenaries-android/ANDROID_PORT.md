@@ -213,5 +213,7 @@ On Android, eligible NV2A programmable indexed draws are compacted from their
 existing vertex snapshots and submitted through the indexed path when upload
 bytes fall by at least 25%. Draw order stays unchanged; unsupported topologies,
 sparse indices, inconsistent snapshots, fixed-function draws and failures keep
-the expanded path. This still performs CPU expansion for diagnostic and
-correctness compatibility, and any FPS benefit needs on-device validation.
+the expanded path. Small eligible draws now build their compact input during
+the expansion pass, avoiding a second compaction pass while keeping the ordered
+snapshot for diagnostics. CPU expansion still occurs; any FPS benefit needs
+on-device validation.

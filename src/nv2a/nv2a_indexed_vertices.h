@@ -21,6 +21,60 @@ static uint8_t *nv2a_expand_indexed_vertices(const uint8_t *source,
         memcpy(out + (size_t)i * stride, source + (size_t)indices[i] * stride, stride);
     return out;
 }
+/* Common small programmable draws need both a sequential snapshot for
+ * renderer observers and compact vertices for the GPU. Build both while
+ * reading the guest once; repeated indices are compared against that exact
+ * per-occurrence snapshot so a concurrent guest write cannot change a draw. */
+static inline uint8_t *nv2a_expand_indexed_fused(const uint8_t *source,
+    const uint32_t *indices, uint32_t count, uint32_t used, uint32_t stride,
+    uint8_t *expanded_scratch, size_t expanded_scratch_size,
+    uint8_t *compact, size_t compact_size, uint32_t *rebased,
+    size_t rebased_capacity, uint32_t *compact_count)
+{
+    if (compact_count) *compact_count = 0;
+    if (!source || !indices || !count || !stride || !compact_count ||
+        (size_t)count > SIZE_MAX / stride) return NULL;
+    size_t expanded_size = (size_t)count * stride;
+    uint8_t *expanded = expanded_scratch && expanded_size <= expanded_scratch_size ?
+        expanded_scratch : (uint8_t *)malloc(expanded_size);
+    if (!expanded) return NULL;
+    uint32_t min = UINT32_MAX, max = 0;
+    int can_compact = compact && rebased && used >= 12u && used <= count &&
+                      used <= rebased_capacity && compact_size <= 4096u;
+    if (can_compact) {
+        for (uint32_t i = 0; i < used; ++i) {
+            if (indices[i] < min) min = indices[i];
+            if (indices[i] > max) max = indices[i];
+        }
+        uint64_t span = (uint64_t)max - min + 1u;
+        size_t original = (size_t)used * stride;
+        if (span > UINT32_MAX || span > 4096u || span > SIZE_MAX / stride ||
+            span * stride > compact_size ||
+            span * stride + (uint64_t)used * sizeof(uint32_t) > original - original / 4u)
+            can_compact = 0;
+        else {
+            *compact_count = (uint32_t)span;
+            memset(compact, 0, (size_t)span * stride);
+        }
+    }
+    unsigned char seen[512] = {0};
+    for (uint32_t i = 0; i < count; ++i) {
+        uint8_t *dst = expanded + (size_t)i * stride;
+        memcpy(dst, source + (size_t)indices[i] * stride, stride);
+        if (can_compact && i < used) {
+            uint32_t index = indices[i] - min;
+            uint8_t bit = (uint8_t)(1u << (index & 7u));
+            uint8_t *slot = compact + (size_t)index * stride;
+            rebased[i] = index;
+            if (seen[index >> 3] & bit) {
+                if (memcmp(slot, dst, stride) != 0) can_compact = 0;
+            } else { memcpy(slot, dst, stride); seen[index >> 3] |= bit; }
+        }
+    }
+    if (!can_compact) *compact_count = 0;
+    return expanded;
+}
+
 static void nv2a_free_indexed_vertices(uint8_t *data, const uint8_t *scratch)
 {
     if (data != scratch) free(data);
