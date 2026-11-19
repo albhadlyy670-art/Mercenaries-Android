@@ -265,7 +265,7 @@ static Global G;
 #include <time.h>
 void android_trace(const char *fmt, ...);
 typedef struct { unsigned long long calls, samples; double seconds; } PerfOp;
-static PerfOp perf_map, perf_unmap, perf_draw, perf_drawprep, perf_program, perf_fbstate, perf_fbo, perf_state, perf_resources, perf_vertex, perf_issue, perf_read, perf_ringmap, perf_ringunmap;
+static PerfOp perf_map, perf_unmap, perf_draw, perf_drawprep, perf_program, perf_fbstate, perf_fbo, perf_state, perf_resources, perf_vertex, perf_issue, perf_read, perf_ringmap, perf_ringunmap, perf_ringupload;
 static double perf_start;
 static unsigned long long perf_state_applies;
 typedef struct {
@@ -313,11 +313,11 @@ static void perf_report(void)
 {
     double now = perf_now();
     if (now <= 0.0) return;
-    if (perf_start == 0.0 || now < perf_start || now - perf_start > 30.0) { perf_start = now; perf_state_applies = 0; memset(&perf_workload, 0, sizeof(perf_workload)); memset(&perf_map, 0, sizeof(perf_map)); memset(&perf_unmap, 0, sizeof(perf_unmap)); memset(&perf_draw, 0, sizeof(perf_draw)); memset(&perf_drawprep, 0, sizeof(perf_drawprep)); memset(&perf_program, 0, sizeof(perf_program)); memset(&perf_fbstate, 0, sizeof(perf_fbstate)); memset(&perf_fbo, 0, sizeof(perf_fbo)); memset(&perf_state, 0, sizeof(perf_state)); memset(&perf_resources, 0, sizeof(perf_resources)); memset(&perf_vertex, 0, sizeof(perf_vertex)); memset(&perf_issue, 0, sizeof(perf_issue)); memset(&perf_read, 0, sizeof(perf_read)); memset(&perf_ringmap, 0, sizeof(perf_ringmap)); memset(&perf_ringunmap, 0, sizeof(perf_ringunmap)); return; }
+    if (perf_start == 0.0 || now < perf_start || now - perf_start > 30.0) { perf_start = now; perf_state_applies = 0; memset(&perf_workload, 0, sizeof(perf_workload)); memset(&perf_map, 0, sizeof(perf_map)); memset(&perf_unmap, 0, sizeof(perf_unmap)); memset(&perf_draw, 0, sizeof(perf_draw)); memset(&perf_drawprep, 0, sizeof(perf_drawprep)); memset(&perf_program, 0, sizeof(perf_program)); memset(&perf_fbstate, 0, sizeof(perf_fbstate)); memset(&perf_fbo, 0, sizeof(perf_fbo)); memset(&perf_state, 0, sizeof(perf_state)); memset(&perf_resources, 0, sizeof(perf_resources)); memset(&perf_vertex, 0, sizeof(perf_vertex)); memset(&perf_issue, 0, sizeof(perf_issue)); memset(&perf_read, 0, sizeof(perf_read)); memset(&perf_ringmap, 0, sizeof(perf_ringmap)); memset(&perf_ringunmap, 0, sizeof(perf_ringunmap)); memset(&perf_ringupload, 0, sizeof(perf_ringupload)); return; }
     if (now - perf_start < 10.0) return;
 #define AVG(op) ((op).samples ? 1000.0 * (op).seconds / (op).samples : 0.0)
-    android_trace("[perf-gles] interval_s=%.1f programs=%d state_applies=%llu draws=%llu draw_samples=%llu draw_avg_ms=%.3f maps=%llu map_samples=%llu map_avg_ms=%.3f unmaps=%llu unmap_samples=%llu unmap_avg_ms=%.3f reads=%llu read_samples=%llu read_avg_ms=%.3f ring_maps=%llu ring_map_samples=%llu ring_map_avg_ms=%.3f ring_unmaps=%llu ring_unmap_samples=%llu ring_unmap_avg_ms=%.3f",
-        now - perf_start, G.nprogs, perf_state_applies, perf_draw.calls, perf_draw.samples, AVG(perf_draw), perf_map.calls, perf_map.samples, AVG(perf_map), perf_unmap.calls, perf_unmap.samples, AVG(perf_unmap), perf_read.calls, perf_read.samples, AVG(perf_read), perf_ringmap.calls, perf_ringmap.samples, AVG(perf_ringmap), perf_ringunmap.calls, perf_ringunmap.samples, AVG(perf_ringunmap));
+    android_trace("[perf-gles] interval_s=%.1f programs=%d state_applies=%llu draws=%llu draw_samples=%llu draw_avg_ms=%.3f maps=%llu map_samples=%llu map_avg_ms=%.3f unmaps=%llu unmap_samples=%llu unmap_avg_ms=%.3f reads=%llu read_samples=%llu read_avg_ms=%.3f ring_maps=%llu ring_map_samples=%llu ring_map_avg_ms=%.3f ring_unmaps=%llu ring_unmap_samples=%llu ring_unmap_avg_ms=%.3f ring_uploads=%llu ring_upload_samples=%llu ring_upload_avg_ms=%.3f",
+        now - perf_start, G.nprogs, perf_state_applies, perf_draw.calls, perf_draw.samples, AVG(perf_draw), perf_map.calls, perf_map.samples, AVG(perf_map), perf_unmap.calls, perf_unmap.samples, AVG(perf_unmap), perf_read.calls, perf_read.samples, AVG(perf_read), perf_ringmap.calls, perf_ringmap.samples, AVG(perf_ringmap), perf_ringunmap.calls, perf_ringunmap.samples, AVG(perf_ringunmap), perf_ringupload.calls, perf_ringupload.samples, AVG(perf_ringupload));
     android_trace("[perf-gles-draw] prepare_samples=%llu prepare_avg_ms=%.3f issue_samples=%llu issue_avg_ms=%.3f",
         perf_drawprep.samples, AVG(perf_drawprep), perf_issue.samples, AVG(perf_issue));
     android_trace("[perf-gles-prepare] program_samples=%llu program_avg_ms=%.3f fbstate_samples=%llu fbstate_avg_ms=%.3f resources_samples=%llu resources_avg_ms=%.3f vertex_samples=%llu vertex_avg_ms=%.3f",
@@ -332,7 +332,7 @@ static void perf_report(void)
         perf_workload.small_vertexid, perf_workload.small_attributes, perf_workload.small_triangles,
         perf_workload.small_strips, perf_workload.small_other);
 #undef AVG
-    perf_start = now; perf_state_applies = 0; memset(&perf_workload, 0, sizeof(perf_workload)); memset(&perf_map, 0, sizeof(perf_map)); memset(&perf_unmap, 0, sizeof(perf_unmap)); memset(&perf_draw, 0, sizeof(perf_draw)); memset(&perf_drawprep, 0, sizeof(perf_drawprep)); memset(&perf_program, 0, sizeof(perf_program)); memset(&perf_fbstate, 0, sizeof(perf_fbstate)); memset(&perf_fbo, 0, sizeof(perf_fbo)); memset(&perf_state, 0, sizeof(perf_state)); memset(&perf_resources, 0, sizeof(perf_resources)); memset(&perf_vertex, 0, sizeof(perf_vertex)); memset(&perf_issue, 0, sizeof(perf_issue)); memset(&perf_read, 0, sizeof(perf_read)); memset(&perf_ringmap, 0, sizeof(perf_ringmap)); memset(&perf_ringunmap, 0, sizeof(perf_ringunmap));
+    perf_start = now; perf_state_applies = 0; memset(&perf_workload, 0, sizeof(perf_workload)); memset(&perf_map, 0, sizeof(perf_map)); memset(&perf_unmap, 0, sizeof(perf_unmap)); memset(&perf_draw, 0, sizeof(perf_draw)); memset(&perf_drawprep, 0, sizeof(perf_drawprep)); memset(&perf_program, 0, sizeof(perf_program)); memset(&perf_fbstate, 0, sizeof(perf_fbstate)); memset(&perf_fbo, 0, sizeof(perf_fbo)); memset(&perf_state, 0, sizeof(perf_state)); memset(&perf_resources, 0, sizeof(perf_resources)); memset(&perf_vertex, 0, sizeof(perf_vertex)); memset(&perf_issue, 0, sizeof(perf_issue)); memset(&perf_read, 0, sizeof(perf_read)); memset(&perf_ringmap, 0, sizeof(perf_ringmap)); memset(&perf_ringunmap, 0, sizeof(perf_ringunmap)); memset(&perf_ringupload, 0, sizeof(perf_ringupload));
 }
 #else
 #define PERF_STATE_APPLY() ((void)0)
@@ -574,9 +574,9 @@ HRESULT d3dgl_Device_CreateBuffer(ID3D11Device *dev, const D3D11_BUFFER_DESC *d,
     gl_check("CreateBuffer"); *out = (ID3D11Buffer *)b; return S_OK;
 }
 
-/* The D3D map API exposes the entire buffer, but the transient ring knows
- * exactly which bytes it will write. Mapping that range avoids making Mali
- * unmap/flush the entire multi-megabyte allocation on every small draw. */
+/* Upload each transient draw immediately, without leaving the buffer mapped.
+ * Orphan on wrap so queued draws retain the previous storage. SubData leaves
+ * synchronization to the driver; non-wrapping ranges never overlap. */
 HRESULT d3d11gles_upload_vertex_range(ID3D11Buffer *buffer, UINT offset,
                                       const void *data, UINT size, BOOL discard)
 {
@@ -586,19 +586,10 @@ HRESULT d3d11gles_upload_vertex_range(ID3D11Buffer *buffer, UINT offset,
         offset > b->d.ByteWidth || size > b->d.ByteWidth - offset || b->mapped_gl || b->tmp)
         return E_INVALIDARG;
     bind_copy_write_buffer(b->buf);
-    GLbitfield flags = GL_MAP_WRITE_BIT | (discard ? GL_MAP_INVALIDATE_BUFFER_BIT : GL_MAP_UNSYNCHRONIZED_BIT);
-    PERF_BEGIN(ringmap);
-    void *dst = glMapBufferRange(GL_COPY_WRITE_BUFFER, (GLintptr)offset, (GLsizeiptr)size, flags);
-    PERF_END(ringmap);
-    if (dst) {
-        memcpy(dst, data, size);
-        { PERF_BEGIN(ringunmap); GLboolean ok = glUnmapBuffer(GL_COPY_WRITE_BUFFER); PERF_END(ringunmap);
-          if (!ok) return E_FAIL; }
-    } else {
-        /* Preserve the DISCARD/NO_OVERWRITE contracts even if mapping fails. */
-        if (discard) glBufferData(GL_COPY_WRITE_BUFFER, (GLsizeiptr)b->d.ByteWidth, NULL, GL_DYNAMIC_DRAW);
-        glBufferSubData(GL_COPY_WRITE_BUFFER, (GLintptr)offset, (GLsizeiptr)size, data);
-    }
+    { PERF_BEGIN(ringupload);
+      if (discard) glBufferData(GL_COPY_WRITE_BUFFER, (GLsizeiptr)b->d.ByteWidth, NULL, GL_DYNAMIC_DRAW);
+      glBufferSubData(GL_COPY_WRITE_BUFFER, (GLintptr)offset, (GLsizeiptr)size, data);
+      PERF_END(ringupload); }
     gl_check_hot("upload_vertex_range");
     return S_OK;
 }

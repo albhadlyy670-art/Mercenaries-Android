@@ -192,3 +192,9 @@ or invalid; CPU6 may not be a big core on other devices. Battery temperature is
 not CPU temperature. A policy limit below the hardware maximum indicates a
 configured cap at that instant, not necessarily thermal throttling; sampled
 frequencies and policy values do not measure sustained clock speeds.
+
+The Android transient vertex ring uses immediate `glBufferSubData` uploads and
+orphans its buffer on wrap; it does not combine or reorder draws. `[perf-gles]`
+reports `ring_uploads`, `ring_upload_samples` and `ring_upload_avg_ms` (including
+orphaning). Compare the same scene/device against the older ring map/unmap
+measurements; driver synchronization can make this experiment faster or slower.
