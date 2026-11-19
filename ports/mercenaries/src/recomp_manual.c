@@ -30,6 +30,7 @@
 #include "nv2a_pgraph_d3d11.h"
 #include "xinput_xbox.h"
 #include "recomp_options.h"
+#include "world_visibility.h"
 #include "apu_mmio_hook.h"
 
 /*
@@ -3417,12 +3418,14 @@ int recomp_stream_admit_idle(uint32_t manager,uint32_t bytes)
  * method on the live camera, with all translated CPU state preserved, so the
  * same retail matrix path is used immediately. */
 float recomp_options_camera_far_plane(uint32_t camera, float far_plane) {
-    /* Expand the view frustum only. RedCamera::_fDrawDistance still controls
-     * the terrain cache and must remain at its original 300 metre budget. */
+    /* Only the normal RedCamera's own far plane is eligible. Preserve the
+     * authored terrain cache budget and other perspective cameras. Android's
+     * experimental shorter view has a 60-unit axial streaming margin. */
     if (camera >= 0x10000u && camera <= 0x03FFFF00u &&
         guest_u32(camera) == 0x00300DC4u &&
         far_plane == *(float *)guest_ptr(camera + 0xA0u))
-        return far_plane * recomp_options_object_distance_multiplier();
+        return recomp_options_world_view_distance(
+            far_plane * recomp_options_object_distance_multiplier());
     return far_plane;
 }
 
@@ -11640,10 +11643,51 @@ uint32_t recomp_actor_query_count_checkpoint(uint32_t site, uint32_t count)
     return 0x80u;
 }
 
+#ifdef __ANDROID__
+void android_trace(const char *fmt, ...);
+/* At retail 002034A0, RedScene queries a camera-oriented sphere and calls
+ * each returned object's virtual method at 00203565. Sample that existing
+ * list, without modifying it or changing any render/gameplay dispatch. */
+static void recomp_observe_scene_visibility(uint32_t result, uint32_t count)
+{
+    static ULONGLONG next;
+    const ULONGLONG now = GetTickCount64();
+    if (now < next) return;
+    next = now + 10000u;
+    if (!g_xbox_mem_offset || count > 2000u || result < 0x10000u ||
+        result > 0x04000000u - count * 4u) return;
+    uint32_t cam = guest_u32(0x006437B4u);
+    if (cam < 0x10000u || cam > 0x04000000u - 0x100u ||
+        guest_u32(cam) != 0x00300DC4u) return;
+    float pos[3] = {guest_f32(cam+0x40u), guest_f32(cam+0x44u), guest_f32(cam+0x48u)};
+    float axis[3] = {guest_f32(cam+0x30u), guest_f32(cam+0x34u), guest_f32(cam+0x38u)};
+    unsigned behind = 0, unknown = 0, model = 0, model_behind = 0;
+    for (uint32_t i=0; i<count; ++i) {
+        uint32_t item=guest_u32(result+i*4u);
+        if (item < 0x10000u || item > 0x04000000u-0x18u) { ++unknown; continue; }
+        WorldVisibilitySphere sphere = {guest_f32(item+4u), guest_f32(item+8u),
+                                        guest_f32(item+12u), guest_f32(item+16u)};
+        int result_class=world_sphere_behind(pos, axis, sphere);
+        if (result_class < 0) ++unknown; else if (result_class) ++behind;
+        /* Retail model vtable at 0x300A84 queues shader-list work. This
+         * includes non-scenery models and does not prove a safe skip. */
+        if (guest_u32(item) == 0x00300A84u) {
+            ++model;
+            if (result_class > 0) ++model_behind;
+        }
+    }
+    android_trace("[world-visibility] observed=%u behind_candidate=%u model=%u model_behind=%u invalid=%u far=%.2f fog_cutoff=unknown culled=0",
+                  count, behind, model, model_behind, unknown, guest_f32(cam+0xA0u));
+}
+#endif
+
 void recomp_redscene_checkpoint(uint32_t stage, uint32_t scene,
                                 uint32_t subject, uint32_t result_buffer,
                                 uint32_t count)
 {
+#ifdef __ANDROID__
+    if (stage == 2u) recomp_observe_scene_visibility(result_buffer, count);
+#endif
     static int enabled = -1;
     static int trace_enabled;
     static int terrain_trace_enabled;

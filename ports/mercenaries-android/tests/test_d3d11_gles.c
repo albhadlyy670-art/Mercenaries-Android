@@ -237,7 +237,41 @@ int main(void)
     ID3D11DeviceContext_IASetInputLayout(ctx, lay2); ID3D11DeviceContext_IASetVertexBuffers(ctx, 0, 1, &vpk, &st2, &off); ID3D11DeviceContext_ClearRenderTargetView(ctx, rtv, clear); ID3D11DeviceContext_Draw(ctx, 3, 0);
     px = readback(bb, 64, 64, DXGI_FORMAT_B8G8R8A8_UNORM, &pitch); CHECK(PX(px,pitch,32,32)[2] == 255 && PX(px,pitch,32,32)[0] == 0, "B8G8R8A8 vertex bytes (B,G,R,A)=(0,0,255,255) render red (r=%d b=%d)", PX(px,pitch,32,32)[2], PX(px,pitch,32,32)[0]); free(px);
 
-    printf("[14] present\n");
+    printf("[14] fullscreen SV_VertexID draw without an input layout\n");
+    const char *fullscreen_vs =
+        "float4 main(uint id : SV_VertexID) : SV_POSITION {"
+        "float2 uv=float2((id << 1) & 2, id & 2);"
+        "return float4(uv.x*2.0-1.0, 1.0-uv.y*2.0, 0.0, 1.0); }";
+    const char *fullscreen_ps = "float4 main() : SV_Target { return float4(0.0, 1.0, 0.0, 1.0); }";
+    ID3D10Blob *full_vs_blob = compile(fullscreen_vs, "main", "vs_5_0");
+    ID3D10Blob *full_ps_blob = compile(fullscreen_ps, "main", "ps_5_0");
+    if (full_vs_blob && full_ps_blob) {
+        ID3D11VertexShader *full_vs = NULL; ID3D11PixelShader *full_ps = NULL;
+        CHECK(SUCCEEDED(ID3D11Device_CreateVertexShader(dev, ID3D10Blob_GetBufferPointer(full_vs_blob), ID3D10Blob_GetBufferSize(full_vs_blob), NULL, &full_vs)), "create fullscreen vertex shader");
+        CHECK(SUCCEEDED(ID3D11Device_CreatePixelShader(dev, ID3D10Blob_GetBufferPointer(full_ps_blob), ID3D10Blob_GetBufferSize(full_ps_blob), NULL, &full_ps)), "create fullscreen pixel shader");
+        if (full_vs && full_ps) {
+            ID3D11DeviceContext_IASetInputLayout(ctx, NULL);
+            ID3D11DeviceContext_VSSetShader(ctx, full_vs, NULL, 0);
+            ID3D11DeviceContext_PSSetShader(ctx, full_ps, NULL, 0);
+            ID3D11DeviceContext_RSSetState(ctx, rs_none);
+            ID3D11DeviceContext_OMSetDepthStencilState(ctx, ds_off, 0);
+            ID3D11DeviceContext_OMSetBlendState(ctx, bs_off, NULL, 0xFFFFFFFFu);
+            ID3D11DeviceContext_ClearRenderTargetView(ctx, rtv, clear);
+            ID3D11DeviceContext_Draw(ctx, 3, 0);
+            px = readback(bb, 64, 64, DXGI_FORMAT_B8G8R8A8_UNORM, &pitch);
+            CHECK(px && PX(px,pitch,32,32)[1] >= 250, "SV_VertexID full-screen draw reaches render target");
+            free(px);
+        }
+        ID3D11DeviceContext_IASetInputLayout(ctx, lay2);
+        ID3D11DeviceContext_VSSetShader(ctx, vs, NULL, 0);
+        ID3D11DeviceContext_PSSetShader(ctx, ps, NULL, 0);
+        if (full_vs) ID3D11VertexShader_Release(full_vs);
+        if (full_ps) ID3D11PixelShader_Release(full_ps);
+    }
+    if (full_vs_blob) ID3D10Blob_Release(full_vs_blob);
+    if (full_ps_blob) ID3D10Blob_Release(full_ps_blob);
+
+    printf("[15] present\n");
     IDXGISwapChain_Present(sc, 1, 0); CHECK(presents == 1, "host present callback invoked");
     CHECK(d3d11gles_take_error_count() == 0, "no GL errors were raised during the whole run");
 
