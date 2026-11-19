@@ -209,6 +209,9 @@ Android `DrawIndexedPrimitiveUP` can reuse transient vertex and index buffers
 for supported indexed draws instead of creating two buffers each time. Buffer
 wrap orphans old storage. Unsupported formats, primitive conversions, restart
 indices, nonzero minimum vertices and oversized draws remain on the older path.
-The NV2A guest indexed path still expands vertices into `DrawPrimitiveUP`; it
-is not yet routed through this indexed path, so no FPS gain is assumed for that
-workload until its shader and primitive semantics are validated on-device.
+On Android, eligible NV2A programmable indexed draws are compacted from their
+existing vertex snapshots and submitted through the indexed path when upload
+bytes fall by at least 25%. Draw order stays unchanged; unsupported topologies,
+sparse indices, inconsistent snapshots, fixed-function draws and failures keep
+the expanded path. This still performs CPU expansion for diagnostic and
+correctness compatibility, and any FPS benefit needs on-device validation.

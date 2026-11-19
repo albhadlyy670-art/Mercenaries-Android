@@ -25,4 +25,66 @@ static void nv2a_free_indexed_vertices(uint8_t *data, const uint8_t *scratch)
 {
     if (data != scratch) free(data);
 }
+/* Reconstruct a compact indexed submission from the already-snapshotted
+ * expanded vertices. Repeated guest indices are checked for identical bytes.
+ * This preserves the original primitive sequence; it never merges draws. */
+typedef struct Nv2aCompactIndexed {
+    uint8_t *vertices;
+    uint32_t *indices;
+    uint32_t vertex_count;
+} Nv2aCompactIndexed;
+static inline int nv2a_compact_indexed_vertices(const uint8_t *expanded,
+    const uint32_t *indices, uint32_t count, uint32_t stride,
+    uint8_t *vertex_scratch, size_t vertex_scratch_size,
+    uint32_t *index_scratch, size_t index_scratch_count, Nv2aCompactIndexed *out)
+{
+    if (!out) return 0;
+    memset(out, 0, sizeof(*out));
+    if (!expanded || !indices || count < 12u || !stride ||
+        (size_t)count > SIZE_MAX / stride) return 0;
+#if SIZE_MAX <= UINT32_MAX
+    if (count > SIZE_MAX / sizeof(uint32_t)) return 0;
+#endif
+    uint32_t min = indices[0], max = min;
+    for (uint32_t i = 1; i < count; ++i) {
+        if (indices[i] < min) min = indices[i];
+        if (indices[i] > max) max = indices[i];
+    }
+    uint64_t span64 = (uint64_t)max - min + 1u;
+    if (span64 > UINT32_MAX || span64 > SIZE_MAX / stride) return 0;
+    size_t vb = (size_t)span64 * stride, ib = (size_t)count * sizeof(uint32_t);
+    size_t original = (size_t)count * stride;
+    /* Only use the ring-sized route when it reduces upload bytes by 25%.
+     * This also excludes sparse, invalid and restart-like index ranges. */
+    if (vb > 4u * 1024u * 1024u || ib > 4u * 1024u * 1024u ||
+        vb > SIZE_MAX - ib || vb + ib > original - original / 4u) return 0;
+    uint8_t *v = vertex_scratch && vb <= vertex_scratch_size ? vertex_scratch : (uint8_t *)malloc(vb);
+    if (!v) return 0;
+    uint32_t *ix = index_scratch && count <= index_scratch_count ? index_scratch : (uint32_t *)malloc(ib);
+    if (!ix) { if (v != vertex_scratch) free(v); return 0; }
+    memset(v, 0, vb);
+    for (uint32_t i = 0; i < count; ++i) {
+        uint32_t rebased = indices[i] - min;
+        ix[i] = rebased;
+        memcpy(v + (size_t)rebased * stride, expanded + (size_t)i * stride, stride);
+    }
+    /* Guest writes can race expansion: the same index need not have yielded
+     * identical bytes at every occurrence. Preserve that snapshot exactly. */
+    for (uint32_t i = 0; i < count; ++i) {
+        if (memcmp(v + (size_t)ix[i] * stride, expanded + (size_t)i * stride, stride) != 0) {
+            if (v != vertex_scratch) free(v);
+            if (ix != index_scratch) free(ix);
+            return 0;
+        }
+    }
+    out->vertices = v; out->indices = ix; out->vertex_count = (uint32_t)span64;
+    return 1;
+}
+static inline void nv2a_free_compact_indexed(Nv2aCompactIndexed *p, const uint8_t *vertex_scratch,
+                                      const uint32_t *index_scratch)
+{
+    if (p->vertices != vertex_scratch) free(p->vertices);
+    if (p->indices != index_scratch) free(p->indices);
+    memset(p, 0, sizeof(*p));
+}
 #endif

@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "../../../src/nv2a/nv2a_indexed_vertices.h"
 typedef void *EGLDisplay,*EGLConfig,*EGLContext,*EGLSurface; typedef int32_t EGLint; typedef unsigned EGLBoolean,EGLenum;
 EGLDisplay eglGetPlatformDisplay(EGLenum,void*,const EGLint*); EGLBoolean eglInitialize(EGLDisplay,EGLint*,EGLint*); EGLBoolean eglBindAPI(EGLenum);
 EGLBoolean eglChooseConfig(EGLDisplay,const EGLint*,EGLConfig*,EGLint,EGLint*); EGLContext eglCreateContext(EGLDisplay,EGLConfig,EGLContext,const EGLint*);
@@ -235,6 +236,30 @@ int main(void)
     ID3D11DeviceContext_IASetIndexBuffer(ctx, ring_i, DXGI_FORMAT_R16_UINT, 0);
     ID3D11DeviceContext_ClearRenderTargetView(ctx, rtv, clear); ID3D11DeviceContext_DrawIndexed(ctx, 3, 0, 0);
     px = readback(bb, 64, 64, DXGI_FORMAT_B8G8R8A8_UNORM, &pitch); CHECK(PX(px,pitch,32,55)[2] > 100, "indexed ring wrapped data draws red"); free(px);
+    /* Same expanded primitive sequence versus its compact 32-bit indices. */
+    Vtx repeated[12]; uint32_t guest_indices[12], compact_ix[12]; uint8_t compact_v[512];
+    for (unsigned j = 0; j < 12; ++j) { repeated[j] = cw[j % 3]; guest_indices[j] = 71u + j % 3; }
+    Nv2aCompactIndexed compact;
+    int compact_ok = nv2a_compact_indexed_vertices((const uint8_t *)repeated, guest_indices, 12, sizeof(Vtx), compact_v, sizeof(compact_v), compact_ix, 12, &compact);
+    CHECK(compact_ok, "build compact indexed draw");
+    if (compact_ok) {
+        UINT src_off = 0, src_pitch;
+        ID3D11Buffer *expanded_v = make_buf(repeated, sizeof(repeated), D3D11_BIND_VERTEX_BUFFER, D3D11_USAGE_DEFAULT);
+        ID3D11DeviceContext_IASetVertexBuffers(ctx, 0, 1, &expanded_v, &stride, &src_off);
+        ID3D11DeviceContext_ClearRenderTargetView(ctx, rtv, clear); ID3D11DeviceContext_Draw(ctx, 12, 0);
+        uint8_t *reference = readback(bb, 64, 64, DXGI_FORMAT_B8G8R8A8_UNORM, &src_pitch);
+        CHECK(SUCCEEDED(d3d11gles_upload_vertex_range(ring_v, 32, compact.vertices, compact.vertex_count * sizeof(Vtx), TRUE)), "compact vertex upload");
+        CHECK(SUCCEEDED(d3d11gles_upload_index_range(ring_i, 16, compact.indices, 12 * sizeof(uint32_t), TRUE)), "compact 32-bit index upload");
+        ring_v_off = 32;
+        ID3D11DeviceContext_IASetVertexBuffers(ctx, 0, 1, &ring_v, &stride, &ring_v_off);
+        ID3D11DeviceContext_IASetIndexBuffer(ctx, ring_i, DXGI_FORMAT_R32_UINT, 16);
+        ID3D11DeviceContext_ClearRenderTargetView(ctx, rtv, clear); ID3D11DeviceContext_DrawIndexed(ctx, 12, 0, 0);
+        px = readback(bb, 64, 64, DXGI_FORMAT_B8G8R8A8_UNORM, &pitch);
+        int equal = reference && px && src_pitch == pitch && !memcmp(reference, px, (size_t)pitch * 64);
+        CHECK(equal, "compact indexed output matches expanded pixels");
+        free(reference); free(px); ID3D11Buffer_Release(expanded_v);
+        nv2a_free_compact_indexed(&compact, compact_v, compact_ix);
+    }
     ID3D11Buffer_Release(ring_v); ID3D11Buffer_Release(ring_i);
 
     printf("[11] scissor\n");
