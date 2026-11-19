@@ -42,6 +42,18 @@ int main(void)
     before = orphan_count;
     assert(FAILED(d3d11gles_upload_vertex_range(buffer, 127, a, sizeof(a), FALSE)));
     assert(orphan_count == before && map_count == 0);
+    assert(FAILED(d3d11gles_upload_index_range(buffer, 0, a, sizeof(a), FALSE)));
     d3dgl_Release(buffer);
-    puts("vertex upload: disjoint ranges, orphan on wrap and invalid ranges OK"); return 0;
+    desc.BindFlags = D3D11_BIND_INDEX_BUFFER;
+    assert(SUCCEEDED(d3dgl_Device_CreateBuffer(NULL, &desc, NULL, &buffer)));
+    assert(FAILED(d3d11gles_upload_vertex_range(buffer, 0, a, sizeof(a), FALSE)));
+    assert(SUCCEEDED(d3d11gles_upload_index_range(buffer, 16, a, sizeof(a), FALSE)));
+    assert(SUCCEEDED(d3d11gles_upload_index_range(buffer, 40, b, sizeof(b), FALSE)));
+    assert(!memcmp(storage + 16, a, sizeof(a)) && !memcmp(storage + 40, b, sizeof(b)));
+    before = orphan_count;
+    assert(SUCCEEDED(d3d11gles_upload_index_range(buffer, 0, a, sizeof(a), TRUE)));
+    assert(orphan_count == before + 1 && !memcmp(storage, a, sizeof(a)) && storage[40] == 0);
+    assert(FAILED(d3d11gles_upload_index_range(buffer, 127, a, sizeof(a), FALSE)));
+    d3dgl_Release(buffer);
+    puts("vertex and index uploads: ranges, orphan on wrap, bind flags and invalid input OK"); return 0;
 }

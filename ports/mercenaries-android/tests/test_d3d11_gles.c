@@ -218,6 +218,25 @@ int main(void)
     ID3D11DeviceContext_ClearRenderTargetView(ctx, rtv, clear); ID3D11DeviceContext_DrawIndexed(ctx, 3, 0, 3);
     px = readback(bb, 64, 64, DXGI_FORMAT_B8G8R8A8_UNORM, &pitch); CHECK(PX(px,pitch,32,55)[1] == 255, "DrawIndexed(baseVertex=3) reads the second triangle (green)"); free(px);
 
+    printf("[10b] transient indexed ring offsets and wrap\n");
+    ID3D11Buffer *ring_v = make_buf(NULL, 512, D3D11_BIND_VERTEX_BUFFER, D3D11_USAGE_DYNAMIC);
+    ID3D11Buffer *ring_i = make_buf(NULL, 128, D3D11_BIND_INDEX_BUFFER, D3D11_USAGE_DYNAMIC);
+    uint16_t ring_indices[3] = { 0, 1, 2 }; UINT ring_v_off = 32;
+    CHECK(SUCCEEDED(d3d11gles_upload_vertex_range(ring_v, ring_v_off, iv + 3, 3 * sizeof(Vtx), FALSE)), "vertex ring upload");
+    CHECK(SUCCEEDED(d3d11gles_upload_index_range(ring_i, 16, ring_indices, sizeof(ring_indices), FALSE)), "index ring upload");
+    ID3D11DeviceContext_IASetVertexBuffers(ctx, 0, 1, &ring_v, &stride, &ring_v_off);
+    ID3D11DeviceContext_IASetIndexBuffer(ctx, ring_i, DXGI_FORMAT_R16_UINT, 16);
+    ID3D11DeviceContext_ClearRenderTargetView(ctx, rtv, clear); ID3D11DeviceContext_DrawIndexed(ctx, 3, 0, 0);
+    px = readback(bb, 64, 64, DXGI_FORMAT_B8G8R8A8_UNORM, &pitch); CHECK(PX(px,pitch,32,55)[1] == 255, "indexed ring nonzero offsets draw green"); free(px);
+    CHECK(SUCCEEDED(d3d11gles_upload_vertex_range(ring_v, 0, cw, 3 * sizeof(Vtx), TRUE)), "vertex ring wrap");
+    CHECK(SUCCEEDED(d3d11gles_upload_index_range(ring_i, 0, ring_indices, sizeof(ring_indices), TRUE)), "index ring wrap");
+    ring_v_off = 0;
+    ID3D11DeviceContext_IASetVertexBuffers(ctx, 0, 1, &ring_v, &stride, &ring_v_off);
+    ID3D11DeviceContext_IASetIndexBuffer(ctx, ring_i, DXGI_FORMAT_R16_UINT, 0);
+    ID3D11DeviceContext_ClearRenderTargetView(ctx, rtv, clear); ID3D11DeviceContext_DrawIndexed(ctx, 3, 0, 0);
+    px = readback(bb, 64, 64, DXGI_FORMAT_B8G8R8A8_UNORM, &pitch); CHECK(PX(px,pitch,32,55)[2] > 100, "indexed ring wrapped data draws red"); free(px);
+    ID3D11Buffer_Release(ring_v); ID3D11Buffer_Release(ring_i);
+
     printf("[11] scissor\n");
     D3D11_RECT sr = { 0, 0, 32, 64 }; ID3D11DeviceContext_RSSetScissorRects(ctx, 1, &sr); ID3D11DeviceContext_RSSetState(ctx, rs_sc);
     ID3D11DeviceContext_IASetVertexBuffers(ctx, 0, 1, &vh, &stride, &off); ID3D11DeviceContext_ClearRenderTargetView(ctx, rtv, clear); ID3D11DeviceContext_Draw(ctx, 3, 0);

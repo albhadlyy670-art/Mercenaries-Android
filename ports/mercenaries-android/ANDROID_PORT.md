@@ -204,3 +204,11 @@ session for the game thread, with a 30 FPS work-duration target. It reports
 frame work before swap, skipping long lifecycle gaps. This is a scheduler hint,
 not a frame cap or guaranteed clock boost; Android may reject or ignore it.
 `[cpu] Android performance hint session active/unavailable` reports session setup.
+
+Android `DrawIndexedPrimitiveUP` can reuse transient vertex and index buffers
+for supported indexed draws instead of creating two buffers each time. Buffer
+wrap orphans old storage. Unsupported formats, primitive conversions, restart
+indices, nonzero minimum vertices and oversized draws remain on the older path.
+The NV2A guest indexed path still expands vertices into `DrawPrimitiveUP`; it
+is not yet routed through this indexed path, so no FPS gain is assumed for that
+workload until its shader and primitive semantics are validated on-device.

@@ -56,6 +56,8 @@ echo "== Pixel shader selection and fallback"
 gcc -O1 -Wall -Wextra -Werror test_pixel_selection.c -o $T/pixel_selection && $T/pixel_selection
 echo "== GLES vertex attribute state transitions"
 gcc -O1 -Wall -Wextra -Werror test_vertex_attrib_state.c -o $T/vertex_attrib_state && $T/vertex_attrib_state
+echo "== D3D8 indexed ring allocation and indices"
+gcc -O1 -Wall -Wextra -Werror test_indexed_ring.c -o $T/indexed_ring && $T/indexed_ring
 echo "== GLES transient vertex range upload (mock driver)"
 gcc -O1 -w -ffunction-sections -fdata-sections -I$CPP/compat/include -I$D/include -I$CPP/compat -I$D -I$S -I$S/d3d -I$S/platform -I$S/kernel -I$S/nv2a -DXBOX_ANDROID=1 $D/d3d11_gles.c test_vertex_upload.c -Wl,--gc-sections -lm -o $T/vertex_upload && $T/vertex_upload
 echo "== Fixed-function constant buffer cache"
