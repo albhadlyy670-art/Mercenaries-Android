@@ -16,6 +16,8 @@ echo "== World visibility conservative bounds"
 gcc -O1 -Wall -Wextra -Werror -fsanitize=undefined test_world_visibility.c -lm -o $T/world_visibility && $T/world_visibility
 echo "== Android world streaming distance policy"
 python3 test_world_streaming_radius.py
+echo "== Android performance hints"
+gcc -O1 -Wall -Wextra -Werror test_performance_hint.c -o $T/performance_hint && $T/performance_hint
 echo "== Android CPU tuning selection and lifecycle"
 gcc -O1 -Wall -Wextra -Werror -Wno-unused-function test_cpu_tuning.c -lpthread -o $T/cpu_tuning && $T/cpu_tuning
 python3 test_apply_cpu_tuning.py
