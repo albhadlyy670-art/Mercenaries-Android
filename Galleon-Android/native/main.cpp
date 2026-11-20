@@ -7,6 +7,7 @@
 #include <signal.h>
 #include <sys/ucontext.h>
 #include <unwind.h>
+#include <dlfcn.h>
 #include <fcntl.h>
 #include <unistd.h>
 
@@ -79,6 +80,7 @@ void LogToLogcat() {
 // the default signal, so Android also writes logcat and the app still reports as crashed. Only raw write() is
 // used here; guest memory is not dereferenced (that may be what faulted), only register values and the unwind.
 static volatile sig_atomic_t g_crash_fd = -1;
+static volatile sig_atomic_t g_in_handler = 0;
 static std::atomic<uintptr_t> g_frames[32];
 static std::atomic<int> g_nframes{0};
 static char g_altstack[64 * 1024];
@@ -118,6 +120,8 @@ static const char* SignalName(int sig) {
 }
 
 static void CrashHandler(int sig, siginfo_t* info, void* context) {
+    if (g_in_handler) _exit(128 + sig);  // a fault inside the handler: don't recurse
+    g_in_handler = 1;
     // the decisive facts first, so a fault inside the unwind cannot swallow them
     CrashFmt("\n===== GALLEON crash: signal %d (%s) at address %p =====\n", sig, SignalName(sig), info ? info->si_addr : nullptr);
 #if defined(__aarch64__)
@@ -129,6 +133,26 @@ static void CrashHandler(int sig, siginfo_t* info, void* context) {
         const X86Context& c = *t->ctx;
         CrashFmt("guest eax %08X ecx %08X edx %08X ebx %08X\n", c.eax, c.ecx, c.edx, c.ebx);
         CrashFmt("guest esp %08X ebp %08X esi %08X edi %08X\n", c.esp, c.ebp, c.esi, c.edi);
+        // every recompiled call pushes the guest return address, so the words on the guest stack that fall
+        // inside the image (0x00010000..0x0029A100) are guest PCs: rebuild the guest call chain from them
+        static const uint32_t kImageLo = 0x00010000, kImageHi = 0x0029A100;
+        uint32_t sp = c.esp;
+        for (uint32_t a = sp; a < sp + 0x40; a += 4) {
+            if (!mem::IsCommitted(a)) break;
+            uint32_t w;
+            std::memcpy(&w, kernel::HostPtr(a), 4);
+            CrashFmt("guest [esp+0x%03X] 0x%08X\n", a - sp, w);
+        }
+        int n = 0;
+        for (uint32_t a = sp; a < sp + 0x1000; a += 4) {
+            if (!mem::IsCommitted(a)) break;
+            uint32_t w;
+            std::memcpy(&w, kernel::HostPtr(a), 4);
+            if (w >= kImageLo && w < kImageHi) {
+                CrashFmt("guest ret 0x%08X\n", w);
+                if (++n >= 48) break;
+            }
+        }
     } else {
         CrashFmt("(crashed on a host thread)\n");
     }
@@ -137,6 +161,12 @@ static void CrashHandler(int sig, siginfo_t* info, void* context) {
     _Unwind_Backtrace(CrashFrame, nullptr);
     for (int i = 0; i < g_nframes.load(std::memory_order_relaxed); i++)
         CrashFmt("frame %02d 0x%016llx\n", i, (unsigned long long)g_frames[i].load(std::memory_order_relaxed));
+    for (int i = 0; i < g_nframes.load(std::memory_order_relaxed); i++) {
+        Dl_info di {};
+        uintptr_t ip = g_frames[i].load(std::memory_order_relaxed);
+        if (ip && dladdr(reinterpret_cast<void*>(ip), &di) && di.dli_fbase && di.dli_fname)
+            CrashFmt("frame %02d %s+0x%llx\n", i, di.dli_fname, (unsigned long long)(ip - uintptr_t(di.dli_fbase)));
+    }
     CrashFmt("===== end of GALLEON crash =====\n");
     if (g_crash_fd >= 0) { ::close(g_crash_fd); g_crash_fd = -1; }
     signal(sig, SIG_DFL);

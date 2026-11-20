@@ -58,7 +58,7 @@ static void IoQueryVolumeInformationEntry(X86Context& ctx, uint8_t*) {
         kernel::W32(iosb, 0);  // kSuccess
         kernel::W32(iosb + 4, info);
     }
-    kernel::Return(ctx, 0, 6);
+    kernel::Return(ctx, 0, 5);  // the call site pushes five arguments (ret pops four of them)
 }
 static const bool kregister_IoQueryVolumeInformation =
     (kernel::RegisterExport(76, "IoQueryVolumeInformation", IoQueryVolumeInformationEntry), true);
