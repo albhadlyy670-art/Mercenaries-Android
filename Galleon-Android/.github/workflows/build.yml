@@ -1,6 +1,10 @@
 # Builds the APK and publishes a release for each v* tag. The recompiler builds from the Galleon xbe tracked in
 # the repository at Galleon xbe/default.xbe (see the repository root); no game files are downloaded.
 #
+# NOTE: GitHub only reads workflow files from the repository root's .github/workflows. This file is kept here as
+# the standalone copy for when Galleon-Android/ is its own repository; in THIS repository the active workflow is
+# /.github/workflows/galleon-build.yml, which is generated from this one.
+#
 # Secrets: KEYSTORE_BASE64 (the release .jks in base64), KEYSTORE_PASSWORD, KEY_ALIAS and KEY_PASSWORD.
 # Without the keystore the APK has a debug signature.
 name: Build
@@ -91,14 +95,14 @@ jobs:
           size=$(awk -v b="$(stat -c %s "$apk")" 'BEGIN { printf "%.1f MB", b / 1048576 }')
           sha=$(sha256sum "$apk" | cut -d' ' -f1)
           sed -e "s|{{VERSION}}|$GITHUB_REF_NAME|g" -e "s|{{TAG}}|$GITHUB_REF_NAME|g" -e "s|{{APK}}|$apk|g" \
-              -e "s|{{SIZE}}|$size|g" -e "s|{{SHA256}}|$sha|g" ci/release-notes.md > "$RUNNER_TEMP/release-notes.md"
+              -e "s|{{SIZE}}|$size|g" -e "s|{{SHA256}}|$sha|g" Galleon-Android/ci/release-notes.md > "$RUNNER_TEMP/release-notes.md"
           # the commits since the previous tag, which the app's update dialog shows too
           prev=$(git describe --tags --abbrev=0 --match 'v*' "$GITHUB_REF_NAME^" 2>/dev/null || true)
           {
             echo
             echo "## What's Changed"
             echo
-            git log --no-merges --pretty='* %s' ${prev:+"$prev.."}"$GITHUB_REF_NAME"
+            git log --no-merges --pretty='* %s' ${prev:+"$prev.."}"$GITHUB_REF_NAME" -- Galleon-Android
           } >> "$RUNNER_TEMP/release-notes.md"
 
       - name: Release
