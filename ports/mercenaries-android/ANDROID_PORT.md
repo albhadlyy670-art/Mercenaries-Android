@@ -83,6 +83,24 @@ framebuffer binding from render-state application. `[perf-gles-workload]` counts
 issued array/indexed draws, submitted vertex or index references, draw sizes
 (disjoint ranges), renderer draw-FBO rebinds and attachment changes; clears and
 blits are not counted as draw-FBO rebinds; attachment updates include clears.
+`[perf-gles-buffer]` breaks general buffer maps, discard maps, failures,
+nominal mapped bytes, sampled map/unmap CPU times, and UpdateSubresource calls
+and bytes into mutually exclusive constant, vertex, index and other bind-flag
+categories. `[perf-gles-constant-size]` shows the first six constant-buffer
+sizes seen, with any additional sizes counted in `[perf-gles-constant-other]`;
+size can help identify a buffer but is not a unique call-site ID. Persistent ring copies and their fallback ring maps are separate;
+bytes count the requested full buffer size, not the bytes actually changed.
+`[perf-gles-target]` reports the first six render-target size/depth combinations
+seen in each interval and issued draws and vertices; overflow draws are counted
+in `[perf-gles-target-other]`. These are not terrain/scenery labels and do not
+measure GPU execution. `[world-scene-sample]` is a periodic read-only RedScene
+query snapshot, including the known terrain entry, known model-vtable entries,
+and spheres wholly beyond 260 radial units; none is a safe culling decision.
+`[world-projection]` distinguishes the authored camera field from the actual
+argument sent to SetPerspective when the eligible camera path runs;
+`[world-projection-bypass]` reports unmatched far arguments on that camera.
+Fog cutoff
+and draw origins remain unverified.
 `[perf-gles-small]` separates small draws (up to 16 vertices/indices) by
 vertex-ID-only versus attribute input and by primitive topology. Vertex-ID-only
 draws can include internal resolve passes; the category is not an exact origin label.

@@ -3424,8 +3424,33 @@ float recomp_options_camera_far_plane(uint32_t camera, float far_plane) {
     if (camera >= 0x10000u && camera <= 0x03FFFF00u &&
         guest_u32(camera) == 0x00300DC4u &&
         far_plane == *(float *)guest_ptr(camera + 0xA0u))
-        return recomp_options_world_view_distance(
+    {
+        float effective = recomp_options_world_view_distance(
             far_plane * recomp_options_object_distance_multiplier());
+#ifdef __ANDROID__
+        /* The camera's authored field is not necessarily the effective
+         * projection argument. Report both only when either changes. */
+        static float last_authored = -1.0f, last_effective = -1.0f;
+        if (far_plane != last_authored || effective != last_effective) {
+            void android_trace(const char *fmt, ...);
+            android_trace("[world-projection] authored_far=%.2f effective_far=%.2f", far_plane, effective);
+            last_authored = far_plane; last_effective = effective;
+        }
+#endif
+        return effective;
+    }
+#ifdef __ANDROID__
+    if (camera >= 0x10000u && camera <= 0x03FFFF00u &&
+        guest_u32(camera) == 0x00300DC4u) {
+        static float last_requested = -1.0f, last_authored = -1.0f;
+        float authored = guest_f32(camera + 0xA0u);
+        if (far_plane != last_requested || authored != last_authored) {
+            void android_trace(const char *fmt, ...);
+            android_trace("[world-projection-bypass] requested_far=%.2f authored_far=%.2f", far_plane, authored);
+            last_requested = far_plane; last_authored = authored;
+        }
+    }
+#endif
     return far_plane;
 }
 
@@ -11662,22 +11687,33 @@ static void recomp_observe_scene_visibility(uint32_t result, uint32_t count)
     float pos[3] = {guest_f32(cam+0x40u), guest_f32(cam+0x44u), guest_f32(cam+0x48u)};
     float axis[3] = {guest_f32(cam+0x30u), guest_f32(cam+0x34u), guest_f32(cam+0x38u)};
     unsigned behind = 0, unknown = 0, model = 0, model_behind = 0;
+    unsigned terrain = 0, beyond260 = 0;
     for (uint32_t i=0; i<count; ++i) {
         uint32_t item=guest_u32(result+i*4u);
         if (item < 0x10000u || item > 0x04000000u-0x18u) { ++unknown; continue; }
         WorldVisibilitySphere sphere = {guest_f32(item+4u), guest_f32(item+8u),
                                         guest_f32(item+12u), guest_f32(item+16u)};
+        if (item == 0x00643370u) ++terrain; /* Known terrain scene entry. */
+        if (isfinite(pos[0]) && isfinite(pos[1]) && isfinite(pos[2]) &&
+            isfinite(sphere.x) && isfinite(sphere.y) && isfinite(sphere.z) &&
+            isfinite(sphere.r) && sphere.r >= 0.0f) {
+            double dx = (double)sphere.x - pos[0], dy = (double)sphere.y - pos[1];
+            double dz = (double)sphere.z - pos[2], limit = 260.0 + sphere.r;
+            if (dx*dx + dy*dy + dz*dz > limit*limit) ++beyond260;
+        }
         int result_class=world_sphere_behind(pos, axis, sphere);
         if (result_class < 0) ++unknown; else if (result_class) ++behind;
         /* Retail model vtable at 0x300A84 queues shader-list work. This
          * includes non-scenery models and does not prove a safe skip. */
-        if (guest_u32(item) == 0x00300A84u) {
+        if (item != 0x00643370u && guest_u32(item) == 0x00300A84u) {
             ++model;
             if (result_class > 0) ++model_behind;
         }
     }
     android_trace("[world-visibility] observed=%u behind_candidate=%u model=%u model_behind=%u invalid=%u far=%.2f fog_cutoff=unknown culled=0",
                   count, behind, model, model_behind, unknown, guest_f32(cam+0xA0u));
+    android_trace("[world-scene-sample] terrain_entry=%u model_entry=%u other_entry=%u sphere_beyond_260=%u authored_far=%.2f",
+                  terrain, model, count - model - terrain, beyond260, guest_f32(cam+0xA0u));
 }
 #endif
 

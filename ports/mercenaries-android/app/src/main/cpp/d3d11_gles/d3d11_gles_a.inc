@@ -282,8 +282,51 @@ typedef struct {
     unsigned long long persistent_uploads, persistent_wraps;
     double persistent_wait_seconds;
     unsigned long long small_vertexid, small_attributes, small_triangles, small_strips, small_other;
+    unsigned long long map_kind[4], map_discard[4], map_fail[4], map_bytes[4];
+    unsigned long long updates[4], update_bytes[4];
+    PerfOp map_timing[4], unmap_timing[4];
+    struct { unsigned w, h, depth; unsigned long long draws, vertices; } targets[6];
+    unsigned long long target_other;
+    struct { UINT size; unsigned long long maps; } constant_sizes[6];
+    unsigned long long constant_size_other;
+
 } PerfWorkload;
 static PerfWorkload perf_workload;
+/* Mutually exclusive bind categories. Other includes combined flags; counters
+ * describe D3D buffer operations, not guest draw call sites. */
+static unsigned perf_buffer_kind(UINT flags)
+{
+    if (flags == D3D11_BIND_CONSTANT_BUFFER) return 0;
+    if (flags == D3D11_BIND_VERTEX_BUFFER) return 1;
+    if (flags == D3D11_BIND_INDEX_BUFFER) return 2;
+    return 3;
+}
+static void perf_constant_map_size(UINT size)
+{
+    for (unsigned i = 0; i < 6; ++i) {
+        if (!perf_workload.constant_sizes[i].maps || perf_workload.constant_sizes[i].size == size) {
+            perf_workload.constant_sizes[i].size = size;
+            ++perf_workload.constant_sizes[i].maps;
+            return;
+        }
+    }
+    ++perf_workload.constant_size_other;
+}
+static void perf_target_draw(UINT w, UINT h, int depth, UINT count)
+{
+    for (unsigned i = 0; i < 6; ++i) {
+        if (perf_workload.targets[i].draws == 0 ||
+            (perf_workload.targets[i].w == w && perf_workload.targets[i].h == h &&
+             perf_workload.targets[i].depth == (unsigned)depth)) {
+            perf_workload.targets[i].w = w; perf_workload.targets[i].h = h;
+            perf_workload.targets[i].depth = (unsigned)depth;
+            ++perf_workload.targets[i].draws; perf_workload.targets[i].vertices += count;
+            return;
+        }
+    }
+    ++perf_workload.target_other;
+}
+#define PERF_TARGET_DRAW(w,h,depth,count) perf_target_draw((w),(h),(depth),(count))
 static void perf_record_draw(UINT count, int indexed, int vertexid, D3D11_PRIMITIVE_TOPOLOGY topology)
 {
     if (indexed) ++perf_workload.indexed; else ++perf_workload.arrays;
@@ -346,6 +389,25 @@ static void perf_report(void)
     android_trace("[perf-gles-small] vertexid=%llu attributes=%llu triangle_list=%llu triangle_strip=%llu other=%llu",
         perf_workload.small_vertexid, perf_workload.small_attributes, perf_workload.small_triangles,
         perf_workload.small_strips, perf_workload.small_other);
+    static const char *const buffer_names[] = {"constant", "vertex", "index", "other"};
+    for (unsigned i = 0; i < 4; ++i) {
+        android_trace("[perf-gles-buffer] kind=%s maps=%llu discard=%llu failures=%llu mapped_bytes=%llu map_samples=%llu map_avg_ms=%.4f unmap_samples=%llu unmap_avg_ms=%.4f updates=%llu update_bytes=%llu",
+            buffer_names[i], perf_workload.map_kind[i], perf_workload.map_discard[i],
+            perf_workload.map_fail[i], perf_workload.map_bytes[i],
+            perf_workload.map_timing[i].samples, AVG(perf_workload.map_timing[i]),
+            perf_workload.unmap_timing[i].samples, AVG(perf_workload.unmap_timing[i]),
+            perf_workload.updates[i], perf_workload.update_bytes[i]);
+    }
+    for (unsigned i = 0; i < 6; ++i) if (perf_workload.constant_sizes[i].maps)
+        android_trace("[perf-gles-constant-size] bytes=%u maps=%llu",
+            perf_workload.constant_sizes[i].size, perf_workload.constant_sizes[i].maps);
+    android_trace("[perf-gles-constant-other] maps=%llu", perf_workload.constant_size_other);
+    for (unsigned i = 0; i < 6; ++i) if (perf_workload.targets[i].draws)
+        android_trace("[perf-gles-target] slot=%u width=%u height=%u depth=%u draws=%llu vertices=%llu",
+            i, perf_workload.targets[i].w, perf_workload.targets[i].h,
+            perf_workload.targets[i].depth, perf_workload.targets[i].draws,
+            perf_workload.targets[i].vertices);
+    android_trace("[perf-gles-target-other] draws=%llu", perf_workload.target_other);
     Nv2aMmioPerfCounts mmio_now = nv2a_mmio_get_perf_counts();
     Nv2aMmioPerfCounts mmio_interval = nv2a_mmio_perf_delta(mmio_now, perf_mmio_last);
     android_trace("[perf-mmio] interval_s=%.1f sigsegv_reads=%llu sigsegv_writes=%llu put_kicks=%llu",
@@ -359,6 +421,7 @@ static void perf_report(void)
 void d3d11gles_note_vertex_ring_reuse(void) { }
 void d3d11gles_note_index_ring_reuse(void) { }
 #define PERF_STATE_APPLY() ((void)0)
+#define PERF_TARGET_DRAW(w,h,depth,count) ((void)0)
 #define PERF_DRAW_WORK(count, indexed, vertexid, topology) ((void)0)
 #define PERF_FBO_REBIND() ((void)0)
 #define PERF_ATTACHMENT() ((void)0)
@@ -780,6 +843,15 @@ HRESULT d3dgl_Ctx_Map(ID3D11DeviceContext *c, ID3D11Resource *res, UINT sub, D3D
         PERF_BEGIN(map);
         void *p = glMapBufferRange(GL_COPY_WRITE_BUFFER, 0, (GLsizeiptr)b->d.ByteWidth, acc);
         PERF_END(map);
+#ifdef __ANDROID__
+        unsigned kind = perf_buffer_kind(b->d.BindFlags);
+        ++perf_workload.map_kind[kind];
+        if (kind == 0) perf_constant_map_size(b->d.ByteWidth);
+        if (type == D3D11_MAP_WRITE_DISCARD) ++perf_workload.map_discard[kind];
+        if (!p) ++perf_workload.map_fail[kind];
+        perf_workload.map_bytes[kind] += b->d.ByteWidth;
+        perf_end(&perf_workload.map_timing[kind], perf_stamp);
+#endif
         b->map_type = type;
         if (p) b->mapped_gl = 1;
         else { b->mapped_gl = 0; free(b->tmp); b->tmp = (uint8_t *)calloc(1, b->d.ByteWidth); p = b->tmp; }   /* fallback: shadow + upload */
@@ -799,7 +871,11 @@ void d3dgl_Ctx_Unmap(ID3D11DeviceContext *c, ID3D11Resource *res, UINT sub)
     (void)c; (void)sub; Obj *o = (Obj *)res; if (!o) return;
     if (o->kind == K_BUFFER) {
         Buf *b = (Buf *)o; bind_copy_write_buffer(b->buf);
-        if (b->mapped_gl) { PERF_BEGIN(unmap); glUnmapBuffer(GL_COPY_WRITE_BUFFER); PERF_END(unmap); b->mapped_gl = 0; }
+        if (b->mapped_gl) { PERF_BEGIN(unmap); glUnmapBuffer(GL_COPY_WRITE_BUFFER); PERF_END(unmap);
+#ifdef __ANDROID__
+            perf_end(&perf_workload.unmap_timing[perf_buffer_kind(b->d.BindFlags)], perf_stamp);
+#endif
+            b->mapped_gl = 0; }
         else if (b->tmp) { if (b->map_type != D3D11_MAP_READ) glBufferSubData(GL_COPY_WRITE_BUFFER, 0, (GLsizeiptr)b->d.ByteWidth, b->tmp); free(b->tmp); b->tmp = NULL; }
         gl_check_hot("Unmap(buffer)"); return;
     }
@@ -815,6 +891,10 @@ void d3dgl_Ctx_UpdateSubresource(ID3D11DeviceContext *c, ID3D11Resource *res, UI
     (void)c; (void)dp; Obj *o = (Obj *)res; if (!o || !data) return;
     if (o->kind == K_BUFFER) {
         Buf *b = (Buf *)o; UINT off = box ? box->left : 0, n = box ? box->right - box->left : b->d.ByteWidth;
+#ifdef __ANDROID__
+        unsigned kind = perf_buffer_kind(b->d.BindFlags);
+        ++perf_workload.updates[kind]; perf_workload.update_bytes[kind] += n;
+#endif
         bind_copy_write_buffer(b->buf); glBufferSubData(GL_COPY_WRITE_BUFFER, (GLintptr)off, (GLsizeiptr)n, data); gl_check("UpdateSubresource(buffer)"); return;
     }
     Tex *t = (Tex *)o; UINT w, h; sub_info(t, sub, &w, &h, NULL, NULL);
