@@ -128,16 +128,29 @@ static void CrashHandler(int sig, siginfo_t* info, void* context) {
     auto* mc = &reinterpret_cast<ucontext_t*>(context)->uc_mcontext;
     CrashFmt("host pc 0x%016llx sp 0x%016llx fp 0x%016llx\n", (unsigned long long)mc->pc, (unsigned long long)mc->sp,
              (unsigned long long)mc->regs[29]);
+    CrashFmt("host x0 0x%016llx x1 0x%016llx x2 0x%016llx x3 0x%016llx\n", (unsigned long long)mc->regs[0],
+             (unsigned long long)mc->regs[1], (unsigned long long)mc->regs[2], (unsigned long long)mc->regs[3]);
+    CrashFmt("host x4 0x%016llx x5 0x%016llx x6 0x%016llx x7 0x%016llx\n", (unsigned long long)mc->regs[4],
+             (unsigned long long)mc->regs[5], (unsigned long long)mc->regs[6], (unsigned long long)mc->regs[7]);
+    CrashFmt("host x8 0x%016llx x9 0x%016llx x10 0x%016llx x11 0x%016llx\n", (unsigned long long)mc->regs[8],
+             (unsigned long long)mc->regs[9], (unsigned long long)mc->regs[10], (unsigned long long)mc->regs[11]);
+    CrashFmt("host x12 0x%016llx x13 0x%016llx x14 0x%016llx x15 0x%016llx\n", (unsigned long long)mc->regs[12],
+             (unsigned long long)mc->regs[13], (unsigned long long)mc->regs[14], (unsigned long long)mc->regs[15]);
+    CrashFmt("host x19 0x%016llx x20 0x%016llx x21 0x%016llx x22 0x%016llx\n", (unsigned long long)mc->regs[19],
+             (unsigned long long)mc->regs[20], (unsigned long long)mc->regs[21], (unsigned long long)mc->regs[22]);
+    CrashFmt("host x23 0x%016llx x24 0x%016llx x25 0x%016llx x26 0x%016llx\n", (unsigned long long)mc->regs[23],
+             (unsigned long long)mc->regs[24], (unsigned long long)mc->regs[25], (unsigned long long)mc->regs[26]);
+    if (mc->pc) CrashFmt("host insn 0x%08X\n", *(const uint32_t*)mc->pc);
 #endif
     if (kernel::Thread* t = kernel::Current()) {
         const X86Context& c = *t->ctx;
         CrashFmt("guest eax %08X ecx %08X edx %08X ebx %08X\n", c.eax, c.ecx, c.edx, c.ebx);
-        CrashFmt("guest esp %08X ebp %08X esi %08X edi %08X\n", c.esp, c.ebp, c.esi, c.edi);
+        CrashFmt("guest esp %08X ebp %08X esi %08X edi %08X last_icall %08X\n", c.esp, c.ebp, c.esi, c.edi, c.last_icall);
         // every recompiled call pushes the guest return address, so the words on the guest stack that fall
         // inside the image (0x00010000..0x0029A100) are guest PCs: rebuild the guest call chain from them
         static const uint32_t kImageLo = 0x00010000, kImageHi = 0x0029A100;
         uint32_t sp = c.esp;
-        for (uint32_t a = sp; a < sp + 0x40; a += 4) {
+        for (uint32_t a = sp; a < sp + 0x80; a += 4) {
             if (!mem::IsCommitted(a)) break;
             uint32_t w;
             std::memcpy(&w, kernel::HostPtr(a), 4);

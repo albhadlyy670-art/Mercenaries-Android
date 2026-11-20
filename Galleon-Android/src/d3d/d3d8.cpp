@@ -375,6 +375,8 @@ void LogBlockOnce(X86Context& ctx, uint32_t data) {
 
 HLE_STDCALL(D3D_BlockOnResource, 1) {
     uint32_t res = a[0];
+    LOGI("d3d: BlockOnResource res/map %08X [esp+4] %08X [esp+8] %08X eax %08X esi %08X edx %08X", res, R32(ctx.esp + 4),
+         R32(ctx.esp + 8), ctx.eax, ctx.esi, ctx.edx);
     if (res && g_backend) {
         std::lock_guard<std::recursive_mutex> lock(g_lock);
         uint32_t type = R32(res + kResCommon) & kTypeMask;
@@ -393,12 +395,15 @@ HLE_STDCALL(D3D_BlockOnResource, 1) {
 // title may read what the GPU drew
 HLE_WRAP(Lock2DSurface, 6) {
     uint32_t res = a[0];
+    LOGI("d3d: Lock2DSurface a0 %08X a1 %08X a2 %08X a3/map %08X a4/map %08X a5 %08X | eax %08X esi %08X edx %08X",
+         a[0], a[1], a[2], a[3], a[4], a[5], ctx.eax, ctx.esi, ctx.edx);
     if ((a[5] & 0x20) && res && g_backend) {  // D3DLOCK_NOOVERWRITE
         std::lock_guard<std::recursive_mutex> lock(g_lock);
         g_backend->SyncLate(mem::VirtualFromPhysical(R32(res + kResData)));
     }
 }
 HLE_STDCALL(D3DResource_BlockUntilNotBusy, 1) {
+    LOGI("d3d: BlockUntilNotBusy res %08X [esp+4] %08X eax %08X esi %08X", a[0], R32(ctx.esp + 4), ctx.eax, ctx.esi);
     if (a[0] && g_backend) {
         std::lock_guard<std::recursive_mutex> lock(g_lock);
         g_backend->WaitResource(a[0]);

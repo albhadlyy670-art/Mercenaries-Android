@@ -13,6 +13,9 @@ xdk = 5849
 out = "generated/game"
 partitions = 64
 code_sections = [".text", "D3D", "XGRPH", "DSOUND", "XPP"]
+# log each call of these functions (caller, arguments) and its eax: v1.0.6 diagnostic tracing for the
+# SIGSEGV at guest address 0 (galleon-crash-4.log), the texture setup chain around 0x1BC3A0
+trace = [0x1BC3A0, 0x1D6860, 0x1D68C0, 0x1D69B0, 0x1D6B50, 0x1D6C70, 0x1D6CA0, 0x1DD1C0, 0x1E9DDF, 0x1EA2D3, 0x1B7180, 0xC5B90, 0xA5660]
 
 # extra entry points
 [functions]
