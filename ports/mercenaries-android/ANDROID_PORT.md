@@ -65,7 +65,12 @@ can be used at the same time, and physical controllers remain supported.
 ## Android performance diagnostics
 The shared game log includes `[perf]` samples every ten seconds while rendering, with observed FPS and
 average `eglSwapBuffers` wait time and game-thread CPU time as a percentage of one core. Long background/stalled gaps reset the sample. These numbers alone
-do not distinguish CPU from GPU bottlenecks. `[perf-gles]` reports per-interval draw,
+do not distinguish CPU from GPU bottlenecks. `[perf-mmio]` reports handled NV2A
+fault-driven register reads and writes per interval; `put_kicks` is the subset
+of writes to the GPU command-buffer PUT register. It excludes other devices,
+direct accesses and failed decodes. Counts do not measure CPU time, and the
+three counters are sampled independently; a background gap resets the baseline.
+These diagnostics do not themselves improve FPS. `[perf-gles]` reports per-interval draw,
 buffer map/unmap and readback counts, sampled CPU-side call times (one in 64 calls),
 the number of full draw-state applications (`state_applies`), and the current shader-program cache size.
 Transient vertex-ring map/unmap calls
@@ -221,3 +226,41 @@ shutdown. `[perf-gles-workload]` reports `ring_vertex_reuses` and
 hit rate can make the cache overhead outweigh its benefit. Programmable vertex
 shader constants also skip upload if guest writes return to the last uploaded
 bytes before a draw; a failed map stays dirty for a later retry.
+
+### Experimental persistent UP ring storage
+
+The dedicated Android vertex and index UP rings try `GL_EXT_buffer_storage`
+with a persistent coherent write mapping. When supported, each upload copies
+into the mapping without a per-draw GL map/unmap. On ring wrap it rotates among
+up to three lazily allocated buffer generations. A GPU fence is waited before a
+previous generation is reused; allocation failure falls back to waiting on the
+current generation. Waiting can stall and must be measured on-device. The two
+4 MiB rings can together use up to 24 MiB of persistent buffer storage, plus
+driver overhead. Set `D3DGL_NO_PERSISTENT_RING=1` before the game starts to
+force the existing mutable map/unmap path. Initial allocation or capability
+failure also uses that path. The fallback is not batched: draws currently consume their data
+immediately, and delaying uploads requires a correctly ordered command stream.
+The earlier per-draw `glBufferSubData` experiment performed poorly in a phone
+log, so it has not been reinstated as a presumed batching optimization. Draws
+are not merged. Look for `[gles-ring]` and `[perf-gles-persistent]` in the exported log;
+compare graphics, FPS, upload counts and wrap wait time in matched scenes.
+
+### NV2A vertex preparation
+
+Inline array packets are copied into the inline buffer and submitted through
+`submit_array_draw`; programmable draws normally pass their existing vertex
+format to the host input layout rather than converting every component on the
+CPU. Indexed element draws still expand guest vertices into a CPU snapshot.
+Immediate draws capture all 16 input registers per vertex and also build a
+pre-transformed fallback/diagnostic vertex; quads and line loops require ordered
+expansion. Strips are not routinely converted to lists in these paths.
+
+Immediate position/UV conversion now copies contiguous bit patterns, and quads
+reuse the already-converted first and third vertices. Batched 16-bit element
+packets unpack four words at a time using AArch64 NEON, with a scalar tail and
+portable fallback. This is index unpacking, not a GPU vertex shader conversion.
+On Android, `[perf-nv2a-vertices]` reports submitted input vertices by source;
+`[perf-nv2a-convert]` reports call/item totals and sampled CPU durations for
+indexed snapshot expansion, immediate fallback output, and 16-bit index unpack.
+These timings omit other vertex work and are not GPU timings. The NEON path,
+rendering correctness and performance still require phone validation.

@@ -6,6 +6,7 @@
  */
 
 #include "nv2a_mmio_hook.h"
+#include "nv2a_mmio_perf.h"
 #include "nv2a_state.h"
 #include "nv2a_pgraph_d3d11.h"
 #include "../kernel/xbox_memory_layout.h"
@@ -23,8 +24,9 @@ static uint8_t *g_nv2a_vram = NULL;
 static uint8_t *g_nv2a_vram_aperture = NULL;
 
 /* Statistics */
-static int g_mmio_read_count = 0;
-static int g_mmio_write_count = 0;
+static Nv2aMmioPerfCounts g_mmio_perf;
+Nv2aMmioPerfCounts nv2a_mmio_get_perf_counts(void)
+{ return nv2a_mmio_perf_snapshot(&g_mmio_perf); }
 static int g_mmio_decode_fail = 0;
 
 /* Narrow bring-up telemetry for NV_USER_DMA_PUT (0xFD800040). */
@@ -183,12 +185,13 @@ static bool decode_and_handle(PCONTEXT ctx, uint32_t mmio_offset, int is_write)
         nv2a_mmio_write(nv2a, mmio_offset, val, access_size);
         ctx->Rip += prefix_len + 1 + modrm_len;
         if (mmio_offset == 0x00800040u) {
+            nv2a_mmio_perf_increment(&g_mmio_perf.puts);
             ++g_nv2a_mmio_put_hits;
             g_nv2a_mmio_put_last_rip_before = rip_before;
             g_nv2a_mmio_put_last_rip_after = (uintptr_t)ctx->Rip;
             g_nv2a_mmio_put_last_value = (uint32_t)val;
         }
-        g_mmio_write_count++;
+        nv2a_mmio_perf_increment(&g_mmio_perf.writes);
         return true;
     }
 
@@ -211,7 +214,7 @@ static bool decode_and_handle(PCONTEXT ctx, uint32_t mmio_offset, int is_write)
         }
 
         ctx->Rip += prefix_len + 1 + modrm_len;
-        g_mmio_read_count++;
+        nv2a_mmio_perf_increment(&g_mmio_perf.reads);
         return true;
     }
 
@@ -225,7 +228,7 @@ static bool decode_and_handle(PCONTEXT ctx, uint32_t mmio_offset, int is_write)
 
         nv2a_mmio_write(nv2a, mmio_offset, imm, access_size);
         ctx->Rip += prefix_len + 1 + modrm_len + imm_len;
-        g_mmio_write_count++;
+        nv2a_mmio_perf_increment(&g_mmio_perf.writes);
         return true;
     }
 
@@ -237,7 +240,7 @@ static bool decode_and_handle(PCONTEXT ctx, uint32_t mmio_offset, int is_write)
 
         nv2a_mmio_write(nv2a, mmio_offset, imm, 1);
         ctx->Rip += prefix_len + 1 + modrm_len + 1;
-        g_mmio_write_count++;
+        nv2a_mmio_perf_increment(&g_mmio_perf.writes);
         return true;
     }
 
@@ -251,7 +254,7 @@ static bool decode_and_handle(PCONTEXT ctx, uint32_t mmio_offset, int is_write)
         *dest = val; /* zero-extend to 64-bit */
 
         ctx->Rip += prefix_len + 2 + modrm_len;
-        g_mmio_read_count++;
+        nv2a_mmio_perf_increment(&g_mmio_perf.reads);
         return true;
     }
 
@@ -265,7 +268,7 @@ static bool decode_and_handle(PCONTEXT ctx, uint32_t mmio_offset, int is_write)
         *dest = val;
 
         ctx->Rip += prefix_len + 2 + modrm_len;
-        g_mmio_read_count++;
+        nv2a_mmio_perf_increment(&g_mmio_perf.reads);
         return true;
     }
 
@@ -289,7 +292,7 @@ static bool decode_and_handle(PCONTEXT ctx, uint32_t mmio_offset, int is_write)
         if (result & (1ULL << (access_size * 8 - 1))) ctx->EFlags |= 0x0080; /* SF */
 
         ctx->Rip += prefix_len + 1 + modrm_len;
-        g_mmio_read_count++;
+        nv2a_mmio_perf_increment(&g_mmio_perf.reads);
         return true;
     }
 
@@ -314,7 +317,7 @@ static bool decode_and_handle(PCONTEXT ctx, uint32_t mmio_offset, int is_write)
         if (result & (1ULL << (access_size * 8 - 1))) ctx->EFlags |= 0x0080; /* SF */
 
         ctx->Rip += prefix_len + 1 + modrm_len;
-        g_mmio_read_count++;
+        nv2a_mmio_perf_increment(&g_mmio_perf.reads);
         return true;
     }
 
@@ -338,7 +341,7 @@ static bool decode_and_handle(PCONTEXT ctx, uint32_t mmio_offset, int is_write)
         if (result & (1ULL << (access_size * 8 - 1))) ctx->EFlags |= 0x0080;
 
         ctx->Rip += prefix_len + 1 + modrm_len;
-        g_mmio_read_count++;
+        nv2a_mmio_perf_increment(&g_mmio_perf.reads);
         return true;
     }
 
@@ -353,7 +356,7 @@ static bool decode_and_handle(PCONTEXT ctx, uint32_t mmio_offset, int is_write)
 
         nv2a_mmio_write(nv2a, mmio_offset, result, access_size);
         ctx->Rip += prefix_len + 1 + modrm_len;
-        g_mmio_write_count++;
+        nv2a_mmio_perf_increment(&g_mmio_perf.writes);
         return true;
     }
 
@@ -368,7 +371,7 @@ static bool decode_and_handle(PCONTEXT ctx, uint32_t mmio_offset, int is_write)
 
         nv2a_mmio_write(nv2a, mmio_offset, result, access_size);
         ctx->Rip += prefix_len + 1 + modrm_len;
-        g_mmio_write_count++;
+        nv2a_mmio_perf_increment(&g_mmio_perf.writes);
         return true;
     }
 
@@ -408,15 +411,16 @@ static bool decode_and_handle(PCONTEXT ctx, uint32_t mmio_offset, int is_write)
         value = mmio_a64_store_value(c->x, &d);
         nv2a_mmio_write(nv2a, mmio_offset, value, (unsigned)d.size);
         if (mmio_offset == 0x00800040u) {            /* NV_USER_DMA_PUT */
+            nv2a_mmio_perf_increment(&g_mmio_perf.puts);
             ++g_nv2a_mmio_put_hits;
             g_nv2a_mmio_put_last_rip_before = (uintptr_t)c->pc;
             g_nv2a_mmio_put_last_rip_after = (uintptr_t)c->pc + 4;
             g_nv2a_mmio_put_last_value = (uint32_t)value;
         }
-        g_mmio_write_count++;
+        nv2a_mmio_perf_increment(&g_mmio_perf.writes);
     } else {
         value = nv2a_mmio_read(nv2a, mmio_offset, (unsigned)d.size);
-        g_mmio_read_count++;
+        nv2a_mmio_perf_increment(&g_mmio_perf.reads);
     }
     mmio_a64_finish(c->x, &c->sp, &d, value);
     c->pc += 4;

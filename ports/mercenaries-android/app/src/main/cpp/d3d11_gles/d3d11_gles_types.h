@@ -179,6 +179,7 @@ void d3d11gles_set_host(const D3d11GlesHost *host);
 int  d3d11gles_take_error_count(void);
 /* Upload a range of the transient vertex ring. NO_OVERWRITE requires the
  * caller to avoid ranges still used by queued draws; discard replaces storage. */
+int d3d11gles_enable_persistent_ring(ID3D11Buffer *buffer);
 HRESULT d3d11gles_upload_vertex_range(ID3D11Buffer *buffer, UINT offset,
                                       const void *data, UINT size, BOOL discard);
 HRESULT d3d11gles_upload_index_range(ID3D11Buffer *buffer, UINT offset,

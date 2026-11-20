@@ -15,6 +15,15 @@ int main(void)
     assert(nv2a_immediate_vertex_source(src, scratch, 5, 0, 1) == scratch);
     for (unsigned i = 0; i < 5; ++i) assert(!memcmp(scratch[i], src[i], sizeof(src[0])));
     assert(!memcmp(scratch[5], src[0], sizeof(src[0])));
+    {
+        const uint32_t raw[11] = { 0x80000000u, 0x7fc01234u, 0x7f800000u, 0xff800000u,
+            0x00000001u, 0x3f800000u, 0x7fa01234u, 0xffc04567u, 0x01234567u, 0x89abcdefu, 0x12345678u };
+        ImmediateOutputVertex v;
+        nv2a_immediate_convert(&v, raw);
+        assert(!memcmp(&v.x, raw, 8));
+        assert(!memcmp(&v.u0, raw + 2, 32));
+        assert(v.z == 0.0f && v.rhw == 1.0f && v.color == raw[10]);
+    }
     puts("immediate vertices: direct strips, quad expansion and line loop OK");
     return 0;
 }

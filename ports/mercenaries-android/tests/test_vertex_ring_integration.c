@@ -11,6 +11,7 @@ HRESULT d3dgl_Device_CreateBuffer(ID3D11Device *device, const D3D11_BUFFER_DESC 
                                  const D3D11_SUBRESOURCE_DATA *initial, ID3D11Buffer **out)
 { (void)device; (void)d; (void)initial; *out = (ID3D11Buffer *)(uintptr_t)1; return S_OK; }
 ULONG d3dgl_Release(void *object) { (void)object; return 0; }
+int d3d11gles_enable_persistent_ring(ID3D11Buffer *b) { (void)b; return 0; }
 void d3d11gles_note_vertex_ring_reuse(void) { ++reuses; }
 HRESULT d3d11gles_upload_vertex_range(ID3D11Buffer *b, UINT offset, const void *data, UINT size, BOOL discard)
 {

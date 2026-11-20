@@ -9,6 +9,11 @@ jobs:
     timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
+      - name: Report source revision
+        shell: pwsh
+        run: |
+          echo "Branch: $env:GITHUB_REF_NAME"
+          echo "Commit: $(git rev-parse HEAD)"
       - uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: '17' }
       - name: Install NDK + platform (uses the SDK already on the runner)

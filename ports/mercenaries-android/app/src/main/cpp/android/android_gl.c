@@ -265,9 +265,10 @@ static void note_frame(double swap_start, double swap_end)
     if (swap_start > 0.0 && swap_end >= swap_start) swap_total += swap_end - swap_start;
     ++frames;
     if (swap_end - start >= 10.0) {
-        android_trace("[perf] fps=%.1f frames=%u avg_swap_ms=%.1f interval_s=%.1f game_thread_cpu_pct=%.1f",
+        android_trace("[perf] fps=%.1f frames=%u avg_swap_ms=%.1f interval_s=%.1f %s=%.1f",
                       frames / (swap_end - start), frames,
                       1000.0 * swap_total / frames, swap_end - start,
+                      "game_thread_cpu_pct",
                       cpu_start >= 0.0 && cpu_now >= cpu_start
                           ? 100.0 * (cpu_now - cpu_start) / (swap_end - start) : -1.0);
         start = swap_end; frames = 0; swap_total = 0.0; cpu_start = cpu_now;
@@ -276,9 +277,9 @@ static void note_frame(double swap_start, double swap_end)
 
 /* D3d11GlesHost.present: the layer's back buffer is stored top row first, so the blit
  * flips it, and it is letterboxed to keep the game's aspect ratio. */
-void android_gl_present_texture(void *user, uint32_t tex, int w, int h, int sync_interval)
+static int present_texture(uint32_t tex, int w, int h, int sync_interval)
 {
-    (void)user; if (g_surf == EGL_NO_SURFACE) return;
+    if (g_surf == EGL_NO_SURFACE || w <= 0 || h <= 0 || g_w <= 0 || g_h <= 0) return 0;
     g_android_rendering = 1;
     if (!g_blit_fbo) glGenFramebuffers(1, &g_blit_fbo);
     glDisable(GL_SCISSOR_TEST); glColorMask(1, 1, 1, 1);
@@ -295,8 +296,11 @@ void android_gl_present_texture(void *user, uint32_t tex, int w, int h, int sync
     int interval = sync_interval > 0 ? 1 : 0;
     if (g_swap_interval != interval && eglSwapInterval(g_dpy, interval)) g_swap_interval = interval;
     double swap_start = monotonic_seconds();
-    eglSwapBuffers(g_dpy, g_surf);
+    EGLBoolean swapped = eglSwapBuffers(g_dpy, g_surf);
     double swap_end = monotonic_seconds();
     android_performance_hint_frame(swap_start, swap_end);
     note_frame(swap_start, swap_end);
+    return swapped != 0;
 }
+void android_gl_present_texture(void *user, uint32_t tex, int w, int h, int sync_interval)
+{ (void)user; (void)present_texture(tex, w, h, sync_interval); }

@@ -3734,7 +3734,11 @@ static HRESULT up_ring_init(void)
     bd.Usage = D3D11_USAGE_DYNAMIC;
     bd.BindFlags = D3D11_BIND_VERTEX_BUFFER;
     bd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
-    return ID3D11Device_CreateBuffer(g_device_state.d3d11_device, &bd, NULL, &g_up_ring_buffer);
+    HRESULT hr = ID3D11Device_CreateBuffer(g_device_state.d3d11_device, &bd, NULL, &g_up_ring_buffer);
+#ifdef XBOX_ANDROID
+    if (SUCCEEDED(hr)) d3d11gles_enable_persistent_ring(g_up_ring_buffer);
+#endif
+    return hr;
 }
 
 static void up_ring_shutdown(void)
@@ -3775,6 +3779,7 @@ static UINT up_index_ring_upload(const void *data, UINT size)
         bd.ByteWidth = UP_RING_BUFFER_SIZE; bd.Usage = D3D11_USAGE_DYNAMIC;
         bd.BindFlags = D3D11_BIND_INDEX_BUFFER; bd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
         if (FAILED(ID3D11Device_CreateBuffer(g_device_state.d3d11_device, &bd, NULL, &g_up_index_ring_buffer))) return (UINT)-1;
+        d3d11gles_enable_persistent_ring(g_up_index_ring_buffer);
     }
     if (r.discard) d3d8_vertex_cache_clear(&g_up_index_cache);
     if (FAILED(d3d11gles_upload_index_range(g_up_index_ring_buffer, r.offset, upload_data, size, r.discard))) {

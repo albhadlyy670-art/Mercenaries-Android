@@ -4,6 +4,7 @@
 
 typedef struct Nv2aDrawWorkload {
     uint64_t array, indexed, inline_array, immediate;
+    uint64_t array_vertices, indexed_vertices, inline_vertices, immediate_vertices;
     uint64_t small_strips, small_strips_array, small_strips_indexed;
     uint64_t small_strips_inline, small_strips_immediate, small_strips_textured;
     uint64_t disjoint_array_splits, strip_array_splits;
@@ -30,10 +31,10 @@ static inline void nv2a_workload_draw(Nv2aDrawWorkload *w, Nv2aDrawSource source
                                       uint32_t mode, uint32_t vertices, int textured)
 {
     switch (source) {
-    case NV2A_DRAW_ARRAY: ++w->array; break;
-    case NV2A_DRAW_INDEXED: ++w->indexed; break;
-    case NV2A_DRAW_INLINE: ++w->inline_array; break;
-    case NV2A_DRAW_IMMEDIATE: ++w->immediate; break;
+    case NV2A_DRAW_ARRAY: ++w->array; w->array_vertices += vertices; break;
+    case NV2A_DRAW_INDEXED: ++w->indexed; w->indexed_vertices += vertices; break;
+    case NV2A_DRAW_INLINE: ++w->inline_array; w->inline_vertices += vertices; break;
+    case NV2A_DRAW_IMMEDIATE: ++w->immediate; w->immediate_vertices += vertices; break;
     }
     if (mode != 6u || vertices > 16u) return;
     ++w->small_strips;

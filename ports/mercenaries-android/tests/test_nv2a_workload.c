@@ -11,6 +11,7 @@ int main(void)
     nv2a_workload_draw(&w, NV2A_DRAW_ARRAY, 5, 3, 1);
     nv2a_workload_draw(&w, NV2A_DRAW_ARRAY, 6, 17, 1);
     assert(w.array == 3 && w.indexed == 1 && w.inline_array == 1 && w.immediate == 1);
+    assert(w.array_vertices == 24 && w.indexed_vertices == 16 && w.inline_vertices == 3 && w.immediate_vertices == 8);
     assert(w.small_strips == 4 && w.small_strips_array == 1 && w.small_strips_indexed == 1);
     assert(w.small_strips_inline == 1 && w.small_strips_immediate == 1 && w.small_strips_textured == 2);
     nv2a_workload_fog(&w,1,1,0x2601,2);

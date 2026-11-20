@@ -19,6 +19,7 @@
 #include "nv2a_draw_workload.h"
 #include "nv2a_immediate_vertices.h"
 #include "nv2a_indexed_vertices.h"
+#include "nv2a_inline_elements.h"
 #include "nv2a_batch_probe.h"
 #include <stdio.h>
 #include <string.h>
@@ -30,7 +31,32 @@
  * by call-site string pointer so disabled probes stay cheap in method/draw hot
  * paths. Environment variables are never mutated after renderer startup. */
 #ifdef __ANDROID__
+#include <time.h>
 void android_trace(const char *fmt, ...);
+typedef struct { uint64_t calls, samples, items; double seconds; } Nv2aCpuConversionPerf;
+static Nv2aCpuConversionPerf g_conversion_indexed, g_conversion_immediate, g_conversion_element16;
+static double conversion_now(void)
+{
+    struct timespec t;
+    return clock_gettime(CLOCK_MONOTONIC, &t) == 0 ? t.tv_sec + t.tv_nsec * 1e-9 : 0.0;
+}
+static double conversion_begin(Nv2aCpuConversionPerf *p, uint32_t items)
+{
+    ++p->calls; p->items += items;
+    return (p->calls & 63u) == 1u ? conversion_now() : 0.0;
+}
+static void conversion_end(Nv2aCpuConversionPerf *p, double start)
+{
+    if (start > 0.0) { double end = conversion_now(); if (end >= start) { ++p->samples; p->seconds += end - start; } }
+}
+#define CONVERSION_BEGIN(name, items) double conv_start_##name = conversion_begin(&g_conversion_##name, (items))
+#define CONVERSION_END(name) conversion_end(&g_conversion_##name, conv_start_##name)
+static void conversion_reset(void)
+{
+    memset(&g_conversion_indexed, 0, sizeof(g_conversion_indexed));
+    memset(&g_conversion_immediate, 0, sizeof(g_conversion_immediate));
+    memset(&g_conversion_element16, 0, sizeof(g_conversion_element16));
+}
 static Nv2aDrawWorkload g_draw_workload;
 static uint64_t g_strip_probe[4][9];
 static ULONGLONG g_workload_start_ms;
@@ -38,7 +64,7 @@ static void pgraph_report_workload(void)
 {
     ULONGLONG now = GetTickCount64();
     if (!g_workload_start_ms || now < g_workload_start_ms || now - g_workload_start_ms > 30000u) {
-        memset(&g_draw_workload, 0, sizeof(g_draw_workload)); memset(g_strip_probe, 0, sizeof(g_strip_probe)); g_workload_start_ms = now; return;
+        memset(&g_draw_workload, 0, sizeof(g_draw_workload)); memset(g_strip_probe, 0, sizeof(g_strip_probe)); conversion_reset(); g_workload_start_ms = now; return;
     }
     if (now - g_workload_start_ms < 10000u) return;
     android_trace("[perf-nv2a-small] interval_s=%.1f array=%llu indexed=%llu inline=%llu immediate=%llu small_strips=%llu small_array=%llu small_indexed=%llu small_inline=%llu small_immediate=%llu small_textured=%llu disjoint_splits=%llu strip_splits=%llu",
@@ -49,6 +75,18 @@ static void pgraph_report_workload(void)
         (unsigned long long)g_draw_workload.small_strips_indexed, (unsigned long long)g_draw_workload.small_strips_inline,
         (unsigned long long)g_draw_workload.small_strips_immediate, (unsigned long long)g_draw_workload.small_strips_textured,
         (unsigned long long)g_draw_workload.disjoint_array_splits, (unsigned long long)g_draw_workload.strip_array_splits);
+    android_trace("[perf-nv2a-vertices] array=%llu indexed=%llu inline=%llu immediate=%llu",
+        (unsigned long long)g_draw_workload.array_vertices,
+        (unsigned long long)g_draw_workload.indexed_vertices,
+        (unsigned long long)g_draw_workload.inline_vertices,
+        (unsigned long long)g_draw_workload.immediate_vertices);
+    { Nv2aCpuConversionPerf *ops[] = { &g_conversion_indexed, &g_conversion_immediate, &g_conversion_element16 };
+      const char *names[] = { "indexed_expand", "immediate_output", "inline_element16" };
+      for (unsigned i = 0; i < 3; ++i)
+          android_trace("[perf-nv2a-convert] path=%s calls=%llu items=%llu samples=%llu avg_ms=%.4f",
+              names[i], (unsigned long long)ops[i]->calls, (unsigned long long)ops[i]->items,
+              (unsigned long long)ops[i]->samples, ops[i]->samples ? 1000.0 * ops[i]->seconds / ops[i]->samples : 0.0);
+    }
     android_trace("[world-fog] draws_enabled=%llu draws_disabled=%llu programmable_enabled=%llu last_mode=0x%x last_generator=0x%x cutoff=unknown",
         (unsigned long long)g_draw_workload.fog_enabled,
         (unsigned long long)g_draw_workload.fog_disabled,
@@ -63,7 +101,7 @@ static void pgraph_report_workload(void)
             (unsigned long long)v[6], (unsigned long long)v[7], (unsigned long long)v[8]);
     }
     memset(g_strip_probe, 0, sizeof(g_strip_probe));
-    memset(&g_draw_workload, 0, sizeof(g_draw_workload)); g_workload_start_ms = now;
+    memset(&g_draw_workload, 0, sizeof(g_draw_workload)); conversion_reset(); g_workload_start_ms = now;
 }
 #define PGRAPH_WORK_DRAW(source, mode, count, textured) do { \
     nv2a_workload_draw(&g_draw_workload, (source), (mode), (count), (textured)); \
@@ -72,6 +110,8 @@ static void pgraph_report_workload(void)
 } while (0)
 #define PGRAPH_WORK_SPLIT(mode) do { ++g_draw_workload.disjoint_array_splits; if ((mode) == 6u) ++g_draw_workload.strip_array_splits; } while (0)
 #else
+#define CONVERSION_BEGIN(name, items) ((void)0)
+#define CONVERSION_END(name) ((void)0)
 #define PGRAPH_WORK_DRAW(source, mode, count, textured) ((void)0)
 #define PGRAPH_WORK_SPLIT(mode) ((void)0)
 #define pgraph_report_workload() ((void)0)
@@ -557,15 +597,6 @@ typedef struct {
     uint32_t color;
     float u, v;
 } OutputVertex;
-
-typedef struct {
-    float x, y, z, rhw;
-    uint32_t color;
-    float u0, v0;
-    float u1, v1;
-    float u2, v2;
-    float u3, v3;
-} ImmediateOutputVertex;
 
 typedef struct {
     uint32_t offset;
@@ -7332,6 +7363,7 @@ static void submit_array_draw(void)
         end = (uint64_t)offset + ((uint64_t)max_index + 1u) * stride;
         if (end > (uint64_t)memory_region_size(d->vram))
             return;
+        CONVERSION_BEGIN(indexed, count);
 #ifdef XBOX_ANDROID
         uint32_t compact_used = 0;
         if ((g_pg.transform_execution_mode & 3u) == 2u && g_pg.draw_mode != 8u && g_pg.draw_mode != 3u) {
@@ -7354,6 +7386,7 @@ static void submit_array_draw(void)
             d->vram_ptr + offset, g_pg.inline_elements, count, stride,
             indexed_scratch, sizeof(indexed_scratch));
 #endif
+        CONVERSION_END(indexed);
         if (!expanded_elements)
             return;
         vertex_bytes = expanded_elements;
@@ -9353,24 +9386,12 @@ static void submit_draw(void)
     ImmediateOutputVertex *out = (ImmediateOutputVertex *)_alloca(
         out_vert_count * sizeof(ImmediateOutputVertex));
 
-    /* Helper to convert one inline vertex */
-    #define CONVERT_VERT(dst_idx, src_idx) do { \
-        uint32_t _b = (src_idx) * g_pg.vert_stride; \
-        out[dst_idx].x     = u2f(src[_b + 0]); \
-        out[dst_idx].y     = u2f(src[_b + 1]); \
-        out[dst_idx].z     = 0.0f; \
-        out[dst_idx].rhw   = 1.0f; \
-        out[dst_idx].u0    = u2f(src[_b + 2]); \
-        out[dst_idx].v0    = u2f(src[_b + 3]); \
-        out[dst_idx].u1    = u2f(src[_b + 4]); \
-        out[dst_idx].v1    = u2f(src[_b + 5]); \
-        out[dst_idx].u2    = u2f(src[_b + 6]); \
-        out[dst_idx].v2    = u2f(src[_b + 7]); \
-        out[dst_idx].u3    = u2f(src[_b + 8]); \
-        out[dst_idx].v3    = u2f(src[_b + 9]); \
-        out[dst_idx].color = src[_b + 10]; \
-    } while(0)
+    /* Positions and UVs already contain IEEE float bits; copy the contiguous
+     * register ranges rather than converting each component separately. */
+    #define CONVERT_VERT(dst_idx, src_idx) \
+        nv2a_immediate_convert(&out[(dst_idx)], src + (size_t)(src_idx) * g_pg.vert_stride)
 
+    CONVERSION_BEGIN(immediate, num_verts);
     if (is_quads) {
         /* Convert quads (v0,v1,v2,v3) -> two triangles (v0,v1,v2), (v0,v2,v3) */
         uint32_t out_idx = 0;
@@ -9379,8 +9400,9 @@ static void submit_draw(void)
             CONVERT_VERT(out_idx + 0, qi + 0);  /* tri 1: v0 */
             CONVERT_VERT(out_idx + 1, qi + 1);  /* tri 1: v1 */
             CONVERT_VERT(out_idx + 2, qi + 2);  /* tri 1: v2 */
-            CONVERT_VERT(out_idx + 3, qi + 0);  /* tri 2: v0 */
-            CONVERT_VERT(out_idx + 4, qi + 2);  /* tri 2: v2 */
+            /* The immediate register snapshot is stable during submission. */
+            out[out_idx + 3] = out[out_idx + 0];  /* tri 2: v0 */
+            out[out_idx + 4] = out[out_idx + 2];  /* tri 2: v2 */
             CONVERT_VERT(out_idx + 5, qi + 3);  /* tri 2: v3 */
             out_idx += 6;
         }
@@ -9392,6 +9414,7 @@ static void submit_draw(void)
             out[num_verts] = out[0];
     }
     #undef CONVERT_VERT
+    CONVERSION_END(immediate);
 
     /* Persistent NV097 immediate attributes are object-space vertex inputs,
      * not an implicit XYZRHW stream. Xemu retains all 16 float4 attributes
@@ -10566,10 +10589,11 @@ uint32_t pgraph_d3d11_inline_batch(uint32_t method, const uint32_t *words,
     } else {
         copied = (MAX_INLINE_ELEMENTS - g_pg.inline_element_count) / 2u;
         if (copied > count) copied = count;
-        for (uint32_t i = 0u; i < copied; ++i) {
-            g_pg.inline_elements[g_pg.inline_element_count++] = words[i] & 0xFFFFu;
-            g_pg.inline_elements[g_pg.inline_element_count++] = words[i] >> 16;
-        }
+        CONVERSION_BEGIN(element16, copied * 2u);
+        nv2a_unpack_inline_elements16(g_pg.inline_elements + g_pg.inline_element_count,
+                                      words, copied);
+        CONVERSION_END(element16);
+        g_pg.inline_element_count += copied * 2u;
     }
     /* Scalar handlers also consume words that exceed the buffer capacity. */
     return count;

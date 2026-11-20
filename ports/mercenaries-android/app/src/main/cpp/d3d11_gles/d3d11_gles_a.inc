@@ -2,6 +2,9 @@
 #include "d3d11_gles_types.h"
 #include "gles_gl.h"
 #include "vertex_attrib_state.h"
+#ifdef __ANDROID__
+#include "nv2a/nv2a_mmio_perf.h"
+#endif
 #include "hlsl2glsl.h"
 #include <stdarg.h>
 #include <stdio.h>
@@ -12,6 +15,7 @@
 
 #if defined(__ANDROID__)
 #include <android/log.h>
+#include <EGL/egl.h>
 #define D3DGL_LOG(...) __android_log_print(ANDROID_LOG_WARN, "d3d11gles", __VA_ARGS__)
 #else
 #define D3DGL_LOG(...) do { fprintf(stderr, "[d3d11gles] "); fprintf(stderr, __VA_ARGS__); fputc('\n', stderr); } while (0)
@@ -213,7 +217,11 @@ struct Tex {
     Obj o; D3D11_TEXTURE2D_DESC d; GLuint tex; GLenum target; const Fmt *fmt; int cube, mips, layers, staging, point_params;
     uint8_t **cpu; int nsub; int map_sub; uint8_t *map_buf; D3D11_MAP map_type;
 };
-struct Buf { Obj o; D3D11_BUFFER_DESC d; GLuint buf; uint8_t *tmp; D3D11_MAP map_type; int mapped_gl; };
+#define D3DGL_RING_GENERATIONS 3
+typedef struct { GLuint buf; uint8_t *ptr; void *fence; } D3dglRingGeneration;
+struct Buf { Obj o; D3D11_BUFFER_DESC d; GLuint buf; uint8_t *tmp; D3D11_MAP map_type; int mapped_gl;
+    uint8_t *persistent; int persistent_written, persistent_generation;
+    D3dglRingGeneration generations[D3DGL_RING_GENERATIONS]; };
 struct View { Obj o; Tex *tex; Buf *buf; D3D11_SHADER_RESOURCE_VIEW_DESC srv; int mip, stencil_view; DXGI_FORMAT view_fmt; };
 struct Sampler { Obj o; D3D11_SAMPLER_DESC d; GLuint gl, gl_point; };
 struct StateObj { Obj o; union { D3D11_BLEND_DESC blend; D3D11_DEPTH_STENCIL_DESC ds; D3D11_RASTERIZER_DESC rs; } u; };
@@ -271,6 +279,8 @@ static unsigned long long perf_state_applies;
 typedef struct {
     unsigned long long arrays, indexed, vertices, small, medium, large, huge;
     unsigned long long fbo_rebinds, attachments, ring_vertex_reuses, ring_index_reuses;
+    unsigned long long persistent_uploads, persistent_wraps;
+    double persistent_wait_seconds;
     unsigned long long small_vertexid, small_attributes, small_triangles, small_strips, small_other;
 } PerfWorkload;
 static PerfWorkload perf_workload;
@@ -311,11 +321,12 @@ static void perf_end(PerfOp *op, double start)
 }
 #define PERF_BEGIN(name) double perf_stamp = perf_begin(&perf_##name)
 #define PERF_END(name) perf_end(&perf_##name, perf_stamp)
+static Nv2aMmioPerfCounts perf_mmio_last;
 static void perf_report(void)
 {
     double now = perf_now();
     if (now <= 0.0) return;
-    if (perf_start == 0.0 || now < perf_start || now - perf_start > 30.0) { perf_start = now; perf_state_applies = 0; memset(&perf_workload, 0, sizeof(perf_workload)); memset(&perf_map, 0, sizeof(perf_map)); memset(&perf_unmap, 0, sizeof(perf_unmap)); memset(&perf_draw, 0, sizeof(perf_draw)); memset(&perf_drawprep, 0, sizeof(perf_drawprep)); memset(&perf_program, 0, sizeof(perf_program)); memset(&perf_fbstate, 0, sizeof(perf_fbstate)); memset(&perf_fbo, 0, sizeof(perf_fbo)); memset(&perf_state, 0, sizeof(perf_state)); memset(&perf_resources, 0, sizeof(perf_resources)); memset(&perf_vertex, 0, sizeof(perf_vertex)); memset(&perf_issue, 0, sizeof(perf_issue)); memset(&perf_read, 0, sizeof(perf_read)); memset(&perf_ringmap, 0, sizeof(perf_ringmap)); memset(&perf_ringunmap, 0, sizeof(perf_ringunmap)); return; }
+    if (perf_start == 0.0 || now < perf_start || now - perf_start > 30.0) { perf_mmio_last = nv2a_mmio_get_perf_counts(); perf_start = now; perf_state_applies = 0; memset(&perf_workload, 0, sizeof(perf_workload)); memset(&perf_map, 0, sizeof(perf_map)); memset(&perf_unmap, 0, sizeof(perf_unmap)); memset(&perf_draw, 0, sizeof(perf_draw)); memset(&perf_drawprep, 0, sizeof(perf_drawprep)); memset(&perf_program, 0, sizeof(perf_program)); memset(&perf_fbstate, 0, sizeof(perf_fbstate)); memset(&perf_fbo, 0, sizeof(perf_fbo)); memset(&perf_state, 0, sizeof(perf_state)); memset(&perf_resources, 0, sizeof(perf_resources)); memset(&perf_vertex, 0, sizeof(perf_vertex)); memset(&perf_issue, 0, sizeof(perf_issue)); memset(&perf_read, 0, sizeof(perf_read)); memset(&perf_ringmap, 0, sizeof(perf_ringmap)); memset(&perf_ringunmap, 0, sizeof(perf_ringunmap)); return; }
     if (now - perf_start < 10.0) return;
 #define AVG(op) ((op).samples ? 1000.0 * (op).seconds / (op).samples : 0.0)
     android_trace("[perf-gles] interval_s=%.1f programs=%d state_applies=%llu draws=%llu draw_samples=%llu draw_avg_ms=%.3f maps=%llu map_samples=%llu map_avg_ms=%.3f unmaps=%llu unmap_samples=%llu unmap_avg_ms=%.3f reads=%llu read_samples=%llu read_avg_ms=%.3f ring_maps=%llu ring_map_samples=%llu ring_map_avg_ms=%.3f ring_unmaps=%llu ring_unmap_samples=%llu ring_unmap_avg_ms=%.3f",
@@ -330,9 +341,17 @@ static void perf_report(void)
         perf_workload.arrays, perf_workload.indexed, perf_workload.vertices,
         perf_workload.small, perf_workload.medium, perf_workload.large, perf_workload.huge,
         perf_workload.fbo_rebinds, perf_workload.attachments, perf_workload.ring_vertex_reuses, perf_workload.ring_index_reuses);
+    android_trace("[perf-gles-persistent] uploads=%llu wraps=%llu wait_total_ms=%.3f",
+        perf_workload.persistent_uploads, perf_workload.persistent_wraps, perf_workload.persistent_wait_seconds * 1000.0);
     android_trace("[perf-gles-small] vertexid=%llu attributes=%llu triangle_list=%llu triangle_strip=%llu other=%llu",
         perf_workload.small_vertexid, perf_workload.small_attributes, perf_workload.small_triangles,
         perf_workload.small_strips, perf_workload.small_other);
+    Nv2aMmioPerfCounts mmio_now = nv2a_mmio_get_perf_counts();
+    Nv2aMmioPerfCounts mmio_interval = nv2a_mmio_perf_delta(mmio_now, perf_mmio_last);
+    android_trace("[perf-mmio] interval_s=%.1f sigsegv_reads=%llu sigsegv_writes=%llu put_kicks=%llu",
+        now - perf_start, (unsigned long long)mmio_interval.reads,
+        (unsigned long long)mmio_interval.writes, (unsigned long long)mmio_interval.puts);
+    perf_mmio_last = mmio_now;
 #undef AVG
     perf_start = now; perf_state_applies = 0; memset(&perf_workload, 0, sizeof(perf_workload)); memset(&perf_map, 0, sizeof(perf_map)); memset(&perf_unmap, 0, sizeof(perf_unmap)); memset(&perf_draw, 0, sizeof(perf_draw)); memset(&perf_drawprep, 0, sizeof(perf_drawprep)); memset(&perf_program, 0, sizeof(perf_program)); memset(&perf_fbstate, 0, sizeof(perf_fbstate)); memset(&perf_fbo, 0, sizeof(perf_fbo)); memset(&perf_state, 0, sizeof(perf_state)); memset(&perf_resources, 0, sizeof(perf_resources)); memset(&perf_vertex, 0, sizeof(perf_vertex)); memset(&perf_issue, 0, sizeof(perf_issue)); memset(&perf_read, 0, sizeof(perf_read)); memset(&perf_ringmap, 0, sizeof(perf_ringmap)); memset(&perf_ringunmap, 0, sizeof(perf_ringunmap));
 }
@@ -566,7 +585,22 @@ static void bind_copy_write_buffer(GLuint buffer)
         G.copy_write_buffer = buffer; G.copy_write_valid = 1;
     }
 }
-static void buf_destroy(Obj *o) { Buf *b = (Buf *)o; G.uniform_valid = 0; if (G.copy_write_valid && G.copy_write_buffer == b->buf) G.copy_write_valid = 0; if (b->buf) glDeleteBuffers(1, &b->buf); free(b->tmp); }
+static void buf_destroy(Obj *o) { Buf *b = (Buf *)o; G.uniform_valid = 0;
+#if defined(__ANDROID__) || defined(D3DGL_TEST_PERSISTENT)
+    if (b->persistent) {
+        for (unsigned i = 0; i < D3DGL_RING_GENERATIONS; ++i) {
+            D3dglRingGeneration *g = &b->generations[i];
+            if (g->fence) glDeleteSync(g->fence);
+            if (g->buf) {
+                if (g->ptr) { bind_copy_write_buffer(g->buf); glUnmapBuffer(GL_COPY_WRITE_BUFFER); }
+                glDeleteBuffers(1, &g->buf);
+            }
+        }
+        G.copy_write_valid = 0; b->buf = 0;
+    }
+#endif
+    if (G.copy_write_valid && G.copy_write_buffer == b->buf) G.copy_write_valid = 0;
+    if (b->buf) glDeleteBuffers(1, &b->buf); free(b->tmp); }
 HRESULT d3dgl_Device_CreateBuffer(ID3D11Device *dev, const D3D11_BUFFER_DESC *d, const D3D11_SUBRESOURCE_DATA *init, ID3D11Buffer **out)
 {
     (void)dev; if (!d || !out) return E_INVALIDARG;
@@ -578,6 +612,99 @@ HRESULT d3dgl_Device_CreateBuffer(ID3D11Device *dev, const D3D11_BUFFER_DESC *d,
     gl_check("CreateBuffer"); *out = (ID3D11Buffer *)b; return S_OK;
 }
 
+/* Only the dedicated UP rings opt into immutable storage. General D3D buffers
+ * still need ordinary Map/UpdateSubresource semantics. Failure leaves the old
+ * mutable buffer untouched. */
+#if defined(__ANDROID__) || defined(D3DGL_TEST_PERSISTENT)
+typedef void (*D3dglBufferStorage)(GLenum, GLsizeiptr, const void *, GLbitfield);
+#ifndef GL_MAP_PERSISTENT_BIT_EXT
+#define GL_MAP_PERSISTENT_BIT_EXT 0x0040
+#define GL_MAP_COHERENT_BIT_EXT 0x0080
+#endif
+#ifdef D3DGL_TEST_PERSISTENT
+extern void d3dgl_test_buffer_storage(GLenum, GLsizeiptr, const void *, GLbitfield);
+#define D3DGL_STORAGE_PROC() d3dgl_test_buffer_storage
+#else
+#define D3DGL_STORAGE_PROC() ((D3dglBufferStorage)eglGetProcAddress("glBufferStorageEXT"))
+#endif
+static int persistent_make_generation(Buf *b, D3dglRingGeneration *g, D3dglBufferStorage storage)
+{
+    GLuint name = 0; glGenBuffers(1, &name); if (!name) return 0;
+    bind_copy_write_buffer(name);
+    const GLbitfield bits = GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT_EXT | GL_MAP_COHERENT_BIT_EXT;
+    storage(GL_COPY_WRITE_BUFFER, (GLsizeiptr)b->d.ByteWidth, NULL, bits);
+    if (glGetError() != GL_NO_ERROR) {
+        glDeleteBuffers(1, &name); G.copy_write_valid = 0; return 0;
+    }
+    void *ptr = glMapBufferRange(GL_COPY_WRITE_BUFFER, 0, (GLsizeiptr)b->d.ByteWidth, bits);
+    GLenum map_error = glGetError();
+    if (!ptr || map_error != GL_NO_ERROR) {
+        if (ptr) glUnmapBuffer(GL_COPY_WRITE_BUFFER);
+        glDeleteBuffers(1, &name); G.copy_write_valid = 0; return 0;
+    }
+    g->buf = name; g->ptr = ptr; g->fence = NULL; return 1;
+}
+int d3d11gles_enable_persistent_ring(ID3D11Buffer *buffer)
+{
+    Buf *b = (Buf *)buffer;
+    GLint count = 0; int supported = 0;
+    const char *disabled = getenv("D3DGL_NO_PERSISTENT_RING");
+    if ((disabled && *disabled && *disabled != '0') || !b || b->o.kind != K_BUFFER ||
+        b->d.Usage != D3D11_USAGE_DYNAMIC ||
+        !(b->d.BindFlags & (D3D11_BIND_VERTEX_BUFFER | D3D11_BIND_INDEX_BUFFER)) || b->persistent)
+        return 0;
+    glGetIntegerv(GL_NUM_EXTENSIONS, &count);
+    for (GLint i = 0; i < count; ++i) {
+        const char *ext = (const char *)glGetStringi(GL_EXTENSIONS, (GLuint)i);
+        if (ext && strcmp(ext, "GL_EXT_buffer_storage") == 0) { supported = 1; break; }
+    }
+    D3dglBufferStorage storage = supported ? D3DGL_STORAGE_PROC() : NULL;
+    if (!storage) return 0;
+    if (!persistent_make_generation(b, &b->generations[0], storage)) {
+        bind_copy_write_buffer(b->buf); return 0;
+    }
+    glDeleteBuffers(1, &b->buf); b->buf = b->generations[0].buf;
+    b->persistent = b->generations[0].ptr; b->persistent_generation = 0;
+    D3DGL_LOG("UP ring: persistent coherent storage enabled (%u bytes, up to %d generations)", b->d.ByteWidth, D3DGL_RING_GENERATIONS);
+#ifdef __ANDROID__
+    android_trace("[gles-ring] persistent coherent storage enabled bytes=%u bind_flags=%u generations=%d", b->d.ByteWidth, b->d.BindFlags, D3DGL_RING_GENERATIONS);
+#endif
+    return 1;
+}
+/* Called only on the GL owner, at a ring discard. A newly inserted fence must
+ * replace any older fence for the active generation: a failed earlier wrap
+ * can be followed by more draws that read the same storage. */
+static int persistent_rotate(Buf *b)
+{
+    D3dglRingGeneration *old = &b->generations[b->persistent_generation];
+    GLsync fence = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+    if (!fence) return 0;
+    if (old->fence) glDeleteSync(old->fence);
+    old->fence = fence;
+    int next = (b->persistent_generation + 1) % D3DGL_RING_GENERATIONS;
+    D3dglRingGeneration *g = &b->generations[next];
+    if (!g->buf) {
+        D3dglBufferStorage storage = D3DGL_STORAGE_PROC();
+        if (!storage || !persistent_make_generation(b, g, storage)) {
+            /* Allocation failed: wait for the current generation before
+             * reusing it, rather than overwriting GPU-visible bytes. */
+            g = old; next = b->persistent_generation;
+        }
+    }
+    if (g->fence) {
+        GLenum result;
+        do { result = glClientWaitSync(g->fence, GL_SYNC_FLUSH_COMMANDS_BIT, 1000000000ULL); }
+        while (result == GL_TIMEOUT_EXPIRED);
+        if (result != GL_ALREADY_SIGNALED && result != GL_CONDITION_SATISFIED) return 0;
+        glDeleteSync(g->fence); g->fence = NULL;
+    }
+    b->persistent_generation = next; b->buf = g->buf; b->persistent = g->ptr;
+    return 1;
+}
+#else
+int d3d11gles_enable_persistent_ring(ID3D11Buffer *buffer) { (void)buffer; return 0; }
+#endif
+
 /* Map only the written range. On wrap, discard old storage so queued draws
  * retain their data; disjoint ranges use NO_OVERWRITE. */
 static HRESULT upload_transient_range(ID3D11Buffer *buffer, UINT offset,
@@ -588,6 +715,30 @@ static HRESULT upload_transient_range(ID3D11Buffer *buffer, UINT offset,
         b->d.Usage != D3D11_USAGE_DYNAMIC || !(b->d.BindFlags & bind_flag) ||
         offset > b->d.ByteWidth || size > b->d.ByteWidth - offset || b->mapped_gl || b->tmp)
         return E_INVALIDARG;
+#if defined(__ANDROID__) || defined(D3DGL_TEST_PERSISTENT)
+    if (b->persistent) {
+        /* The fence covers all earlier draws, including cache hits. Do not
+         * overwrite any old range until the GPU has finished the entire ring. */
+        if (discard && b->persistent_written) {
+#ifdef __ANDROID__
+            double wait_start = perf_now();
+            ++perf_workload.persistent_wraps;
+#endif
+            int rotated = persistent_rotate(b);
+#ifdef __ANDROID__
+            double wait_end = perf_now();
+            if (wait_start > 0.0 && wait_end >= wait_start) perf_workload.persistent_wait_seconds += wait_end - wait_start;
+#endif
+            if (!rotated) return E_FAIL;
+        }
+        memcpy(b->persistent + offset, data, size);
+        b->persistent_written = 1;
+#ifdef __ANDROID__
+        ++perf_workload.persistent_uploads;
+#endif
+        return S_OK;
+    }
+#endif
     bind_copy_write_buffer(b->buf);
     GLbitfield flags = GL_MAP_WRITE_BIT | (discard ? GL_MAP_INVALIDATE_BUFFER_BIT : GL_MAP_UNSYNCHRONIZED_BIT);
     PERF_BEGIN(ringmap);
@@ -619,6 +770,9 @@ HRESULT d3dgl_Ctx_Map(ID3D11DeviceContext *c, ID3D11Resource *res, UINT sub, D3D
     (void)c; (void)flags; Obj *o = (Obj *)res; if (!o || !m) return E_INVALIDARG;
     if (o->kind == K_BUFFER) {
         Buf *b = (Buf *)o; GLbitfield acc = 0;
+        /* These rings are already persistently mapped. General Map/Unmap is
+         * not a supported access path and mapping them again is invalid GLES. */
+        if (b->persistent) return E_INVALIDARG;
         switch (type) { case D3D11_MAP_READ: acc = GL_MAP_READ_BIT; break; case D3D11_MAP_READ_WRITE: acc = GL_MAP_READ_BIT | GL_MAP_WRITE_BIT; break;
                         case D3D11_MAP_WRITE_DISCARD: acc = GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT; break;
                         case D3D11_MAP_WRITE_NO_OVERWRITE: acc = GL_MAP_WRITE_BIT | GL_MAP_UNSYNCHRONIZED_BIT; break; default: acc = GL_MAP_WRITE_BIT; }

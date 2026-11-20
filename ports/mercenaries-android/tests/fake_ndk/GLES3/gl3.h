@@ -196,7 +196,7 @@ void glGetShaderiv(GLuint, GLenum, GLint *); void glGetShaderInfoLog(GLuint, GLs
 GLuint glCreateProgram(void); void glAttachShader(GLuint, GLuint); void glLinkProgram(GLuint); void glUseProgram(GLuint); void glDeleteProgram(GLuint);
 void glGetProgramiv(GLuint, GLenum, GLint *); void glGetProgramInfoLog(GLuint, GLsizei, GLsizei *, GLchar *);
 GLint glGetUniformLocation(GLuint, const GLchar *); GLuint glGetUniformBlockIndex(GLuint, const GLchar *); void glUniformBlockBinding(GLuint, GLuint, GLuint); void glUniform1i(GLint, GLint); void glUniform4f(GLint, GLfloat, GLfloat, GLfloat, GLfloat);
-void glGenVertexArrays(GLsizei, GLuint *); void glBindVertexArray(GLuint); void glEnableVertexAttribArray(GLuint); void glDisableVertexAttribArray(GLuint);
+void glDeleteVertexArrays(GLsizei, const GLuint *); void glGenVertexArrays(GLsizei, GLuint *); void glBindVertexArray(GLuint); void glEnableVertexAttribArray(GLuint); void glDisableVertexAttribArray(GLuint);
 void glVertexAttribPointer(GLuint, GLint, GLenum, GLboolean, GLsizei, const void *); void glVertexAttribIPointer(GLuint, GLint, GLenum, GLsizei, const void *);
 void glVertexAttrib4f(GLuint, GLfloat, GLfloat, GLfloat, GLfloat); void glVertexAttribDivisor(GLuint, GLuint);
 void glDrawArrays(GLenum, GLint, GLsizei); void glDrawElements(GLenum, GLsizei, GLenum, const void *);
@@ -204,3 +204,16 @@ void glDrawArrays(GLenum, GLint, GLsizei); void glDrawElements(GLenum, GLsizei, 
 }
 #endif
 
+
+/* GLES 3 sync/extension declarations used by persistent-ring host tests. */
+typedef void *GLsync;
+#define GL_NUM_EXTENSIONS 0x821D
+#define GL_SYNC_GPU_COMMANDS_COMPLETE 0x9117
+#define GL_SYNC_FLUSH_COMMANDS_BIT 1
+#define GL_ALREADY_SIGNALED 0x911A
+#define GL_TIMEOUT_EXPIRED 0x911B
+#define GL_CONDITION_SATISFIED 0x911C
+const GLubyte *glGetStringi(GLenum, GLuint);
+GLsync glFenceSync(GLenum, GLbitfield);
+GLenum glClientWaitSync(GLsync, GLbitfield, unsigned long long);
+void glDeleteSync(GLsync);

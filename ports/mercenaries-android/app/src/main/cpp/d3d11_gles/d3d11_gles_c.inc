@@ -67,7 +67,7 @@ HRESULT d3dgl_Device_GetDeviceRemovedReason(ID3D11Device *d) { (void)d; return S
 
 static void ctx_destroy(Obj *o)
 {
-    Ctx *c = (Ctx *)o; if (G.fbo_ctx == c) { G.fbo_ctx = NULL; G.fbo_dirty = 1; }
+    Ctx *c = (Ctx *)o; if (G.ctx == c) G.ctx = NULL; if (G.fbo_ctx == c) { G.fbo_ctx = NULL; G.fbo_dirty = 1; }
     void **slots[] = { (void **)&c->vs, (void **)&c->ps, (void **)&c->gs, (void **)&c->layout, (void **)&c->ib, (void **)&c->dsv, (void **)&c->blend, (void **)&c->dss, (void **)&c->rs };
     for (size_t i = 0; i < sizeof(slots) / sizeof(slots[0]); ++i) if (*slots[i]) d3dgl_Release(*slots[i]);
     for (int i = 0; i < MAX_VB; ++i) if (c->vb[i].b) d3dgl_Release(c->vb[i].b);

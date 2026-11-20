@@ -1,7 +1,28 @@
 #ifndef NV2A_IMMEDIATE_VERTICES_H
 #define NV2A_IMMEDIATE_VERTICES_H
 #include <stdint.h>
+#include <stddef.h>
 #include <string.h>
+
+/* Pre-transformed immediate output: bit-copy the contiguous position and UV
+ * registers rather than converting eight individual float components. This
+ * preserves NaN payloads and signed zero; the compiler can vectorize the UV
+ * copy on AArch64. */
+typedef struct {
+    float x, y, z, rhw;
+    uint32_t color;
+    float u0, v0, u1, v1, u2, v2, u3, v3;
+} ImmediateOutputVertex;
+_Static_assert(offsetof(ImmediateOutputVertex, y) == offsetof(ImmediateOutputVertex, x) + 4, "position layout");
+_Static_assert(offsetof(ImmediateOutputVertex, v3) == offsetof(ImmediateOutputVertex, u0) + 28, "UV layout");
+static inline void nv2a_immediate_convert(ImmediateOutputVertex *dst, const uint32_t *src)
+{
+    memcpy((uint8_t *)dst + offsetof(ImmediateOutputVertex, x), src, 2u * sizeof(uint32_t));
+    dst->z = 0.0f;
+    dst->rhw = 1.0f;
+    dst->color = src[10];
+    memcpy((uint8_t *)dst + offsetof(ImmediateOutputVertex, u0), src + 2, 8u * sizeof(uint32_t));
+}
 
 /* Immediate vertices contain all 16 persistent float4 input registers.
  * The source stays unchanged through synchronous draw submission. Strips and

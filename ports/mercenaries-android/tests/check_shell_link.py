@@ -13,7 +13,7 @@ def g(p, ex=None): return [f for f in sorted(glob.glob(p)) if not (ex and re.sea
 toolkit = (g(src + '/kernel/*.c', r'(preview_log|mod_overlay)\.c$') + g(src + '/apu/*.c', r'apu_xaudio2\.c$') + g(src + '/nv2a/*.c', r'nv2a_pb_test\.c$')
            + g(src + '/d3d/*.c', r'd3d8_(gl|compiler)\.c$') + [src + '/platform/win32_compat.c']
            + [cpp + '/d3d11_gles/' + f for f in ('d3d11_gles.c', 'hlsl2glsl.c', 'd3d8_compiler_gles.c')] + [cpp + '/compat/winapi_extra.c', cpp + '/compat/bcrypt_sha256.c'])
-glue = [f for f in g(cpp + '/android/*.c') if not re.search(r'android_(jni|fault)\.c$', f)]   # need real jni.h / arm64 ucontext
+glue = [f for f in g(cpp + '/android/*.c') if not re.search(r'android_jni\.c$', f)]   # JNI needs a real jni.h; fault uses its non-AArch64 host branch
 inc = ['-I' + fake, '-I' + cpp + '/compat/include', '-I' + cpp + '/d3d11_gles/include'] + ['-I' + p for p in [cpp + '/compat', cpp + '/d3d11_gles', cpp + '/android', src, src + '/kernel', src + '/apu', src + '/nv2a', src + '/platform', src + '/input', src + '/audio', src + '/d3d', port + '/src', port + '/src/recomp', repo + '/include', gen]]
 base = ['gcc', '-c', '-O0', '-w', '-fwrapv', '-DXBOX_ANDROID=1', '-D_GNU_SOURCE', '-DXBOX_DEFAULT_THREAD_STACK=67108864', '-D__ANDROID_API__=26'] + inc
 allobj = {}

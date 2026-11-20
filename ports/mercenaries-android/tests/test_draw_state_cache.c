@@ -29,6 +29,7 @@ V4(glBlendFuncSeparate,GLenum,GLenum,GLenum,GLenum)
 V4(glBlendColor,GLfloat,GLfloat,GLfloat,GLfloat)
 void glUseProgram(GLuint p) { (void)p; ++program_calls; }
 void glBindVertexArray(GLuint vao) { (void)vao; ++vao_calls; }
+GLboolean glUnmapBuffer(GLenum target) { (void)target; return GL_TRUE; }
 void glBindBuffer(GLenum target, GLuint buf) { assert(target == GL_COPY_WRITE_BUFFER); (void)buf; ++copy_bind_calls; }
 void glBindBufferBase(GLenum target, GLuint slot, GLuint buf) { assert(target == GL_UNIFORM_BUFFER); (void)slot; (void)buf; ++uniform_calls; }
 void glDeleteBuffers(GLsizei n, const GLuint *buf) { (void)n; (void)buf; ++delete_calls; }

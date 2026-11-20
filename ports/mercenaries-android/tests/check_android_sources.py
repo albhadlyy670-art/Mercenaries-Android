@@ -73,9 +73,16 @@ libc = set()
 for lib in ('libc.so.6', 'libm.so.6'):
     for p in glob.glob('/lib/x86_64-linux-gnu/' + lib):
         libc |= {l.split()[-1].split('@')[0] for l in subprocess.run(['nm', '-D', p], capture_output=True, text=True).stdout.splitlines() if l.strip()}
-gl = {l.split()[-1] for p in glob.glob('/usr/lib/x86_64-linux-gnu/libGLESv2.so.2') for l in subprocess.run(['nm', '-D', p], capture_output=True, text=True).stdout.splitlines() if l.strip()}
+gl_libs = glob.glob('/usr/lib/x86_64-linux-gnu/libGLESv2.so.2')
+gl = {l.split()[-1].split('@')[0] for p in gl_libs for l in subprocess.run(['nm', '-D', p], capture_output=True, text=True).stdout.splitlines() if l.strip()}
+if not gl_libs:
+    # No host GLES library: classify only declared entry points, not arbitrary
+    # gl-prefixed names, and make the missing export/link check explicit.
+    header = open(cpp + '/d3d11_gles/gles_gl.h').read()
+    gl = set(re.findall(r'\b(gl[A-Z]\w*)\s*\(', header))
+    print('SKIP: host GLES exports/link not verified (libGLESv2.so.2 not installed); checking declared entry points only')
 GEN = re.compile(r'^(sub_[0-9A-Fa-f]+|recomp_lookup|xbe_entry_point|recomp_init_.*|g_recomp_.*)$')
 unexpected = sorted(s for s in unres if s not in libc and s not in gl and s not in glue and not GEN.match(s) and not s.startswith(('__', '_GLOBAL_OFFSET', 'GLOBAL')) and s not in ('atexit',))
 print('linked toolkit objects: %d of %d; unresolved: %d (libc/GL/glue/recompiler output filtered)' % (len(needed) - len(roots), len(o) - len(roots), len(unres)))
 if unexpected: print('UNEXPECTED UNRESOLVED SYMBOLS:', ' '.join(unexpected)); sys.exit(1)
-print('OK: every unresolved symbol is libc, the Android glue, or recompiler output')
+print('OK: other unresolved symbols are libc, declared GL, Android glue, or recompiler output')
