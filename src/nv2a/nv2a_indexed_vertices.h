@@ -29,9 +29,10 @@ static inline uint8_t *nv2a_expand_indexed_fused(const uint8_t *source,
     const uint32_t *indices, uint32_t count, uint32_t used, uint32_t stride,
     uint8_t *expanded_scratch, size_t expanded_scratch_size,
     uint8_t *compact, size_t compact_size, uint32_t *rebased,
-    size_t rebased_capacity, uint32_t *compact_count)
+    size_t rebased_capacity, uint32_t *compact_count, int *skip_fallback)
 {
     if (compact_count) *compact_count = 0;
+    if (skip_fallback) *skip_fallback = 0;
     if (!source || !indices || !count || !stride || !compact_count ||
         (size_t)count > SIZE_MAX / stride) return NULL;
     size_t expanded_size = (size_t)count * stride;
@@ -48,9 +49,15 @@ static inline uint8_t *nv2a_expand_indexed_fused(const uint8_t *source,
         }
         uint64_t span = (uint64_t)max - min + 1u;
         size_t original = (size_t)used * stride;
-        if (span > UINT32_MAX || span > 4096u || span > SIZE_MAX / stride ||
-            span * stride > compact_size ||
-            span * stride + (uint64_t)used * sizeof(uint32_t) > original - original / 4u)
+        /* The later general compactor has the same 25% byte-saving rule.
+         * If this rule already fails, repeating its scan and allocations can
+         * never help. Capacity-only failures may still fit its heap fallback. */
+        uint64_t budget = original - original / 4u;
+        uint64_t index_bytes = (uint64_t)used * sizeof(uint32_t);
+        int economical = span <= UINT32_MAX && span <= SIZE_MAX / stride &&
+            index_bytes <= budget && span * stride <= budget - index_bytes;
+        if (!economical && skip_fallback) *skip_fallback = 1;
+        if (!economical || span > 4096u || span * stride > compact_size)
             can_compact = 0;
         else {
             *compact_count = (uint32_t)span;
@@ -67,7 +74,12 @@ static inline uint8_t *nv2a_expand_indexed_fused(const uint8_t *source,
             uint8_t *slot = compact + (size_t)index * stride;
             rebased[i] = index;
             if (seen[index >> 3] & bit) {
-                if (memcmp(slot, dst, stride) != 0) can_compact = 0;
+                if (memcmp(slot, dst, stride) != 0) {
+                    can_compact = 0;
+                    /* The fallback compares the same completed snapshot, so
+                     * inconsistent repeated indices cannot become compact. */
+                    if (skip_fallback) *skip_fallback = 1;
+                }
             } else { memcpy(slot, dst, stride); seen[index >> 3] |= bit; }
         }
     }

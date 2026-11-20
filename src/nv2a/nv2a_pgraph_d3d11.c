@@ -35,6 +35,7 @@
 void android_trace(const char *fmt, ...);
 typedef struct { uint64_t calls, samples, items; double seconds; } Nv2aCpuConversionPerf;
 static Nv2aCpuConversionPerf g_conversion_indexed, g_conversion_immediate, g_conversion_element16;
+static uint64_t g_compact_fused, g_compact_skipped_retry, g_compact_retry, g_compact_retry_success;
 static double conversion_now(void)
 {
     struct timespec t;
@@ -56,6 +57,7 @@ static void conversion_reset(void)
     memset(&g_conversion_indexed, 0, sizeof(g_conversion_indexed));
     memset(&g_conversion_immediate, 0, sizeof(g_conversion_immediate));
     memset(&g_conversion_element16, 0, sizeof(g_conversion_element16));
+    g_compact_fused = g_compact_skipped_retry = g_compact_retry = g_compact_retry_success = 0;
 }
 static Nv2aDrawWorkload g_draw_workload;
 static uint64_t g_strip_probe[4][9];
@@ -87,6 +89,9 @@ static void pgraph_report_workload(void)
               names[i], (unsigned long long)ops[i]->calls, (unsigned long long)ops[i]->items,
               (unsigned long long)ops[i]->samples, ops[i]->samples ? 1000.0 * ops[i]->seconds / ops[i]->samples : 0.0);
     }
+    android_trace("[perf-nv2a-compact] fused=%llu skipped_retry=%llu retry=%llu retry_success=%llu",
+        (unsigned long long)g_compact_fused, (unsigned long long)g_compact_skipped_retry,
+        (unsigned long long)g_compact_retry, (unsigned long long)g_compact_retry_success);
     android_trace("[world-fog] draws_enabled=%llu draws_disabled=%llu programmable_enabled=%llu last_mode=0x%x last_generator=0x%x cutoff=unknown",
         (unsigned long long)g_draw_workload.fog_enabled,
         (unsigned long long)g_draw_workload.fog_disabled,
@@ -103,6 +108,7 @@ static void pgraph_report_workload(void)
     memset(g_strip_probe, 0, sizeof(g_strip_probe));
     memset(&g_draw_workload, 0, sizeof(g_draw_workload)); conversion_reset(); g_workload_start_ms = now;
 }
+#define PGRAPH_COMPACT_COUNT(counter) (++g_compact_##counter)
 #define PGRAPH_WORK_DRAW(source, mode, count, textured) do { \
     nv2a_workload_draw(&g_draw_workload, (source), (mode), (count), (textured)); \
     nv2a_workload_fog(&g_draw_workload, g_pg.fog_enable, \
@@ -112,6 +118,7 @@ static void pgraph_report_workload(void)
 #else
 #define CONVERSION_BEGIN(name, items) ((void)0)
 #define CONVERSION_END(name) ((void)0)
+#define PGRAPH_COMPACT_COUNT(counter) ((void)0)
 #define PGRAPH_WORK_DRAW(source, mode, count, textured) ((void)0)
 #define PGRAPH_WORK_SPLIT(mode) ((void)0)
 #define pgraph_report_workload() ((void)0)
@@ -7308,6 +7315,8 @@ static void submit_array_draw(void)
     uint8_t indexed_compact_scratch[4096];
     uint32_t indexed_compact_indices[256];
     uint32_t indexed_compact_count = 0;
+    int indexed_skip_compact_retry = 0;
+    uint32_t indexed_fused_used = 0;
 #endif
     int host_depth_test;
     GuestDepthSurface *depth_alias_source;
@@ -7371,14 +7380,15 @@ static void submit_array_draw(void)
             else if (g_pg.d3d_prim_type == D3DPT_LINELIST) compact_used = count / 2u * 2u;
             else if (g_pg.d3d_prim_type == D3DPT_TRIANGLESTRIP || g_pg.d3d_prim_type == D3DPT_LINESTRIP) compact_used = count;
         }
-        if (compact_used >= 12u && compact_used <= sizeof(indexed_compact_indices) / sizeof(indexed_compact_indices[0]))
+        if (compact_used >= 12u && compact_used <= sizeof(indexed_compact_indices) / sizeof(indexed_compact_indices[0])) {
+            indexed_fused_used = compact_used;
             expanded_elements = nv2a_expand_indexed_fused(
                 d->vram_ptr + offset, g_pg.inline_elements, count, compact_used, stride,
                 indexed_scratch, sizeof(indexed_scratch), indexed_compact_scratch,
                 sizeof(indexed_compact_scratch), indexed_compact_indices,
                 sizeof(indexed_compact_indices) / sizeof(indexed_compact_indices[0]),
-                &indexed_compact_count);
-        else expanded_elements = nv2a_expand_indexed_vertices(
+                &indexed_compact_count, &indexed_skip_compact_retry);
+        } else expanded_elements = nv2a_expand_indexed_vertices(
             d->vram_ptr + offset, g_pg.inline_elements, count, stride,
             indexed_scratch, sizeof(indexed_scratch));
 #else
@@ -8863,20 +8873,29 @@ static void submit_array_draw(void)
             g_pg.d3d_prim_type == D3DPT_LINELIST ? prim_count * 2u :
             g_pg.d3d_prim_type == D3DPT_TRIANGLESTRIP ? prim_count + 2u : prim_count + 1u;
         Nv2aCompactIndexed compact;
-        if (indexed_compact_count && used <= count) {
+        int same_fused_input = indexed_fused_used == used &&
+            draw_data == vertex_bytes && draw_stride == stride;
+        if (same_fused_input && indexed_compact_count && used <= count) {
+            PGRAPH_COMPACT_COUNT(fused);
             HRESULT hr = dev->lpVtbl->DrawIndexedPrimitiveUP(dev,
                 (D3DPRIMITIVETYPE)g_pg.d3d_prim_type, 0, indexed_compact_count,
                 prim_count, indexed_compact_indices, D3DFMT_INDEX32,
                 indexed_compact_scratch, draw_stride);
             submitted_indexed = SUCCEEDED(hr);
-        } else if (used <= count && nv2a_compact_indexed_vertices((const uint8_t *)draw_data,
-                g_pg.inline_elements, used, draw_stride, indexed_compact_scratch, sizeof(indexed_compact_scratch),
-                indexed_compact_indices, sizeof(indexed_compact_indices) / sizeof(indexed_compact_indices[0]), &compact)) {
-            HRESULT hr = dev->lpVtbl->DrawIndexedPrimitiveUP(dev,
-                (D3DPRIMITIVETYPE)g_pg.d3d_prim_type, 0, compact.vertex_count,
-                prim_count, compact.indices, D3DFMT_INDEX32, compact.vertices, draw_stride);
-            submitted_indexed = SUCCEEDED(hr);
-            nv2a_free_compact_indexed(&compact, indexed_compact_scratch, indexed_compact_indices);
+        } else if (used <= count && same_fused_input && indexed_skip_compact_retry) {
+            PGRAPH_COMPACT_COUNT(skipped_retry);
+        } else if (used <= count) {
+            PGRAPH_COMPACT_COUNT(retry);
+            if (nv2a_compact_indexed_vertices((const uint8_t *)draw_data,
+                    g_pg.inline_elements, used, draw_stride, indexed_compact_scratch, sizeof(indexed_compact_scratch),
+                    indexed_compact_indices, sizeof(indexed_compact_indices) / sizeof(indexed_compact_indices[0]), &compact)) {
+                PGRAPH_COMPACT_COUNT(retry_success);
+                HRESULT hr = dev->lpVtbl->DrawIndexedPrimitiveUP(dev,
+                    (D3DPRIMITIVETYPE)g_pg.d3d_prim_type, 0, compact.vertex_count,
+                    prim_count, compact.indices, D3DFMT_INDEX32, compact.vertices, draw_stride);
+                submitted_indexed = SUCCEEDED(hr);
+                nv2a_free_compact_indexed(&compact, indexed_compact_scratch, indexed_compact_indices);
+            }
         }
     }
     if (!submitted_indexed)

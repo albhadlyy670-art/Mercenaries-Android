@@ -101,6 +101,16 @@ argument sent to SetPerspective when the eligible camera path runs;
 `[world-projection-bypass]` reports unmatched far arguments on that camera.
 Fog cutoff
 and draw origins remain unverified.
+`[perf-gpu-frame]` uses `GL_EXT_disjoint_timer_query`, when present, to
+sample one frame in 16 using a bounded query pool. The query spans commands
+between host presentations; results are retrieved only when available, never
+by waiting. Elapsed time can include GPU idle gaps, background pauses, and
+queued-command timing, so it is not a pure GPU utilization or per-pass cost.
+Disjoint samples are discarded and unavailable slots cause dropped samples.
+`D3DGL_NO_GPU_TIMER=1` disables this probe. `[perf-nv2a-compact]` counts fused
+indexed compact submissions, cases where a duplicate fallback scan was proven
+futile, and remaining retry attempts and successes. Draw order and the original
+expanded fallback are unchanged.
 `[perf-gles-small]` separates small draws (up to 16 vertices/indices) by
 vertex-ID-only versus attribute input and by primitive topology. Vertex-ID-only
 draws can include internal resolve passes; the category is not an exact origin label.

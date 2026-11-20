@@ -4,6 +4,7 @@
 #include "vertex_attrib_state.h"
 #ifdef __ANDROID__
 #include "nv2a/nv2a_mmio_perf.h"
+#include "gpu_timer.h"
 #endif
 #include "hlsl2glsl.h"
 #include <stdarg.h>
@@ -367,13 +368,45 @@ static void perf_end(PerfOp *op, double start)
 }
 #define PERF_BEGIN(name) double perf_stamp = perf_begin(&perf_##name)
 #define PERF_END(name) perf_end(&perf_##name, perf_stamp)
+static GpuTimer perf_gpu;
+static int perf_gpu_checked, perf_gpu_supported;
+static void perf_gpu_init(void)
+{
+    if (perf_gpu_checked) return;
+    perf_gpu_checked = 1;
+    const char *disabled = getenv("D3DGL_NO_GPU_TIMER");
+    if (disabled && *disabled && *disabled != '0') return;
+    GLint count=0; int supported=0;
+    glGetIntegerv(GL_NUM_EXTENSIONS, &count);
+    for (GLint i=0;i<count;++i) {
+        const char *ext=(const char *)glGetStringi(GL_EXTENSIONS,(GLuint)i);
+        if (ext && !strcmp(ext,"GL_EXT_disjoint_timer_query")) { supported=1; break; }
+    }
+    if (supported) {
+        GpuTimerOps ops;
+        ops.gen = (void (*)(int, unsigned *))eglGetProcAddress("glGenQueriesEXT");
+        ops.begin = (void (*)(unsigned, unsigned))eglGetProcAddress("glBeginQueryEXT");
+        ops.end = (void (*)(unsigned))eglGetProcAddress("glEndQueryEXT");
+        ops.get_u32 = (void (*)(unsigned, unsigned, unsigned *))eglGetProcAddress("glGetQueryObjectuivEXT");
+        ops.get_u64 = (void (*)(unsigned, unsigned, uint64_t *))eglGetProcAddress("glGetQueryObjectui64vEXT");
+        ops.get_int = (void (*)(unsigned, int *))glGetIntegerv;
+        gpu_timer_init(&perf_gpu, ops);
+        perf_gpu_supported = gpu_timer_valid(&perf_gpu);
+    }
+    android_trace("[gpu-timer] supported=%d sample_every_frames=16", perf_gpu_supported);
+}
 static Nv2aMmioPerfCounts perf_mmio_last;
 static void perf_report(void)
 {
     double now = perf_now();
     if (now <= 0.0) return;
-    if (perf_start == 0.0 || now < perf_start || now - perf_start > 30.0) { perf_mmio_last = nv2a_mmio_get_perf_counts(); perf_start = now; perf_state_applies = 0; memset(&perf_workload, 0, sizeof(perf_workload)); memset(&perf_map, 0, sizeof(perf_map)); memset(&perf_unmap, 0, sizeof(perf_unmap)); memset(&perf_draw, 0, sizeof(perf_draw)); memset(&perf_drawprep, 0, sizeof(perf_drawprep)); memset(&perf_program, 0, sizeof(perf_program)); memset(&perf_fbstate, 0, sizeof(perf_fbstate)); memset(&perf_fbo, 0, sizeof(perf_fbo)); memset(&perf_state, 0, sizeof(perf_state)); memset(&perf_resources, 0, sizeof(perf_resources)); memset(&perf_vertex, 0, sizeof(perf_vertex)); memset(&perf_issue, 0, sizeof(perf_issue)); memset(&perf_read, 0, sizeof(perf_read)); memset(&perf_ringmap, 0, sizeof(perf_ringmap)); memset(&perf_ringunmap, 0, sizeof(perf_ringunmap)); return; }
+    if (perf_start == 0.0 || now < perf_start || now - perf_start > 30.0) { gpu_timer_reset_stats(&perf_gpu); perf_mmio_last = nv2a_mmio_get_perf_counts(); perf_start = now; perf_state_applies = 0; memset(&perf_workload, 0, sizeof(perf_workload)); memset(&perf_map, 0, sizeof(perf_map)); memset(&perf_unmap, 0, sizeof(perf_unmap)); memset(&perf_draw, 0, sizeof(perf_draw)); memset(&perf_drawprep, 0, sizeof(perf_drawprep)); memset(&perf_program, 0, sizeof(perf_program)); memset(&perf_fbstate, 0, sizeof(perf_fbstate)); memset(&perf_fbo, 0, sizeof(perf_fbo)); memset(&perf_state, 0, sizeof(perf_state)); memset(&perf_resources, 0, sizeof(perf_resources)); memset(&perf_vertex, 0, sizeof(perf_vertex)); memset(&perf_issue, 0, sizeof(perf_issue)); memset(&perf_read, 0, sizeof(perf_read)); memset(&perf_ringmap, 0, sizeof(perf_ringmap)); memset(&perf_ringunmap, 0, sizeof(perf_ringunmap)); return; }
     if (now - perf_start < 10.0) return;
+    android_trace("[perf-gpu-frame] supported=%d samples=%llu elapsed_avg_ms=%.3f elapsed_max_ms=%.3f disjoint=%llu dropped=%llu",
+        perf_gpu_supported, (unsigned long long)perf_gpu.samples,
+        perf_gpu.samples ? perf_gpu.total_ms / perf_gpu.samples : 0.0, perf_gpu.max_ms,
+        (unsigned long long)perf_gpu.disjoint, (unsigned long long)perf_gpu.dropped);
+    gpu_timer_reset_stats(&perf_gpu);
 #define AVG(op) ((op).samples ? 1000.0 * (op).seconds / (op).samples : 0.0)
     android_trace("[perf-gles] interval_s=%.1f programs=%d state_applies=%llu draws=%llu draw_samples=%llu draw_avg_ms=%.3f maps=%llu map_samples=%llu map_avg_ms=%.3f unmaps=%llu unmap_samples=%llu unmap_avg_ms=%.3f reads=%llu read_samples=%llu read_avg_ms=%.3f ring_maps=%llu ring_map_samples=%llu ring_map_avg_ms=%.3f ring_unmaps=%llu ring_unmap_samples=%llu ring_unmap_avg_ms=%.3f",
         now - perf_start, G.nprogs, perf_state_applies, perf_draw.calls, perf_draw.samples, AVG(perf_draw), perf_map.calls, perf_map.samples, AVG(perf_map), perf_unmap.calls, perf_unmap.samples, AVG(perf_unmap), perf_read.calls, perf_read.samples, AVG(perf_read), perf_ringmap.calls, perf_ringmap.samples, AVG(perf_ringmap), perf_ringunmap.calls, perf_ringunmap.samples, AVG(perf_ringunmap));

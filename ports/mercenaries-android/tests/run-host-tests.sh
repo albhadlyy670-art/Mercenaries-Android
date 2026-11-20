@@ -40,6 +40,11 @@ $T/draw_state_cache
 echo "== NV2A MMIO counters"
 gcc -O1 -Wall -Wextra -Werror -fsanitize=undefined -pthread test_nv2a_mmio_perf.c -o $T/nv2a_mmio_perf
 $T/nv2a_mmio_perf
+echo "== Android GLES source strict fake-NDK compile"
+gcc -c -O0 -w -Werror=implicit-function-declaration -D__ANDROID__ -DXBOX_ANDROID=1 -I fake_ndk -I$CPP/compat/include -I$D/include -I$CPP/compat -I$D -I$S -I$S/d3d -I$S/platform -I$S/kernel -I$S/nv2a $D/d3d11_gles.c -o $T/gles_android.o
+echo "== GLES nonblocking GPU timer accounting"
+gcc -O1 -Wall -Wextra -Werror -fsanitize=undefined test_gpu_timer.c -o $T/gpu_timer
+$T/gpu_timer
 echo "== GLES Android workload diagnostics"
 gcc -O1 -w -ffunction-sections -fdata-sections -I fake_ndk -I$CPP/compat/include -I$D/include -I$CPP/compat -I$D -I$S -I$S/d3d -I$S/platform -I$S/kernel -I$S/nv2a -DXBOX_ANDROID=1 test_gles_workload.c -Wl,--gc-sections -lm -o $T/gles_workload
 $T/gles_workload

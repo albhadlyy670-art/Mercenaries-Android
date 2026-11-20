@@ -23,3 +23,5 @@ EGLDisplay eglGetDisplay(void *d); EGLBoolean eglInitialize(EGLDisplay,EGLint*,E
 EGLBoolean eglGetConfigAttrib(EGLDisplay,EGLConfig,EGLint,EGLint*); EGLSurface eglCreateWindowSurface(EGLDisplay,EGLConfig,void*,const EGLint*);
 EGLContext eglCreateContext(EGLDisplay,EGLConfig,EGLContext,const EGLint*); EGLBoolean eglMakeCurrent(EGLDisplay,EGLSurface,EGLSurface,EGLContext);
 EGLBoolean eglQuerySurface(EGLDisplay,EGLSurface,EGLint,EGLint*); EGLBoolean eglSwapInterval(EGLDisplay,EGLint); EGLBoolean eglSwapBuffers(EGLDisplay,EGLSurface); EGLBoolean eglDestroySurface(EGLDisplay,EGLSurface);
+typedef void (*__eglMustCastToProperFunctionPointerType)(void);
+__eglMustCastToProperFunctionPointerType eglGetProcAddress(const char *);

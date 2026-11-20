@@ -15,9 +15,16 @@ static HRESULT sc_make_back(SwapChain *s)
 HRESULT d3dgl_SC_Present(IDXGISwapChain *p, UINT sync, UINT flags)
 {
     SwapChain *s = (SwapChain *)p; if (flags & DXGI_PRESENT_TEST) return S_OK;
+#ifdef __ANDROID__
+    if (perf_gpu_checked) gpu_timer_end_frame(&perf_gpu);
+#endif
     glFlush();
     if (G.host.present && s->back) G.host.present(G.host.user, s->back->tex, (int)s->back->d.Width, (int)s->back->d.Height, (int)sync);
-    invalidate_att(); gl_check("Present"); perf_report(); return S_OK;
+    invalidate_att(); gl_check("Present"); perf_report();
+#ifdef __ANDROID__
+    perf_gpu_init(); gpu_timer_begin_frame(&perf_gpu);
+#endif
+    return S_OK;
 }
 HRESULT d3dgl_SC_GetBuffer(IDXGISwapChain *p, UINT idx, const GUID *riid, void **out)
 { (void)riid; SwapChain *s = (SwapChain *)p; if (idx != 0 || !s->back || !out) return E_INVALIDARG; REF(s->back); *out = s->back; return S_OK; }
