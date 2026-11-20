@@ -4,10 +4,17 @@
 #include <SDL3/SDL_main.h>
 #include <android/log.h>
 #include <sys/system_properties.h>
+#include <signal.h>
+#include <sys/ucontext.h>
+#include <unwind.h>
+#include <fcntl.h>
 #include <unistd.h>
+
+#include <cstdio>
 
 #include <algorithm>
 #include <atomic>
+#include <cstdarg>
 #include <chrono>
 #include <cmath>
 #include <condition_variable>
@@ -31,6 +38,10 @@
 #include "host.h"
 #include "image_symbols.h"
 #include "kernel/kernel.h"
+
+namespace app {
+std::filesystem::path ExeDir();
+}
 
 namespace {
 
@@ -61,6 +72,92 @@ void LogToLogcat() {
                 __android_log_write(ANDROID_LOG_INFO, "GALLEON", line.substr(0, nl).c_str());
         }
     }).detach();
+}
+
+// FATAL SIGNALS in the app or the guest, caught on the faulting thread: the dump goes to logs/galleon-crash.log
+// (via raw write()) and to stderr (which LogToLogcat pipes to logcat). The tombstone still follows by re-raising
+// the default signal, so Android also writes logcat and the app still reports as crashed. Only raw write() is
+// used here; guest memory is not dereferenced (that may be what faulted), only register values and the unwind.
+static volatile sig_atomic_t g_crash_fd = -1;
+static std::atomic<uintptr_t> g_frames[32];
+static std::atomic<int> g_nframes{0};
+static char g_altstack[64 * 1024];
+
+static _Unwind_Reason_Code CrashFrame(_Unwind_Context* uc, void*) {
+    int i = g_nframes.load(std::memory_order_relaxed);
+    if (i < 32) {
+        g_frames[i].store(uintptr_t(_Unwind_GetIP(uc)), std::memory_order_relaxed);
+        g_nframes.store(i + 1, std::memory_order_relaxed);
+    }
+    return _URC_NO_REASON;
+}
+
+static void CrashWrite(const void* data, size_t size) {
+    if (g_crash_fd >= 0) (void)!::write(g_crash_fd, data, size);
+    (void)!::write(STDERR_FILENO, data, size);
+}
+
+static void CrashFmt(const char* fmt, ...) {
+    char buf[768];
+    va_list ap;
+    va_start(ap, fmt);
+    int n = std::vsnprintf(buf, sizeof(buf), fmt, ap);
+    va_end(ap);
+    if (n > 0) CrashWrite(buf, size_t(n) < sizeof(buf) ? size_t(n) : sizeof(buf) - 1);
+}
+
+static const char* SignalName(int sig) {
+    switch (sig) {
+        case SIGSEGV: return "SIGSEGV";
+        case SIGBUS: return "SIGBUS";
+        case SIGFPE: return "SIGFPE";
+        case SIGILL: return "SIGILL";
+        case SIGABRT: return "SIGABRT";
+        default: return "?";
+    }
+}
+
+static void CrashHandler(int sig, siginfo_t* info, void* context) {
+    // the decisive facts first, so a fault inside the unwind cannot swallow them
+    CrashFmt("\n===== GALLEON crash: signal %d (%s) at address %p =====\n", sig, SignalName(sig), info ? info->si_addr : nullptr);
+#if defined(__aarch64__)
+    auto* mc = &reinterpret_cast<ucontext_t*>(context)->uc_mcontext;
+    CrashFmt("host pc 0x%016llx sp 0x%016llx fp 0x%016llx\n", (unsigned long long)mc->pc, (unsigned long long)mc->sp,
+             (unsigned long long)mc->regs[29]);
+#endif
+    if (kernel::Thread* t = kernel::Current()) {
+        const X86Context& c = *t->ctx;
+        CrashFmt("guest eax %08X ecx %08X edx %08X ebx %08X\n", c.eax, c.ecx, c.edx, c.ebx);
+        CrashFmt("guest esp %08X ebp %08X esi %08X edi %08X\n", c.esp, c.ebp, c.esi, c.edi);
+    } else {
+        CrashFmt("(crashed on a host thread)\n");
+    }
+    for (int i = 0; i < 32; i++) g_frames[i].store(0, std::memory_order_relaxed);
+    g_nframes.store(0, std::memory_order_relaxed);
+    _Unwind_Backtrace(CrashFrame, nullptr);
+    for (int i = 0; i < g_nframes.load(std::memory_order_relaxed); i++)
+        CrashFmt("frame %02d 0x%016llx\n", i, (unsigned long long)g_frames[i].load(std::memory_order_relaxed));
+    CrashFmt("===== end of GALLEON crash =====\n");
+    if (g_crash_fd >= 0) { ::close(g_crash_fd); g_crash_fd = -1; }
+    signal(sig, SIG_DFL);
+    raise(sig);
+    _exit(128 + sig);
+}
+
+static void InstallCrashHandler() {
+    std::filesystem::path p = (app::ExeDir() / "logs" / "galleon-crash.log");
+    std::error_code ec;
+    std::filesystem::create_directories(p.parent_path(), ec);
+    g_crash_fd = ::open(p.c_str(), O_CREAT | O_WRONLY | O_APPEND, 0644);
+    stack_t ss{};
+    ss.ss_sp = g_altstack;
+    ss.ss_size = sizeof(g_altstack);
+    sigaltstack(&ss, nullptr);
+    struct sigaction sa {};
+    sa.sa_sigaction = CrashHandler;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = SA_SIGINFO | SA_ONSTACK;
+    for (int sig : {SIGSEGV, SIGBUS, SIGFPE, SIGILL, SIGABRT}) sigaction(sig, &sa, nullptr);
 }
 
 std::string Property(const char* name) {
@@ -341,6 +438,7 @@ void Dispatch(const SDL_Event& e) {
 
 int main(int, char**) {
     LogToLogcat();
+    InstallCrashHandler();
     SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight");
     SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "0");
     SDL_SetHint(SDL_HINT_MOUSE_TOUCH_EVENTS, "0");
