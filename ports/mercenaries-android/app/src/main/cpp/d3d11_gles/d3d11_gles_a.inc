@@ -402,10 +402,11 @@ static void perf_report(void)
     if (now <= 0.0) return;
     if (perf_start == 0.0 || now < perf_start || now - perf_start > 30.0) { gpu_timer_reset_stats(&perf_gpu); perf_mmio_last = nv2a_mmio_get_perf_counts(); perf_start = now; perf_state_applies = 0; memset(&perf_workload, 0, sizeof(perf_workload)); memset(&perf_map, 0, sizeof(perf_map)); memset(&perf_unmap, 0, sizeof(perf_unmap)); memset(&perf_draw, 0, sizeof(perf_draw)); memset(&perf_drawprep, 0, sizeof(perf_drawprep)); memset(&perf_program, 0, sizeof(perf_program)); memset(&perf_fbstate, 0, sizeof(perf_fbstate)); memset(&perf_fbo, 0, sizeof(perf_fbo)); memset(&perf_state, 0, sizeof(perf_state)); memset(&perf_resources, 0, sizeof(perf_resources)); memset(&perf_vertex, 0, sizeof(perf_vertex)); memset(&perf_issue, 0, sizeof(perf_issue)); memset(&perf_read, 0, sizeof(perf_read)); memset(&perf_ringmap, 0, sizeof(perf_ringmap)); memset(&perf_ringunmap, 0, sizeof(perf_ringunmap)); return; }
     if (now - perf_start < 10.0) return;
-    android_trace("[perf-gpu-frame] supported=%d samples=%llu elapsed_avg_ms=%.3f elapsed_max_ms=%.3f disjoint=%llu dropped=%llu",
+    android_trace("[perf-gpu-frame] supported=%d samples=%llu elapsed_avg_ms=%.3f elapsed_max_ms=%.3f disjoint=%llu dropped=%llu invalid=%llu unreliable=%d",
         perf_gpu_supported, (unsigned long long)perf_gpu.samples,
         perf_gpu.samples ? perf_gpu.total_ms / perf_gpu.samples : 0.0, perf_gpu.max_ms,
-        (unsigned long long)perf_gpu.disjoint, (unsigned long long)perf_gpu.dropped);
+        (unsigned long long)perf_gpu.disjoint, (unsigned long long)perf_gpu.dropped,
+        (unsigned long long)perf_gpu.invalid_results, perf_gpu.unreliable);
     gpu_timer_reset_stats(&perf_gpu);
 #define AVG(op) ((op).samples ? 1000.0 * (op).seconds / (op).samples : 0.0)
     android_trace("[perf-gles] interval_s=%.1f programs=%d state_applies=%llu draws=%llu draw_samples=%llu draw_avg_ms=%.3f maps=%llu map_samples=%llu map_avg_ms=%.3f unmaps=%llu unmap_samples=%llu unmap_avg_ms=%.3f reads=%llu read_samples=%llu read_avg_ms=%.3f ring_maps=%llu ring_map_samples=%llu ring_map_avg_ms=%.3f ring_unmaps=%llu ring_unmap_samples=%llu ring_unmap_avg_ms=%.3f",

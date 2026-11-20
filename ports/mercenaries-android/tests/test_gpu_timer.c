@@ -3,11 +3,12 @@
 #include "../app/src/main/cpp/d3d11_gles/gpu_timer.h"
 static unsigned ids, begins, ends, available, active, result_reads;
 static int disjoint;
+static uint64_t result_value=12500000;
 static void gen(int n,unsigned *id) { assert(n==1); *id=++ids; }
 static void begin(unsigned target,unsigned id) { assert(target==GPU_TIMER_ELAPSED && !active); active=id; ++begins; }
 static void end(unsigned target) { assert(target==GPU_TIMER_ELAPSED && active); active=0; ++ends; }
 static void getu32(unsigned id,unsigned p,unsigned *v) { assert(id && p==GPU_TIMER_AVAILABLE); *v=available; }
-static void getu64(unsigned id,unsigned p,uint64_t *v) { assert(id && p==GPU_TIMER_RESULT); ++result_reads; *v=12500000; }
+static void getu64(unsigned id,unsigned p,uint64_t *v) { assert(id && p==GPU_TIMER_RESULT); ++result_reads; *v=result_value; }
 static void geti(unsigned p,int *v) { assert(p==GPU_TIMER_DISJOINT); *v=disjoint; disjoint=0; }
 int main(void) {
     GpuTimer t; gpu_timer_init(&t,(GpuTimerOps){gen,begin,end,getu32,getu64,geti});
@@ -22,6 +23,13 @@ int main(void) {
     available=0;
     for (int f=0;f<16*9;f++) { gpu_timer_begin_frame(&t); gpu_timer_end_frame(&t); }
     assert(t.dropped==1 && ids==GPU_TIMER_SLOTS);
+    gpu_timer_init(&t,(GpuTimerOps){gen,begin,end,getu32,getu64,geti});
+    available=1; result_value=UINT64_MAX;
+    for (int f=0;f<16*3;f++) { gpu_timer_begin_frame(&t); gpu_timer_end_frame(&t); }
+    assert(t.invalid_results==3 && !t.samples && t.unreliable);
+    unsigned before=begins;
+    for (int f=0;f<32;f++) { gpu_timer_begin_frame(&t); gpu_timer_end_frame(&t); }
+    assert(begins==before); gpu_timer_reset_stats(&t); assert(t.unreliable && !t.invalid_results);
     gpu_timer_init(&t,(GpuTimerOps){0}); gpu_timer_begin_frame(&t); gpu_timer_end_frame(&t); assert(!t.samples);
     puts("GPU timer: nonblocking availability, disjoint, bounded slots and reset OK");
 }

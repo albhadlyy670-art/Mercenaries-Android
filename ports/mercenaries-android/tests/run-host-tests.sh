@@ -37,6 +37,9 @@ $T/texture_chunks
 echo "== GLES draw-state cache (mock driver)"
 gcc -O1 -w -ffunction-sections -fdata-sections -I$CPP/compat/include -I$D/include -I$CPP/compat -I$D -I$S -I$S/d3d -I$S/platform -I$S/kernel -I$S/nv2a -DXBOX_ANDROID=1 test_draw_state_cache.c -Wl,--gc-sections -lm -o $T/draw_state_cache
 $T/draw_state_cache
+echo "== NV2A per-call-site launch environment cache"
+gcc -O1 -Wall -Wextra -Werror -pthread test_nv2a_env_cache.c -o $T/nv2a_env_cache
+$T/nv2a_env_cache
 echo "== NV2A MMIO counters"
 gcc -O1 -Wall -Wextra -Werror -fsanitize=undefined -pthread test_nv2a_mmio_perf.c -o $T/nv2a_mmio_perf
 $T/nv2a_mmio_perf

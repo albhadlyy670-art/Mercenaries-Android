@@ -35,6 +35,7 @@
 void android_trace(const char *fmt, ...);
 typedef struct { uint64_t calls, samples, items; double seconds; } Nv2aCpuConversionPerf;
 static Nv2aCpuConversionPerf g_conversion_indexed, g_conversion_immediate, g_conversion_element16;
+static Nv2aCpuConversionPerf g_submit_array, g_submit_indexed, g_submit_inline, g_submit_immediate;
 static uint64_t g_compact_fused, g_compact_skipped_retry, g_compact_retry, g_compact_retry_success;
 static double conversion_now(void)
 {
@@ -57,6 +58,10 @@ static void conversion_reset(void)
     memset(&g_conversion_indexed, 0, sizeof(g_conversion_indexed));
     memset(&g_conversion_immediate, 0, sizeof(g_conversion_immediate));
     memset(&g_conversion_element16, 0, sizeof(g_conversion_element16));
+    memset(&g_submit_array, 0, sizeof(g_submit_array));
+    memset(&g_submit_indexed, 0, sizeof(g_submit_indexed));
+    memset(&g_submit_inline, 0, sizeof(g_submit_inline));
+    memset(&g_submit_immediate, 0, sizeof(g_submit_immediate));
     g_compact_fused = g_compact_skipped_retry = g_compact_retry = g_compact_retry_success = 0;
 }
 static Nv2aDrawWorkload g_draw_workload;
@@ -88,6 +93,13 @@ static void pgraph_report_workload(void)
           android_trace("[perf-nv2a-convert] path=%s calls=%llu items=%llu samples=%llu avg_ms=%.4f",
               names[i], (unsigned long long)ops[i]->calls, (unsigned long long)ops[i]->items,
               (unsigned long long)ops[i]->samples, ops[i]->samples ? 1000.0 * ops[i]->seconds / ops[i]->samples : 0.0);
+    }
+    { Nv2aCpuConversionPerf *ops[] = { &g_submit_array, &g_submit_indexed, &g_submit_inline, &g_submit_immediate };
+      const char *names[] = { "array", "indexed", "inline", "immediate" };
+      for (unsigned i=0;i<4;++i)
+          android_trace("[perf-nv2a-submit] path=%s calls=%llu samples=%llu avg_ms=%.4f",
+              names[i], (unsigned long long)ops[i]->calls, (unsigned long long)ops[i]->samples,
+              ops[i]->samples ? 1000.0 * ops[i]->seconds / ops[i]->samples : 0.0);
     }
     android_trace("[perf-nv2a-compact] fused=%llu skipped_retry=%llu retry=%llu retry_success=%llu",
         (unsigned long long)g_compact_fused, (unsigned long long)g_compact_skipped_retry,
@@ -124,6 +136,10 @@ static void pgraph_report_workload(void)
 #define pgraph_report_workload() ((void)0)
 #endif
 
+#ifdef __ANDROID__
+#include "nv2a_env_cache.h"
+#define pgraph_cached_getenv(name) NV2A_LAUNCH_ENV(name)
+#else
 static const char *pgraph_cached_getenv(const char *name)
 {
     typedef struct PgraphEnvCacheEntry {
@@ -147,6 +163,8 @@ static const char *pgraph_cached_getenv(const char *name)
     }
     return getenv(name);
 }
+
+#endif
 
 /* Pending resolves wait for a short quiet period so later HUD writes remain
  * part of the same scanout. Millisecond tick counts are too coarse here:
@@ -9265,7 +9283,7 @@ static void mirror_guest_fixed_function_blit(const ImmediateOutputVertex *vertic
     }
 }
 
-static void submit_draw(void)
+static void submit_draw_impl(void)
 {
     if (g_pg.inline_array_mode) {
         const uint32_t stride = prepare_inline_array_layout();
@@ -10541,6 +10559,23 @@ static void submit_draw(void)
         fprintf(stderr, "[PGRAPH-D3D11] Draw #%u: %u verts, prim=%d, prims=%u\n",
                 g_pg.stats.draw_calls, num_verts, g_pg.d3d_prim_type, prim_count);
     }
+}
+
+/* Whole submission CPU wall time includes conversions, state, GLES calls and
+ * possible driver waits. Classify the input before the implementation consumes
+ * it; sample only 1/64 calls, including early-return attempts. */
+static void submit_draw(void)
+{
+#ifdef __ANDROID__
+    Nv2aCpuConversionPerf *op = g_pg.inline_array_mode ? &g_submit_inline :
+        g_pg.inline_count ? &g_submit_immediate :
+        g_pg.inline_element_count ? &g_submit_indexed : &g_submit_array;
+    double started = conversion_begin(op, 0);
+    submit_draw_impl();
+    conversion_end(op, started);
+#else
+    submit_draw_impl();
+#endif
 }
 
 static void commit_immediate_vertex(void)

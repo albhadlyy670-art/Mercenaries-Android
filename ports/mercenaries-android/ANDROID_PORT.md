@@ -106,11 +106,18 @@ sample one frame in 16 using a bounded query pool. The query spans commands
 between host presentations; results are retrieved only when available, never
 by waiting. Elapsed time can include GPU idle gaps, background pauses, and
 queued-command timing, so it is not a pure GPU utilization or per-pass cost.
-Disjoint samples are discarded and unavailable slots cause dropped samples.
+Disjoint and implausible (>10 seconds) samples are discarded; after three
+consecutive implausible samples the timer disables itself for the process.
+Unavailable slots cause dropped samples.
 `D3DGL_NO_GPU_TIMER=1` disables this probe. `[perf-nv2a-compact]` counts fused
 indexed compact submissions, cases where a duplicate fallback scan was proven
 futile, and remaining retry attempts and successes. Draw order and the original
-expanded fallback are unchanged.
+expanded fallback are unchanged. `[perf-nv2a-submit]` samples entire draw
+submission CPU wall time by input path, including GLES work, driver waits and
+early-return attempts. These times overlap the conversion/GLES measurements and
+must not be summed with them. Android caches immutable launch-only NV2A debug
+environment lookups at each call site instead of repeatedly probing a shared
+hash table during draws; debug options keep the same launch-time semantics.
 `[perf-gles-small]` separates small draws (up to 16 vertices/indices) by
 vertex-ID-only versus attribute input and by primitive topology. Vertex-ID-only
 draws can include internal resolve passes; the category is not an exact origin label.
