@@ -63,4 +63,37 @@ static void IoQueryVolumeInformationEntry(X86Context& ctx, uint8_t*) {
 static const bool kregister_IoQueryVolumeInformation =
     (kernel::RegisterExport(76, "IoQueryVolumeInformation", IoQueryVolumeInformationEntry), true);
 
+// ObReferenceObjectByHandle (246). The SDK's handler binds a 32-byte body and stamps a serial at [+8]
+// (Bind's WaitListHead bookkeeping). Galleon reads [+8] as the file object's Vpb pointer and
+// dereferences it, so the serial (a small integer) becomes a bogus pointer and the game faults at
+// that address. Bind the body the same way but point [+8] at a zeroed VPB instead: the guest reads
+// Vpb->Flags (0) and Vpb+0x1c (0) and returns 0, which the caller stores as "no volume info" (the
+// same value it uses when neither handle is valid). If the body was already bound by another export
+// its [+8] still holds a serial, so point that at a zeroed VPB too; a serial is a small value and a
+// guest address is not.
+static void ObReferenceObjectByHandleEntry(X86Context& ctx, uint8_t*) {
+    kernel::Args a{ctx};
+    const uint32_t h = a[0];
+    kernel::ObjectRef o = (h == 0xFFFFFFFE) ? kernel::CurrentRef() : kernel::FromHandle(h);
+    if (!o) {
+        kernel::Return(ctx, kernel::kInvalidHandle, 3);
+        return;
+    }
+    if (!o->guest) {
+        // 64 bytes: the 32-byte object body plus a 32-byte zeroed VPB behind it.
+        const uint32_t body = mem::AllocSystem(64);
+        std::memset(kernel::HostPtr(body), 0, 64);
+        kernel::Bind(o, body);              // stamps [+8] serial, [+12] tag
+        kernel::W32(body + 8, body + 32);   // [+8] = VPB, not the serial
+    } else if (kernel::R32(o->guest + 8) < 0x10000) {
+        const uint32_t vpb = mem::AllocSystem(32);
+        std::memset(kernel::HostPtr(vpb), 0, 32);
+        kernel::W32(o->guest + 8, vpb);
+    }
+    kernel::W32(a[2], o->guest);
+    kernel::Return(ctx, kernel::kSuccess, 3);
+}
+static const bool kregister_ObReferenceObjectByHandle =
+    (kernel::RegisterExport(246, "ObReferenceObjectByHandle", ObReferenceObjectByHandleEntry), true);
+
 }  // namespace game
