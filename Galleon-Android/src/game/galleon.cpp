@@ -96,4 +96,52 @@ static void ObReferenceObjectByHandleEntry(X86Context& ctx, uint8_t*) {
 static const bool kregister_ObReferenceObjectByHandle =
     (kernel::RegisterExport(246, "ObReferenceObjectByHandle", ObReferenceObjectByHandleEntry), true);
 
+// NtUserIoApcDispatcher (232). The game registers this export's own kernel stub as the ApcRoutine of the
+// asynchronous reads and writes it issues and passes its completion callback as the ApcContext, so the SDK
+// finishing a transfer queues the stub and the stub lands here as (completion routine, iosb, reserved) —
+// the ReadFileEx contract: the callback takes a Win32 error code and a byte count (none on a failure), and
+// the iosb it is handed is the game's own request object (the callback sets the state at its [+0x24]).
+// The pinned SDK predates the SDK's own implementation of this export (upstream commit 7afcc5c), so this
+// mirrors that handler here, including its status-to-error mapping.
+static uint32_t DosError(uint32_t status) {
+    switch (status) {
+        case kernel::kSuccess: return 0;
+        case kernel::kPending: return 997;
+        case kernel::kTimeout: return 1460;
+        case kernel::kNoSuchFile:
+        case kernel::kObjectNameNotFound: return 2;
+        case kernel::kObjectPathNotFound: return 3;
+        case kernel::kAccessDenied:
+        case kernel::kCannotDelete:
+        case kernel::kFileIsADirectory: return 5;
+        case kernel::kInvalidHandle: return 6;
+        case kernel::kNoMemory: return 8;
+        case kernel::kNoMoreFiles: return 18;
+        case kernel::kEndOfFile: return 38;
+        case kernel::kNotSupported: return 50;
+        case kernel::kInvalidParameter: return 87;
+        case kernel::kNotImplemented: return 120;
+        case kernel::kBufferTooSmall: return 122;
+        case kernel::kObjectNameInvalid: return 123;
+        case kernel::kObjectNameCollision: return 183;
+        case kernel::kNotADirectory: return 267;
+        case 0xC000007F: return 112;  // disk full
+        case kernel::kDeviceNotConnected: return 1167;
+        default: return (status & 0xC0000000) ? 317 : 0;
+    }
+}
+static void NtUserIoApcDispatcherEntry(X86Context& ctx, uint8_t*) {
+    kernel::Args a{ctx};
+    const uint32_t fn = a[0];    // completion routine the game passed as the ApcContext
+    const uint32_t iosb = a[1];  // IO_STATUS_BLOCK, the game's request object
+    const uint32_t status = kernel::R32(iosb);
+    const bool failed = status >= 0xC0000000;  // NT_ERROR
+    const uint32_t err = failed ? DosError(status) : 0;
+    if (failed) LOG_FIRST(16, "NtUserIoApcDispatcher: transfer failed, status %08X -> error %u", status, err);
+    kernel::CallGuest(ctx, fn, {err, failed ? 0 : kernel::R32(iosb + 4), iosb});
+    kernel::Return(ctx, 0, 3);  // the APC stub is stdcall with three arguments
+}
+static const bool kregister_NtUserIoApcDispatcher =
+    (kernel::RegisterExport(232, "NtUserIoApcDispatcher", NtUserIoApcDispatcherEntry), true);
+
 }  // namespace game
