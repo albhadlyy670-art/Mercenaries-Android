@@ -2,6 +2,9 @@
  * Android: the NDK header. Host builds (tests against Mesa): minimal declarations. */
 #ifndef GLES_GL_H
 #define GLES_GL_H
+#ifndef GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT
+#define GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT 0x8A34
+#endif
 #if defined(__ANDROID__)
 #include <GLES3/gl3.h>
 #include <GLES2/gl2ext.h>

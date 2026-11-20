@@ -92,6 +92,9 @@ $T/vertex_ring_cache
 echo "== D3D8 vertex ring upload and reuse integration"
 gcc -O1 -w -ffunction-sections -fdata-sections -I$CPP/compat/include -I$D/include -I$CPP/compat -I$D -I$S -I$S/d3d -I$S/platform -I$S/kernel -I$S/nv2a -DXBOX_ANDROID=1 test_vertex_ring_integration.c -Wl,--gc-sections -lm -o $T/vertex_ring_integration
 $T/vertex_ring_integration
+echo "== GLES persistent constant snapshots (mock driver)"
+gcc -O1 -w -ffunction-sections -fdata-sections -I$CPP/compat/include -I$D/include -I$CPP/compat -I$D -I$S -I$S/d3d -I$S/platform -I$S/kernel -I$S/nv2a test_constant_ring.c -Wl,--gc-sections -lm -o $T/constant_ring
+$T/constant_ring
 echo "== GLES persistent ring storage (mock driver)"
 gcc -O1 -w -DD3DGL_TEST_PERSISTENT -ffunction-sections -fdata-sections -I$CPP/compat/include -I$D/include -I$CPP/compat -I$D -I$S -I$S/d3d -I$S/platform -I$S/kernel -I$S/nv2a $D/d3d11_gles.c test_persistent_ring.c -Wl,--gc-sections -lm -o $T/persistent_ring
 $T/persistent_ring

@@ -245,6 +245,26 @@ hit rate can make the cache overhead outweigh its benefit. Programmable vertex
 shader constants also skip upload if guest writes return to the last uploaded
 bytes before a draw; a failed map stays dirty for a later retry.
 
+### Experimental persistent shader constant snapshots
+
+The three frequently mapped dynamic shader buffers (programmable guest VS,
+VS host parameters, and PS combiners) opt into separate persistent coherent
+rings when `GL_EXT_buffer_storage` is supported. Each WRITE_DISCARD gets a
+fresh snapshot aligned to `GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT`; draw binding
+uses that buffer range. Draws remain ordered and are never merged. A ring uses
+up to three lazily allocated 1 MiB generations, fenced before reuse; allocation
+failure waits on the current generation. Initial capability/allocation failure
+keeps the original mutable buffer path. A fence or wait failure fails the map
+without overwriting in-flight data; the existing caller retries later. These
+private opt-ins are for complete WRITE_DISCARD snapshots, not general-purpose
+D3D buffers. Set `D3DGL_NO_CONSTANT_RING=1` before startup to disable this
+experiment independently of the UP rings. `[gles-constant-ring]` reports each
+successful opt-in; `[perf-gles-constant-ring]` reports uploads, wraps, failures,
+and rotation wall time per interval (which includes allocation and fence work,
+not just blocking waits). Maximum added persistent storage is 9 MiB plus driver
+overhead when all three buffers have allocated all generations. Device graphics
+and performance must be checked; host mock tests cannot verify driver behavior.
+
 ### Experimental persistent UP ring storage
 
 The dedicated Android vertex and index UP rings try `GL_EXT_buffer_storage`

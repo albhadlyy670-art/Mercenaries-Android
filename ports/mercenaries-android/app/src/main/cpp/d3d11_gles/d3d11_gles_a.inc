@@ -221,6 +221,8 @@ struct Tex {
 typedef struct { GLuint buf; uint8_t *ptr; void *fence; } D3dglRingGeneration;
 struct Buf { Obj o; D3D11_BUFFER_DESC d; GLuint buf; uint8_t *tmp; D3D11_MAP map_type; int mapped_gl;
     uint8_t *persistent; int persistent_written, persistent_generation;
+    UINT persistent_bytes, constant_stride, constant_cursor, constant_offset;
+    int constant_ring, constant_mapping;
     D3dglRingGeneration generations[D3DGL_RING_GENERATIONS]; };
 struct View { Obj o; Tex *tex; Buf *buf; D3D11_SHADER_RESOURCE_VIEW_DESC srv; int mip, stencil_view; DXGI_FORMAT view_fmt; };
 struct Sampler { Obj o; D3D11_SAMPLER_DESC d; GLuint gl, gl_point; };
@@ -259,7 +261,7 @@ typedef struct {
     unsigned draw_buffer_mask; int draw_buffers_valid;
     GLuint current_program; int program_valid, vao_bound;
     GLuint copy_write_buffer; int copy_write_valid;
-    GLuint uniform_buffers[32]; uint32_t uniform_valid;
+    GLuint uniform_buffers[32]; GLintptr uniform_offsets[32]; GLsizeiptr uniform_sizes[32]; uint32_t uniform_valid;
     GLuint tex2d[32], texcube[32], samplers[32];
     uint32_t tex2d_valid, texcube_valid, sampler_valid;
     GLuint active_texture; int active_texture_valid;
@@ -280,7 +282,8 @@ typedef struct {
     unsigned long long arrays, indexed, vertices, small, medium, large, huge;
     unsigned long long fbo_rebinds, attachments, ring_vertex_reuses, ring_index_reuses;
     unsigned long long persistent_uploads, persistent_wraps;
-    double persistent_wait_seconds;
+    unsigned long long constant_uploads, constant_wraps, constant_failures;
+    double persistent_wait_seconds, constant_wait_seconds;
     unsigned long long small_vertexid, small_attributes, small_triangles, small_strips, small_other;
     unsigned long long map_kind[4], map_discard[4], map_fail[4], map_bytes[4];
     unsigned long long updates[4], update_bytes[4];
@@ -386,6 +389,9 @@ static void perf_report(void)
         perf_workload.fbo_rebinds, perf_workload.attachments, perf_workload.ring_vertex_reuses, perf_workload.ring_index_reuses);
     android_trace("[perf-gles-persistent] uploads=%llu wraps=%llu wait_total_ms=%.3f",
         perf_workload.persistent_uploads, perf_workload.persistent_wraps, perf_workload.persistent_wait_seconds * 1000.0);
+    android_trace("[perf-gles-constant-ring] uploads=%llu wraps=%llu failures=%llu wait_total_ms=%.3f",
+        perf_workload.constant_uploads, perf_workload.constant_wraps,
+        perf_workload.constant_failures, perf_workload.constant_wait_seconds * 1000.0);
     android_trace("[perf-gles-small] vertexid=%llu attributes=%llu triangle_list=%llu triangle_strip=%llu other=%llu",
         perf_workload.small_vertexid, perf_workload.small_attributes, perf_workload.small_triangles,
         perf_workload.small_strips, perf_workload.small_other);
@@ -695,11 +701,11 @@ static int persistent_make_generation(Buf *b, D3dglRingGeneration *g, D3dglBuffe
     GLuint name = 0; glGenBuffers(1, &name); if (!name) return 0;
     bind_copy_write_buffer(name);
     const GLbitfield bits = GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT_EXT | GL_MAP_COHERENT_BIT_EXT;
-    storage(GL_COPY_WRITE_BUFFER, (GLsizeiptr)b->d.ByteWidth, NULL, bits);
+    storage(GL_COPY_WRITE_BUFFER, (GLsizeiptr)b->persistent_bytes, NULL, bits);
     if (glGetError() != GL_NO_ERROR) {
         glDeleteBuffers(1, &name); G.copy_write_valid = 0; return 0;
     }
-    void *ptr = glMapBufferRange(GL_COPY_WRITE_BUFFER, 0, (GLsizeiptr)b->d.ByteWidth, bits);
+    void *ptr = glMapBufferRange(GL_COPY_WRITE_BUFFER, 0, (GLsizeiptr)b->persistent_bytes, bits);
     GLenum map_error = glGetError();
     if (!ptr || map_error != GL_NO_ERROR) {
         if (ptr) glUnmapBuffer(GL_COPY_WRITE_BUFFER);
@@ -723,6 +729,7 @@ int d3d11gles_enable_persistent_ring(ID3D11Buffer *buffer)
     }
     D3dglBufferStorage storage = supported ? D3DGL_STORAGE_PROC() : NULL;
     if (!storage) return 0;
+    b->persistent_bytes = b->d.ByteWidth;
     if (!persistent_make_generation(b, &b->generations[0], storage)) {
         bind_copy_write_buffer(b->buf); return 0;
     }
@@ -731,6 +738,42 @@ int d3d11gles_enable_persistent_ring(ID3D11Buffer *buffer)
     D3DGL_LOG("UP ring: persistent coherent storage enabled (%u bytes, up to %d generations)", b->d.ByteWidth, D3DGL_RING_GENERATIONS);
 #ifdef __ANDROID__
     android_trace("[gles-ring] persistent coherent storage enabled bytes=%u bind_flags=%u generations=%d", b->d.ByteWidth, b->d.BindFlags, D3DGL_RING_GENERATIONS);
+#endif
+    return 1;
+}
+/* Private opt-in for the three dynamic shader constant buffers. The caller
+ * writes complete snapshots via WRITE_DISCARD only. Ordinary D3D buffers keep
+ * their existing mapping semantics. Each generation holds aligned snapshots. */
+int d3d11gles_enable_constant_ring(ID3D11Buffer *buffer)
+{
+    Buf *b = (Buf *)buffer;
+    const char *disabled = getenv("D3DGL_NO_CONSTANT_RING");
+    GLint count = 0, alignment = 0; int supported = 0;
+    if ((disabled && *disabled && *disabled != '0') || !b || b->o.kind != K_BUFFER ||
+        b->persistent || b->d.Usage != D3D11_USAGE_DYNAMIC ||
+        b->d.BindFlags != D3D11_BIND_CONSTANT_BUFFER || !b->d.ByteWidth)
+        return 0;
+    glGetIntegerv(GL_NUM_EXTENSIONS, &count);
+    for (GLint i = 0; i < count; ++i) {
+        const char *ext = (const char *)glGetStringi(GL_EXTENSIONS, (GLuint)i);
+        if (ext && strcmp(ext, "GL_EXT_buffer_storage") == 0) { supported = 1; break; }
+    }
+    D3dglBufferStorage storage = supported ? D3DGL_STORAGE_PROC() : NULL;
+    if (!storage) return 0;
+    glGetIntegerv(GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT, &alignment);
+    if (alignment <= 0 || (unsigned)alignment > 1048576u || b->d.ByteWidth > 1048576u) return 0;
+    uint64_t stride = ((uint64_t)b->d.ByteWidth + (unsigned)alignment - 1u) / (unsigned)alignment * (unsigned)alignment;
+    if (stride > 1048576u) return 0;
+    b->persistent_bytes = 1048576u;
+    b->constant_stride = (UINT)stride;
+    if (!persistent_make_generation(b, &b->generations[0], storage)) {
+        bind_copy_write_buffer(b->buf); return 0;
+    }
+    glDeleteBuffers(1, &b->buf); b->buf = b->generations[0].buf; G.uniform_valid = 0;
+    b->persistent = b->generations[0].ptr; b->persistent_generation = 0;
+    b->constant_ring = 1; b->constant_cursor = b->constant_offset = 0;
+#ifdef __ANDROID__
+    android_trace("[gles-constant-ring] enabled bytes=%u stride=%u generation_bytes=%u generations=%d", b->d.ByteWidth, b->constant_stride, b->persistent_bytes, D3DGL_RING_GENERATIONS);
 #endif
     return 1;
 }
@@ -766,6 +809,7 @@ static int persistent_rotate(Buf *b)
 }
 #else
 int d3d11gles_enable_persistent_ring(ID3D11Buffer *buffer) { (void)buffer; return 0; }
+int d3d11gles_enable_constant_ring(ID3D11Buffer *buffer) { (void)buffer; return 0; }
 #endif
 
 /* Map only the written range. On wrap, discard old storage so queued draws
@@ -833,6 +877,30 @@ HRESULT d3dgl_Ctx_Map(ID3D11DeviceContext *c, ID3D11Resource *res, UINT sub, D3D
     (void)c; (void)flags; Obj *o = (Obj *)res; if (!o || !m) return E_INVALIDARG;
     if (o->kind == K_BUFFER) {
         Buf *b = (Buf *)o; GLbitfield acc = 0;
+#if defined(__ANDROID__) || defined(D3DGL_TEST_PERSISTENT)
+        if (b->constant_ring) {
+            if (sub != 0 || type != D3D11_MAP_WRITE_DISCARD || b->constant_mapping) return E_INVALIDARG;
+            if (b->constant_cursor > b->persistent_bytes - b->constant_stride) {
+#ifdef __ANDROID__
+                double start = perf_now(); ++perf_workload.constant_wraps;
+#endif
+                int rotated = persistent_rotate(b);
+#ifdef __ANDROID__
+                double end = perf_now();
+                if (start > 0.0 && end >= start) perf_workload.constant_wait_seconds += end - start;
+                if (!rotated) ++perf_workload.constant_failures;
+#endif
+                if (!rotated) return E_FAIL;
+                b->constant_cursor = 0;
+            }
+            b->constant_offset = b->constant_cursor;
+            b->constant_cursor += b->constant_stride;
+            b->constant_mapping = 1;
+            m->pData = b->persistent + b->constant_offset;
+            m->RowPitch = m->DepthPitch = b->d.ByteWidth;
+            return S_OK;
+        }
+#endif
         /* These rings are already persistently mapped. General Map/Unmap is
          * not a supported access path and mapping them again is invalid GLES. */
         if (b->persistent) return E_INVALIDARG;
@@ -870,7 +938,19 @@ void d3dgl_Ctx_Unmap(ID3D11DeviceContext *c, ID3D11Resource *res, UINT sub)
 {
     (void)c; (void)sub; Obj *o = (Obj *)res; if (!o) return;
     if (o->kind == K_BUFFER) {
-        Buf *b = (Buf *)o; bind_copy_write_buffer(b->buf);
+        Buf *b = (Buf *)o;
+#if defined(__ANDROID__) || defined(D3DGL_TEST_PERSISTENT)
+        if (b->constant_ring) {
+            if (b->constant_mapping) {
+                b->constant_mapping = 0;
+#ifdef __ANDROID__
+                ++perf_workload.constant_uploads;
+#endif
+            }
+            return;
+        }
+#endif
+        bind_copy_write_buffer(b->buf);
         if (b->mapped_gl) { PERF_BEGIN(unmap); glUnmapBuffer(GL_COPY_WRITE_BUFFER); PERF_END(unmap);
 #ifdef __ANDROID__
             perf_end(&perf_workload.unmap_timing[perf_buffer_kind(b->d.BindFlags)], perf_stamp);

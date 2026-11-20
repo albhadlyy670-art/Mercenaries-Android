@@ -197,9 +197,22 @@ static void bind_uniform_buffer(GLuint index, GLuint buffer)
 {
     if (index >= 32u) { glBindBufferBase(GL_UNIFORM_BUFFER, index, buffer); return; }
     uint32_t bit = 1u << index;
-    if (!(G.uniform_valid & bit) || G.uniform_buffers[index] != buffer) {
+    if (!(G.uniform_valid & bit) || G.uniform_buffers[index] != buffer || G.uniform_sizes[index] != 0) {
         glBindBufferBase(GL_UNIFORM_BUFFER, index, buffer);
-        G.uniform_buffers[index] = buffer; G.uniform_valid |= bit;
+        G.uniform_buffers[index] = buffer; G.uniform_offsets[index] = 0; G.uniform_sizes[index] = 0; G.uniform_valid |= bit;
+    }
+}
+static void bind_uniform_range(GLuint index, Buf *b)
+{
+    GLintptr offset = (GLintptr)b->constant_offset;
+    GLsizeiptr size = (GLsizeiptr)b->d.ByteWidth;
+    if (index >= 32u) { glBindBufferRange(GL_UNIFORM_BUFFER, index, b->buf, offset, size); return; }
+    uint32_t bit = 1u << index;
+    if (!(G.uniform_valid & bit) || G.uniform_buffers[index] != b->buf ||
+        G.uniform_offsets[index] != offset || G.uniform_sizes[index] != size) {
+        glBindBufferRange(GL_UNIFORM_BUFFER, index, b->buf, offset, size);
+        G.uniform_buffers[index] = b->buf; G.uniform_offsets[index] = offset;
+        G.uniform_sizes[index] = size; G.uniform_valid |= bit;
     }
 }
 static Program *find_cached_program(Shader *vs, Shader *ps, uint32_t bgra_mask)
@@ -499,7 +512,12 @@ static void bind_resources(Ctx *c, Program *p)
             }
         }
         Buf **cbs = stage ? c->cb_ps : c->cb_vs;
-        for (int i = 0; i < s->r.n_cbufs; ++i) { UINT slot = s->r.cbufs[i].slot; bind_uniform_buffer((stage ? 16u : 0u) + slot, (slot < MAX_CB && cbs[slot]) ? cbs[slot]->buf : 0); }
+        for (int i = 0; i < s->r.n_cbufs; ++i) {
+            UINT slot = s->r.cbufs[i].slot, index = (stage ? 16u : 0u) + slot;
+            Buf *b = slot < MAX_CB ? cbs[slot] : NULL;
+            if (b && b->constant_ring) bind_uniform_range(index, b);
+            else bind_uniform_buffer(index, b ? b->buf : 0);
+        }
     }
 }
 

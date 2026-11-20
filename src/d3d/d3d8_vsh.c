@@ -1720,6 +1720,11 @@ HRESULT d3d8_vsh_init(void)
         return hr;
     }
 
+#ifdef XBOX_ANDROID
+    d3d11gles_enable_constant_ring(g_vsh_cb);
+    d3d11gles_enable_constant_ring(g_vsh_host_cb);
+#endif
+
     fprintf(stderr, "D3D8 VSH: Vertex shader translator initialized\n");
     if (g_vsh_warmup_callback) g_vsh_warmup_callback();
     return S_OK;

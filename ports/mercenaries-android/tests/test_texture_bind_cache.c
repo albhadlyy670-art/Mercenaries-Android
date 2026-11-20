@@ -29,6 +29,7 @@ GLenum glGetError(void) { return GL_NO_ERROR; }
 void glDeleteFramebuffers(GLsizei n, const GLuint *id) { (void)n; (void)id; }
 void glDeleteTextures(GLsizei n, const GLuint *id) { (void)n; (void)id; ++deletes; }
 void glDeleteSamplers(GLsizei n, const GLuint *id) { (void)n; (void)id; ++deletes; }
+void glBindBufferRange(GLenum t, GLuint i, GLuint b, GLintptr o, GLsizeiptr n) { (void)t; (void)i; (void)b; (void)o; (void)n; }
 void glBindBufferBase(GLenum t, GLuint i, GLuint b) { (void)t; (void)i; (void)b; }
 int main(void)
 {

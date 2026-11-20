@@ -1439,6 +1439,10 @@ HRESULT d3d8_combiners_init(void)
         return hr;
     }
 
+#ifdef XBOX_ANDROID
+    d3d11gles_enable_constant_ring(g_combiner_cb);
+#endif
+
     fprintf(stderr, "NV2A combiners: Initialized (cache size=%d)\n",
             COMBINER_CACHE_SIZE);
     if (g_warmup_callback) g_warmup_callback();
