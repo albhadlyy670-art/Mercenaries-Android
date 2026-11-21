@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <atomic>
 #include <iterator>
 
 #include <toml++/toml.hpp>
@@ -8,6 +9,7 @@
 #include "common/menu.h"
 #include "common/mouse_keyboard.h"
 #include "common/options.h"
+#include "core/log.h"
 
 namespace game {
 
@@ -17,8 +19,14 @@ namespace {
 void Pad(int port, input::Pad& pad) {
     input::SeenPad(pad);
     if (port == 0) pad.connected = true;
-    if (app::MenuOpen()) pad = input::Pad{.connected = pad.connected};
-    else if (port == 0) input::Keyboard(pad);
+    if (app::MenuOpen()) {
+        // GALLEON-INPUT-FIXES: while the panel is open the game is blind: log when it swallows held input
+        if (pad.buttons || pad.analog[0] || pad.analog[1]) {
+            static std::atomic<int> n{0};
+            if (n.fetch_add(1) < 20) LOGR("input: panel open, held input swallowed btn %04x", pad.buttons);
+        }
+        pad = input::Pad{.connected = pad.connected};
+    } else if (port == 0) input::Keyboard(pad);
 }
 
 // no vibration while the keyboard and mouse are in use

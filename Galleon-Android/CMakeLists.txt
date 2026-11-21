@@ -136,7 +136,9 @@ string(REPLACE [[    // a file in a missing folder fails as on the console: XAPI
 string(REPLACE [[    f->pos = pos + n;
     if (write && n < len) return Finish(*f, 0xC000007F, n, event, apc, apc_ctx, iosb);  // disk full]] [[    f->pos = pos + n;
     if (write) LOGR("files: write %s %u bytes at %u => %08x", f->xbox.c_str(), n, (uint32_t)pos, n < len ? 0xC000007Fu : 0u);
-    if (!write && n && f->xbox.size() >= 2 && (f->xbox[0] == 'U' || f->xbox[0] == 'u' || f->xbox[0] == 'T' || f->xbox[0] == 't')) LOGR("files: read %s %u bytes at %u", f->xbox.c_str(), n, (uint32_t)pos);
+    if (!write && n && ((f->xbox.size() >= 2 && (f->xbox[0] == 'U' || f->xbox[0] == 'u' || f->xbox[0] == 'T' || f->xbox[0] == 't')) ||
+                        f->xbox.find("Prefs") != std::string::npos || f->xbox.find("SaveMeta") != std::string::npos ||
+                        f->xbox.find("saveimage") != std::string::npos)) LOGR("files: read %s %u bytes at %u", f->xbox.c_str(), n, (uint32_t)pos);
     if (write && n < len) return Finish(*f, 0xC000007F, n, event, apc, apc_ctx, iosb);  // disk full]] _fc_src "${_fc_src}")
 string(REPLACE [[    if (!write && len && !n) return Finish(*f, kEndOfFile, 0, event, apc, apc_ctx, iosb);]] [[    if (!write && len && !n) LOGR("files: read eof %s %u bytes", f->xbox.c_str(), len);
     if (!write && len && !n) return Finish(*f, kEndOfFile, 0, event, apc, apc_ctx, iosb);]] _fc_src "${_fc_src}")
@@ -146,21 +148,109 @@ endif()
 file(WRITE ${_fc} "${_fc_src}")
 endif()
 
-# v1.0.13: log controller button changes so the crash logs show whether the game received the
-# "Press A to continue" input (the dialog loop either waits forever or repeats its message)
+# v1.0.14: the input chain end to end. v1.0.13's save-select freeze logged no button changes at
+# all, so either the game never polls the pads or the host never sees the taps: the XAPI HLEs now
+# log what the game asks for and what it gets (first 40 polls each), and port changes as they land.
 set(_xapi ${SDK}/runtime/xdk/xapi.cpp)
 file(READ ${_xapi} _xapi_src)
 if(NOT _xapi_src MATCHES "GALLEON-XAPI-FIXES")
 string(REPLACE [[#include "xdk/hle.h"]] [[#include "xdk/hle.h"
 #include "core/log.h"]] _xapi_src "${_xapi_src}")
+string(REPLACE [[        LOGI("xapi: controller ports now %X", cur);]] [[        LOGR("xapi: controller ports now %X", cur);  // GALLEON-XAPI-FIXES]] _xapi_src "${_xapi_src}")
+string(REPLACE [[    UpdatePorts();
+    if (!g_poller) {]] [[    UpdatePorts();
+    LOGR("input: XInitDevices ports %08X", R32(kGamepadType + XDK_XPP_Current));  // GALLEON-XAPI-FIXES
+    if (!g_poller) {]] _xapi_src "${_xapi_src}")
+string(REPLACE [[    if (type != kGamepadType || port > 3) return 0;]] [[    if (type != kGamepadType || port > 3) {  // GALLEON-XAPI-FIXES
+        LOGR("input: XInputOpen reject type %08X port %u", type, port);
+        return 0;
+    }]] _xapi_src "${_xapi_src}")
+string(REPLACE [[    g_handles[h] = {port, 0, {}};
+    return h;]] [[    g_handles[h] = {port, 0, {}};
+    LOGR("input: XInputOpen type %08X port %u => %08X", type, port, h);  // GALLEON-XAPI-FIXES
+    return h;]] _xapi_src "${_xapi_src}")
+string(REPLACE [[HLE_STDCALL(XInputGetState, 2) {
+    uint32_t port;
+    {
+        std::lock_guard<std::mutex> lock(g_ports_lock);
+        auto it = g_handles.find(a[0]);
+        if (it == g_handles.end()) return 6;  // ERROR_INVALID_HANDLE
+        port = it->second.port;
+    }
+    input::Pad p = input::Poll(int(port));
+    if (!p.connected) return 1167;  // ERROR_DEVICE_NOT_CONNECTED]] [[HLE_STDCALL(XInputGetState, 2) {
+    static std::atomic<unsigned> g_sn{0};  // GALLEON-XAPI-FIXES
+    uint32_t port;
+    {
+        std::lock_guard<std::mutex> lock(g_ports_lock);
+        auto it = g_handles.find(a[0]);
+        if (it == g_handles.end()) {
+            if (g_sn.fetch_add(1) < 40) LOGR("input: GetState bad handle %08X", a[0]);
+            return 6;  // ERROR_INVALID_HANDLE
+        }
+        port = it->second.port;
+    }
+    input::Pad p = input::Poll(int(port));
+    if (!p.connected) {
+        if (g_sn.fetch_add(1) < 40) LOGR("input: GetState disconnected port %u", port);
+        return 1167;  // ERROR_DEVICE_NOT_CONNECTED
+    }
+    if (g_sn.fetch_add(1) < 40) LOGR("input: GetState port %u btn %04x ana %02x%02x", port, p.buttons, p.analog[0], p.analog[1]);  // GALLEON-XAPI-FIXES]] _xapi_src "${_xapi_src}")
 string(REPLACE [[    if (std::memcmp(&p, &h.last, sizeof(p))) h.packet++;
     h.last = p;]] [[    if (std::memcmp(&p, &h.last, sizeof(p))) h.packet++;
     if (p.buttons != h.last.buttons) LOGR("input: buttons %04x port %u", p.buttons, port);  // GALLEON-XAPI-FIXES
     h.last = p;]] _xapi_src "${_xapi_src}")
+string(REPLACE [[    input::Rumble(int(port), R16(fb + 66), R16(fb + 68));]] [[    { static std::atomic<unsigned> g_rn{0}; if (g_rn.fetch_add(1) < 40) LOGR("input: SetState port %u mot %04X %04X ev %08X", port, R16(fb + 66), R16(fb + 68), R32(fb + 4)); }  // GALLEON-XAPI-FIXES
+    input::Rumble(int(port), R16(fb + 66), R16(fb + 68));]] _xapi_src "${_xapi_src}")
 if(NOT _xapi_src MATCHES "GALLEON-XAPI-FIXES")
     message(FATAL_ERROR "xapi.cpp could not be patched (unexpected SDK version)")
 endif()
 file(WRITE ${_xapi} "${_xapi_src}")
+endif()
+
+# v1.0.14: log the waits that drag past 300ms and the ones that never come back: a hung frame's
+# last lines name the object the game is parked on (a dialog waiting for input waits forever)
+set(_obj ${SDK}/runtime/kernel/objects.cpp)
+file(READ ${_obj} _obj_src)
+if(NOT _obj_src MATCHES "GALLEON-WAIT-FIXES")
+string(REPLACE [[uint32_t Wait(const std::vector<ObjectRef>& objs, bool wait_all, int64_t timeout, bool alertable) {
+    SuspendPoint();
+    uint32_t r = WaitFor(objs, wait_all, timeout, alertable);
+    SuspendPoint();
+    return r;
+}]] [[uint32_t Wait(const std::vector<ObjectRef>& objs, bool wait_all, int64_t timeout, bool alertable) {
+    SuspendPoint();
+    // GALLEON-WAIT-FIXES: a wait that never ends (a dialog parked on input) and one that drags
+    // (a slow save) both show up in the log with the object's guest address
+    static std::mutex g_wait_log_lock;
+    static std::map<uint32_t, int> g_wait_forever;
+    static int g_wait_long = 0;
+    uint32_t guest = objs.empty() || !objs[0] ? 0 : objs[0]->guest;
+    if (timeout == INT64_MAX) {
+        std::lock_guard<std::mutex> lk(g_wait_log_lock);
+        int& n = g_wait_forever[guest];
+        if (n < 3) {
+            n++;
+            LOGR("wait: forever on %08X", guest);
+        }
+    }
+    auto t0 = std::chrono::steady_clock::now();
+    uint32_t r = WaitFor(objs, wait_all, timeout, alertable);
+    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count();
+    if (ms > 300) {
+        std::lock_guard<std::mutex> lk(g_wait_log_lock);
+        if (g_wait_long < 60) {
+            g_wait_long++;
+            LOGR("wait: %dms on %08X r=%u", int(ms), guest, r);
+        }
+    }
+    SuspendPoint();
+    return r;
+}]] _obj_src "${_obj_src}")
+if(NOT _obj_src MATCHES "GALLEON-WAIT-FIXES")
+    message(FATAL_ERROR "objects.cpp could not be patched (unexpected SDK version)")
+endif()
+file(WRITE ${_obj} "${_obj_src}")
 endif()
 
 # v1.0.10: recompiled-code fix (GALLEON-RECOMP-FIXES): sub_001B5870 keeps its out-pointer in ebp across the

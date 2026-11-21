@@ -217,6 +217,20 @@ Pad Poll(int port) {
     if (p.buttons || analog || pushed(p.lx) || pushed(p.ly) || pushed(p.rx) || pushed(p.ry)) touch::PadUsed();
     touch::Apply(port, p);
     if (app::kGame.pad) app::kGame.pad(port, p);
+    // GALLEON-INPUT-FIXES: what a poll hands out, so the log shows whether taps and keys reach the
+    // game at all (the first four polls and the first forty changes of each port)
+    if (port >= 0 && port < 4) {
+        static std::mutex log_lock;
+        static uint16_t last[4] = {0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF};
+        static int seen[4] = {};
+        std::lock_guard lk(log_lock);
+        if (seen[port] < 40 && (p.buttons != last[port] || seen[port] < 4)) {
+            LOGR("input: host port %u btn %04x ana %02x%02x conn %d", unsigned(port), p.buttons, p.analog[0],
+                 p.analog[1], int(p.connected));
+            last[port] = p.buttons;
+            seen[port]++;
+        }
+    }
     return p;
 }
 
