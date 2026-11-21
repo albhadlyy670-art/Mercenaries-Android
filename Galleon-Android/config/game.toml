@@ -278,16 +278,16 @@ XPP_MemoryUnitType          = 0x2089A0
 # argument locations in API order for functions a link time code generated library compiled with another
 # convention: a register (eax ebx ecx edx esi edi ebp) or "stack" for the next stack slot, which the callee pops
 # (D3DDevice_SetPixelShaderConstant and D3DResource_IsBusy are not in Galleon's image; the host's own versions run)
+#
+# v1.0.7: the transplanted Black maps are GONE except CDevice_KickOff. Galleon's XDK library pushes every
+# argument and pops them all (ret $0x04 * nargs) even when a copy also rides in a register, so a register
+# entry made hle::Return under-pop the guest stack by 4 bytes per register argument on EVERY HLE call —
+# caller frames drifted, lea out-pointers slid into neighbouring slots, and the texture loader stored
+# through a slot-shifted NULL (SIGSEGV at guest VA 0, value 0x80). Unmapped names default to the all-stack
+# convention (kernel::Args reads, Return pops nargs), which is exactly Galleon's. CDevice_KickOff is the
+# one true register function: its body ends in a plain `ret` (pops 0) and takes its argument in edx.
 [abi]
 CDevice_KickOff                  = ["edx"]
-D3D_BlockOnResource              = ["eax"]
-D3D_InternalRelease              = ["esi"]
-D3D_MakeRequestedSpace           = ["stack", "eax"]
-D3DDevice_LoadVertexShader       = ["eax", "stack"]
-D3DDevice_SelectVertexShader     = ["eax", "ebx"]
-D3DDevice_SetFlickerFilter       = ["esi"]
-D3DDevice_SetShaderConstantMode  = ["eax"]
-Lock2DSurface                    = ["stack", "stack", "stack", "esi", "eax", "stack"]
 
 # no hooks: Black's were its own addresses for Black's cheats, its HUD and its in-game options menu; nothing the host
 # still implements hooks into the guest

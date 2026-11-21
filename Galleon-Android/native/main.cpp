@@ -182,6 +182,7 @@ static void CrashHandler(int sig, siginfo_t* info, void* context) {
     }
     CrashFmt("===== end of GALLEON crash =====\n");
     if (g_crash_fd >= 0) { ::close(g_crash_fd); g_crash_fd = -1; }
+    logx::Flush();  // the trace/LOGI lines are buffered; without this they die with the process
     signal(sig, SIG_DFL);
     raise(sig);
     _exit(128 + sig);
