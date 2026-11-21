@@ -54,13 +54,13 @@ string(REPLACE [[        case 10: {  // rename: ReplaceIfExists, RootDirectory, 
                 std::string::size_type p = dir.find_last_of("\\/");
                 if (p != std::string::npos) host = ResolvePath(dir.substr(0, p + 1) + target, 0);
             }
-            LOGI("files: rename %s -> '%s' => %s", f->host.c_str(), target.c_str(),
+            LOGR("files: rename %s -> '%s' => %s", f->host.c_str(), target.c_str(),
                  host.empty() ? "no mapping" : host.c_str());
             if (host.empty()) return kObjectPathNotFound;
             if (f->fp) std::fflush(f->fp);
             fs::rename(f->host, host, ec);
             if (ec) {
-                LOGI("files: rename failed: %s", ec.message().c_str());
+                LOGR("files: rename failed: %s", ec.message().c_str());
                 return kAccessDenied;
             }
             f->host = host;
@@ -72,7 +72,7 @@ string(REPLACE [[    if (host.empty() || !fs::exists(host, ec)) {
         return host.empty() ? kObjectPathNotFound : kObjectNameNotFound;
     }]] [[    if (host.empty() || !fs::exists(host, ec)) {
         bool missing_path = host.empty() || !fs::is_directory(fs::path(host).parent_path(), ec);
-        LOGI("files: open missing %s (%s)", name.c_str(), missing_path ? "path" : "name");
+        LOGR("files: open missing %s (%s)", name.c_str(), missing_path ? "path" : "name");
         IoStatus(iosb, missing_path ? kObjectPathNotFound : kObjectNameNotFound, 5);
         return missing_path ? kObjectPathNotFound : kObjectNameNotFound;
     }]] _fc_src "${_fc_src}")
@@ -81,17 +81,43 @@ string(REPLACE [[    (void)options;
     IoStatus(iosb, kSuccess, 1);
     return kSuccess;]] [[    (void)options;
     W32(handle_out, NewHandle(f));
-    LOGI("files: open ok %s", name.c_str());
+    LOGR("files: open ok %s", name.c_str());
     IoStatus(iosb, kSuccess, 1);
     return kSuccess;]] _fc_src "${_fc_src}")
 string(REPLACE [[    // a file in a missing folder fails as on the console: XAPI probes saves with OPEN_ALWAYS
     if (!exists && !fs::is_directory(fs::path(host).parent_path(), ec)) {]] [[    // a file in a missing folder fails as on the console: XAPI probes saves with OPEN_ALWAYS
     if (!exists && !fs::is_directory(fs::path(host).parent_path(), ec)) {
-        LOGI("files: create %s disp %u in a missing folder", name.c_str(), disposition);]] _fc_src "${_fc_src}")
+        LOGR("files: create %s disp %u in a missing folder", name.c_str(), disposition);]] _fc_src "${_fc_src}")
 if(NOT _fc_src MATCHES "GALLEON-FILE-FIXES")
     message(FATAL_ERROR "the SDK's files.cpp could not be patched (unexpected SDK version)")
 endif()
 file(WRITE ${_fc} "${_fc_src}")
+
+# v1.0.10: recompiled-code fix (GALLEON-RECOMP-FIXES): sub_001B5870 keeps its out-pointer in ebp across the
+# profile-save call chain, but ebp comes back clobbered (0x10), so the final `mov [ebp],eax` writes to guest 0x10
+# and faults (crash-6/7/8, host 0x..00000010). Snapshot arg5 at entry and use the snapshot for both stores.
+set(_g53 ${REPO}/generated/game/x86_recomp.53.cpp)
+file(READ ${_g53} _g53_src)
+if(NOT _g53_src MATCHES "GALLEON-RECOMP-FIXES")
+string(REPLACE [[#include "x86_recomp_shared.h"]] [[#include "x86_recomp_shared.h"
+#include "core/log.h"]] _g53_src "${_g53_src}")
+string(REPLACE [[	// 001B587B mov ebp, [esp+0x120]
+	{ uint32_t ea = (uint32_t)(ctx.esp + 0x120u); ctx.ebp = (uint32_t)(X86_MEM32(ea)); }]] [[	// 001B587B mov ebp, [esp+0x120]
+	{ uint32_t ea = (uint32_t)(ctx.esp + 0x120u); ctx.ebp = (uint32_t)(X86_MEM32(ea)); }
+	const uint32_t galleon_out5 = ctx.ebp;  // GALLEON-RECOMP-FIXES: arg5 snapshot; callees may clobber ebp
+	LOGR("save: build out=%08X a1=%08X a4=%08X", galleon_out5, X86_MEM32((uint32_t)(ctx.esp + 0x110u)), X86_MEM32((uint32_t)(ctx.esp + 0x11Cu)));]] _g53_src "${_g53_src}")
+string(REPLACE [[	// 001B588F mov dword ptr [ebp], 0x00
+	{ uint32_t ea = (uint32_t)(ctx.ebp); X86_MEM32(ea) = (uint32_t)(0x0u); }]] [[	// 001B588F mov dword ptr [ebp], 0x00
+	{ uint32_t ea = (uint32_t)(galleon_out5); X86_MEM32(ea) = (uint32_t)(0x0u); }]] _g53_src "${_g53_src}")
+string(REPLACE [[	// 001B58ED mov [ebp], eax
+	{ uint32_t ea = (uint32_t)(ctx.ebp); X86_MEM32(ea) = (uint32_t)(ctx.eax); }]] [[	// 001B58ED mov [ebp], eax
+	{ uint32_t ea = (uint32_t)(galleon_out5); X86_MEM32(ea) = (uint32_t)(ctx.eax); }
+	{ char galleon_name[24]; int galleon_i; for (galleon_i = 0; galleon_i < 23; galleon_i++) { galleon_name[galleon_i] = (char)X86_MEM8((uint32_t)(ctx.esp + 0x14u) + (uint32_t)galleon_i); if (!galleon_name[galleon_i]) break; } galleon_name[galleon_i] = 0; LOGR("save: obj=%08X -> out=%08X name=%s", ctx.eax, galleon_out5, galleon_name); }  // GALLEON-RECOMP-FIXES]] _g53_src "${_g53_src}")
+if(NOT _g53_src MATCHES "GALLEON-RECOMP-FIXES")
+    message(FATAL_ERROR "x86_recomp.53.cpp could not be patched (recompiler output changed?)")
+endif()
+file(WRITE ${_g53} "${_g53_src}")
+endif()
 
 # the recompiled code and the xbe it came from
 set(XBE_GENERATED ${REPO}/generated/game CACHE PATH "the recompiled code of default.xbe")
