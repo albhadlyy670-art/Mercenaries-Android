@@ -5,6 +5,7 @@
 #include <android/log.h>
 #include <sys/system_properties.h>
 #include <signal.h>
+#include <exception>
 #include <sys/ucontext.h>
 #include <unwind.h>
 #include <dlfcn.h>
@@ -202,6 +203,14 @@ static void InstallCrashHandler() {
     sigemptyset(&sa.sa_mask);
     sa.sa_flags = SA_SIGINFO | SA_ONSTACK;
     for (int sig : {SIGSEGV, SIGBUS, SIGFPE, SIGILL, SIGABRT}) sigaction(sig, &sa, nullptr);
+    // an uncaught exception aborts with no signal of its own: log it, then abort so the SIGABRT
+    // handler above writes the crash file (a silent app death would leave nothing to diagnose)
+    std::set_terminate([] {
+        logx::Write(logx::Level::Error, "std::terminate: uncaught exception");
+        try { throw; } catch (const std::exception& e) { logx::Write(logx::Level::Error, "  what: %s", e.what()); } catch (...) {}
+        logx::Flush();
+        std::abort();
+    });
 }
 
 std::string Property(const char* name) {

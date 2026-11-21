@@ -34,6 +34,7 @@ endif()
 #   - the file operations and their outcome are logged so crash logs show the failing step
 set(_fc ${SDK}/runtime/kernel/files.cpp)
 file(READ ${_fc} _fc_src)
+if(NOT _fc_src MATCHES "GALLEON-FILE-FIXES")
 string(REPLACE [[        case 10: {  // rename: ReplaceIfExists, RootDirectory, FileName (ANSI_STRING inline)
             uint32_t root = R32(in + 4);
             std::string target = ReadAnsiString(in + 8);
@@ -85,13 +86,21 @@ string(REPLACE [[    (void)options;
     IoStatus(iosb, kSuccess, 1);
     return kSuccess;]] _fc_src "${_fc_src}")
 string(REPLACE [[    // a file in a missing folder fails as on the console: XAPI probes saves with OPEN_ALWAYS
-    if (!exists && !fs::is_directory(fs::path(host).parent_path(), ec)) {]] [[    // a file in a missing folder fails as on the console: XAPI probes saves with OPEN_ALWAYS
+    if (!exists && !fs::is_directory(fs::path(host).parent_path(), ec)) {]] [[    LOGR("files: open %s disp %u root %08x => %s", name.c_str(), disposition, root, host.c_str());
+    // a file in a missing folder fails as on the console: XAPI probes saves with OPEN_ALWAYS
     if (!exists && !fs::is_directory(fs::path(host).parent_path(), ec)) {
         LOGR("files: create %s disp %u in a missing folder", name.c_str(), disposition);]] _fc_src "${_fc_src}")
+string(REPLACE [[    f->pos = pos + n;
+    if (write && n < len) return Finish(*f, 0xC000007F, n, event, apc, apc_ctx, iosb);  // disk full]] [[    f->pos = pos + n;
+    if (write) LOGR("files: write %s %u bytes at %u => %08x", f->xbox.c_str(), n, (uint32_t)pos, n < len ? 0xC000007Fu : 0u);
+    if (write && n < len) return Finish(*f, 0xC000007F, n, event, apc, apc_ctx, iosb);  // disk full]] _fc_src "${_fc_src}")
+string(REPLACE [[    if (!write && len && !n) return Finish(*f, kEndOfFile, 0, event, apc, apc_ctx, iosb);]] [[    if (!write && len && !n) LOGR("files: read eof %s %u bytes", f->xbox.c_str(), len);
+    if (!write && len && !n) return Finish(*f, kEndOfFile, 0, event, apc, apc_ctx, iosb);]] _fc_src "${_fc_src}")
 if(NOT _fc_src MATCHES "GALLEON-FILE-FIXES")
     message(FATAL_ERROR "the SDK's files.cpp could not be patched (unexpected SDK version)")
 endif()
 file(WRITE ${_fc} "${_fc_src}")
+endif()
 
 # v1.0.10: recompiled-code fix (GALLEON-RECOMP-FIXES): sub_001B5870 keeps its out-pointer in ebp across the
 # profile-save call chain, but ebp comes back clobbered (0x10), so the final `mov [ebp],eax` writes to guest 0x10
