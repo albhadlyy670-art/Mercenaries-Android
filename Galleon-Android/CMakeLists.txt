@@ -401,6 +401,8 @@ file(READ ${_krnl} _krnl_src)
 if(NOT _krnl_src MATCHES "GALLEON-EXIT-FIXES")
 string(REPLACE [[LOGI("HalReturnToFirmware(%u): the title asked to leave", a[0]);]] [[LOGR("game: HalReturnToFirmware(%u): the title asked to leave", a[0]);  // GALLEON-EXIT-FIXES]] _krnl_src "${_krnl_src}")
 string(REPLACE [[LOGI("relaunching into %s", path.c_str());]] [[LOGR("game: relaunching into %s", path.c_str());  // GALLEON-EXIT-FIXES]] _krnl_src "${_krnl_src}")
+string(REPLACE [[            if (FILE* f = std::fopen(g_launch_file.c_str(), "wb")) {]] [[            LOGR("boot: saving launch page: type %u title %08X data0 %08X", R32(page), R32(page + 4), R32(page + 0x400));  // GALLEON-EXIT-FIXES v1.0.20
+            if (FILE* f = std::fopen(g_launch_file.c_str(), "wb")) {]] _krnl_src "${_krnl_src}")
 if(NOT _krnl_src MATCHES "GALLEON-EXIT-FIXES")
     message(FATAL_ERROR "xboxkrnl.cpp could not be patched (unexpected SDK version)")
 endif()
@@ -417,7 +419,7 @@ string(REPLACE [[    execl(path.c_str(), path.c_str(), nullptr);
     execl(path.c_str(), path.c_str(), nullptr);
     LOGR("app: execl into %s failed — exiting silently", path.c_str());  // GALLEON-EXIT-FIXES
     std::_Exit(0);]] _boot_src "${_boot_src}")
-string(REPLACE [[    LOGI("boot: launch data from the previous run, type %u", R32(page));]] [[    LOGR("boot: launch data from the previous run, type %u", R32(page));  // GALLEON-EXIT-FIXES]] _boot_src "${_boot_src}")
+string(REPLACE [[    LOGI("boot: launch data from the previous run, type %u", R32(page));]] [[    LOGR("boot: launch data from the previous run: type %u title %08X expect %08X data0 %08X", R32(page), R32(page + 4), R32(R32(0x10118) + 8), R32(page + 0x400));  // GALLEON-EXIT-FIXES v1.0.20: title vs expect exposes the game's launch-info title check; data0 is the save-payload marker]] _boot_src "${_boot_src}")
 if(NOT _boot_src MATCHES "GALLEON-EXIT-FIXES")
     message(FATAL_ERROR "boot.cpp could not be patched (unexpected SDK version)")
 endif()
