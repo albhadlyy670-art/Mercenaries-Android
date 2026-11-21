@@ -208,7 +208,15 @@ static void InstallCrashHandler() {
     std::thread([] {
         for (unsigned n = 1;; ++n) {
             std::this_thread::sleep_for(std::chrono::seconds(5));
-            logx::Write(logx::Level::Report, "alive %us", n * 5);
+            // the live thread set with each tick: a thread that vanishes from one tick to the
+            // next exited, one stuck forever is the one to blame when the log stops (v1.0.16)
+            std::string tl;
+            for (auto& t : kernel::Threads()) {
+                char b[40];
+                std::snprintf(b, sizeof(b), " %X:%s", t->id, t->suspend.load() > 0 ? "susp" : "run");
+                tl += b;
+            }
+            logx::Write(logx::Level::Report, "alive %us%s", n * 5, tl.c_str());
         }
     }).detach();
     std::set_terminate([] {

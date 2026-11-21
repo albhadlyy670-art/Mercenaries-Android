@@ -331,6 +331,15 @@ string(REPLACE [[uint32_t Wait(const std::vector<ObjectRef>& objs, bool wait_all
     auto t0 = std::chrono::steady_clock::now();
     uint32_t r = WaitFor(objs, wait_all, timeout, alertable);
     auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count();
+    if (timeout == INT64_MAX) {  // GALLEON-WAIT-FIXES v1.0.16: how the forever-waits end (the join at the save flow)
+        std::lock_guard<std::mutex> lk(g_wait_log_lock);
+        static std::map<uint32_t, int> g_wait_done;
+        int& n = g_wait_done[guest];
+        if (n < 4) {
+            n++;
+            LOGR("wait: done on %08X r=%u after %dms", guest, r, int(ms));
+        }
+    }
     if (ms > 300) {
         std::lock_guard<std::mutex> lk(g_wait_log_lock);
         if (g_wait_long < 60) {
@@ -347,6 +356,38 @@ if(NOT _obj_src MATCHES "GALLEON-WAIT-FIXES")
     message(FATAL_ERROR "objects.cpp could not be patched (unexpected SDK version)")
 endif()
 file(WRITE ${_obj} "${_obj_src}")
+endif()
+
+# v1.0.16: thread lifecycles in the log (create/start/exit/parked) and the host-thread exit fix:
+# StartHostThread's lambda returned without MarkExited, so a host thread that ended (audio, IO worker)
+# left its ethread unsignalled and a join on it waited forever
+set(_thr ${SDK}/runtime/kernel/threads.cpp)
+file(READ ${_thr} _thr_src)
+if(NOT _thr_src MATCHES "GALLEON-THREAD-FIXES")
+string(REPLACE [[#include "kernel/kernel.h"]] [[#include "kernel/kernel.h"
+#include "core/log.h"]] _thr_src "${_thr_src}")
+string(REPLACE [[    if (suspended) t->suspend = 1;]] [[    if (suspended) t->suspend = 1;  // GALLEON-THREAD-FIXES
+    LOGR("thread: create %X start=%08X ctx=%08X susp=%d stack=%08X ethread=%08X", t->id, start_routine, start_context,
+         suspended ? 1 : 0, t->stack_top, t->ethread);]] _thr_src "${_thr_src}")
+string(REPLACE [[void MarkExited(Thread& t, uint32_t code) {
+    t.exit_code = code;]] [[void MarkExited(Thread& t, uint32_t code) {  // GALLEON-THREAD-FIXES
+    LOGR("thread: %X exit code=%08X", t.id, code);
+    t.exit_code = code;]] _thr_src "${_thr_src}")
+string(REPLACE [[        LOGI("thread %X starts at %08X (%08X, %08X)", t->id, si.system_routine ? si.system_routine : si.start_routine,
+             si.start_routine, si.start_context);]] [[        LOGR("thread: %X starts at %08X (%08X, %08X) susp=%d", t->id,  // GALLEON-THREAD-FIXES
+             si.system_routine ? si.system_routine : si.start_routine, si.start_routine, si.start_context,
+             t->suspend.load());]] _thr_src "${_thr_src}")
+string(REPLACE [[        LOGI("thread %X returned %08X", t->id, code);]] [[        LOGR("thread: %X returned %08X", t->id, code);  // GALLEON-THREAD-FIXES]] _thr_src "${_thr_src}")
+string(REPLACE [[        fn(ctx);
+        t_current.reset();]] [[        fn(ctx);
+        MarkExited(*t, 0);  // GALLEON-THREAD-FIXES: signal the ethread so joins on host threads end
+        Unregister(t.get());
+        t_current.reset();]] _thr_src "${_thr_src}")
+string(REPLACE [[        LOGI("thread %X exits with %08X", t->id, code);]] [[        LOGR("thread: %X exits with %08X", t->id, code);  // GALLEON-THREAD-FIXES]] _thr_src "${_thr_src}")
+if(NOT _thr_src MATCHES "GALLEON-THREAD-FIXES")
+    message(FATAL_ERROR "threads.cpp could not be patched (unexpected SDK version)")
+endif()
+file(WRITE ${_thr} "${_thr_src}")
 endif()
 
 # v1.0.10: recompiled-code fix (GALLEON-RECOMP-FIXES): sub_001B5870 keeps its out-pointer in ebp across the
@@ -373,6 +414,43 @@ if(NOT _g53_src MATCHES "GALLEON-RECOMP-FIXES")
     message(FATAL_ERROR "x86_recomp.53.cpp could not be patched (recompiler output changed?)")
 endif()
 file(WRITE ${_g53} "${_g53_src}")
+endif()
+
+# v1.0.16: save-crash breadcrumbs (GALLEON-RECOMP-FIXES): the save-select's FATX path builds a MU context
+# (manager at 0x1E6FC8, init sub_001D8870 -> sub_001DEA00) and later reads it via sub_001D72D0(-1); when the
+# init failed and rolled back the manager to NULL the parse derefs garbage and the worker dies mid-save.
+# Log the rollback, the init's OOM path and the context the parse gets.
+set(_g58 ${REPO}/generated/game/x86_recomp.58.cpp)
+file(READ ${_g58} _g58_src)
+if(NOT _g58_src MATCHES "GALLEON-RECOMP-FIXES")
+string(REPLACE [[#include "x86_recomp_shared.h"]] [[#include "x86_recomp_shared.h"
+#include "core/log.h"]] _g58_src "${_g58_src}")
+string(REPLACE [[	// 001D88F5 mov dword ptr [0x001E6FC8], 0x00
+	{ uint32_t ea = (uint32_t)(0x1E6FC8u); X86_MEM32(ea) = (uint32_t)(0x0u); }]] [[	LOGR("mu: init ROLLED BACK r=%08X (manager cleared)", ctx.esi);  // GALLEON-RECOMP-FIXES
+	// 001D88F5 mov dword ptr [0x001E6FC8], 0x00
+	{ uint32_t ea = (uint32_t)(0x1E6FC8u); X86_MEM32(ea) = (uint32_t)(0x0u); }]] _g58_src "${_g58_src}")
+if(NOT _g58_src MATCHES "GALLEON-RECOMP-FIXES")
+    message(FATAL_ERROR "x86_recomp.58.cpp could not be patched (recompiler output changed?)")
+endif()
+file(WRITE ${_g58} "${_g58_src}")
+endif()
+set(_g59 ${REPO}/generated/game/x86_recomp.59.cpp)
+file(READ ${_g59} _g59_src)
+if(NOT _g59_src MATCHES "GALLEON-RECOMP-FIXES")
+string(REPLACE [[#include "x86_recomp_shared.h"]] [[#include "x86_recomp_shared.h"
+#include "core/log.h"]] _g59_src "${_g59_src}")
+string(REPLACE [[	// 001DEA1F mov eax, 0x8007000E
+	{ ctx.eax = (uint32_t)(0x8007000Eu); }]] [[	LOGR("mu: init alloc FAILED (E_OUTOFMEMORY)");  // GALLEON-RECOMP-FIXES
+	// 001DEA1F mov eax, 0x8007000E
+	{ ctx.eax = (uint32_t)(0x8007000Eu); }]] _g59_src "${_g59_src}")
+string(REPLACE [[	// 001E25E2 mov ebp, eax
+	{ ctx.ebp = (uint32_t)(ctx.eax); }]] [[	// 001E25E2 mov ebp, eax
+	{ ctx.ebp = (uint32_t)(ctx.eax); }
+	LOGR("mu: parse ctx=%08X mgr=%08X", ctx.ebp, X86_MEM32((uint32_t)(0x1E6FC8u)));  // GALLEON-RECOMP-FIXES]] _g59_src "${_g59_src}")
+if(NOT _g59_src MATCHES "GALLEON-RECOMP-FIXES")
+    message(FATAL_ERROR "x86_recomp.59.cpp could not be patched (recompiler output changed?)")
+endif()
+file(WRITE ${_g59} "${_g59_src}")
 endif()
 
 # the recompiled code and the xbe it came from
