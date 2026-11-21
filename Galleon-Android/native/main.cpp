@@ -2,6 +2,10 @@
 // by app::kGame (src/common/game_info.cpp)
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
+#include <SDL3/SDL_system.h>
+#if defined(__ANDROID__)
+#include <jni.h>
+#endif
 #include <android/log.h>
 #include <sys/system_properties.h>
 #include <signal.h>
@@ -517,6 +521,56 @@ void Dispatch(const SDL_Event& e) {
 
 }  // namespace
 
+// v1.0.18: the game relaunches itself after the save flow (HalReturnToFirmware(2) into its own xbe
+// to start playing with the selected save). execl cannot restart an Android app — the app runs inside
+// the JVM's process image — so the relaunch restarts the activity and exits; Android then starts a
+// fresh process for it and the boot picks the launch data page back up from launch.bin.
+namespace kernel {
+bool GalleonRelaunchHook(const char* exe) {
+    LOGR("app: relaunch requested (%s) — restarting the app the Android way", exe ? exe : "?");
+#if defined(__ANDROID__)
+    JNIEnv* env = static_cast<JNIEnv*>(SDL_AndroidGetJNIEnv());
+    jobject activity = static_cast<jobject>(SDL_AndroidGetActivity());
+    if (!env || !activity) {
+        LOGR("app: relaunch: no JNI env/activity");
+        return false;
+    }
+    jclass cls = env->GetObjectClass(activity);
+    jmethodID getPkg = env->GetMethodID(cls, "getPackageName", "()Ljava/lang/String;");
+    jmethodID getPm = env->GetMethodID(cls, "getPackageManager", "()Landroid/content/pm/PackageManager;");
+    jmethodID startAct = env->GetMethodID(cls, "startActivity", "(Landroid/content/Intent;)V");
+    if (!getPkg || !getPm || !startAct) return false;
+    jstring pkg = static_cast<jstring>(env->CallObjectMethod(activity, getPkg));
+    jobject pm = env->CallObjectMethod(activity, getPm);
+    if (!pkg || !pm) return false;
+    jclass pmCls = env->GetObjectClass(pm);
+    jmethodID getLaunch = env->GetMethodID(pmCls, "getLaunchIntentForPackage", "(Ljava/lang/String;)Landroid/content/Intent;");
+    if (!getLaunch) return false;
+    jobject intent = env->CallObjectMethod(pm, getLaunch, pkg);
+    if (!intent) {
+        LOGR("app: relaunch: no launch intent for the package");
+        return false;
+    }
+    jclass intentCls = env->GetObjectClass(intent);
+    jmethodID addFlags = env->GetMethodID(intentCls, "addFlags", "(I)Landroid/content/Intent;");
+    if (!addFlags) return false;
+    env->CallObjectMethod(intent, addFlags, 0x10000000 | 0x00008000);  // FLAG_ACTIVITY_NEW_TASK | FLAG_ACTIVITY_CLEAR_TASK
+    env->CallVoidMethod(activity, startAct, intent);
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+        LOGR("app: relaunch: startActivity threw");
+        return false;
+    }
+    LOGR("app: relaunch: activity restart requested — exiting for the fresh process");
+    logx::Flush();
+    return true;
+#else
+    (void)exe;
+    return false;
+#endif
+}
+}  // namespace kernel
+
 int main(int, char**) {
     LogToLogcat();
     InstallCrashHandler();
@@ -528,7 +582,10 @@ int main(int, char**) {
         __android_log_print(ANDROID_LOG_ERROR, "GALLEON", "SDL_Init: %s", SDL_GetError());
         return 1;
     }
-    logx::Init((app::ExeDir() / "logs").string(), app::kGame.log);
+    logx::Init((app::ExeDir() / "logs").string(), app::kGame.log,
+               std::filesystem::exists(app::ExeDir() / "hdd" / "launch.bin"));  // v1.0.18: a relaunch appends
+    if (std::filesystem::exists(app::ExeDir() / "hdd" / "launch.bin"))
+        LOGR("app: relaunched — this log continues the previous run");
     app::Load();
     if (app::kGame.init) app::kGame.init();
     app::LogSystem();

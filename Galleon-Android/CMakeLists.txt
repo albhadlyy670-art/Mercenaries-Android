@@ -410,9 +410,14 @@ set(_boot ${SDK}/runtime/kernel/boot.cpp)
 file(READ ${_boot} _boot_src)
 if(NOT _boot_src MATCHES "GALLEON-EXIT-FIXES")
 string(REPLACE [[    execl(path.c_str(), path.c_str(), nullptr);
-    std::_Exit(0);]] [[    execl(path.c_str(), path.c_str(), nullptr);
+    std::_Exit(0);]] [[    {  // GALLEON-EXIT-FIXES v1.0.18: Android cannot execl an app restart — the hook restarts the activity
+        bool GalleonRelaunchHook(const char*);
+        if (GalleonRelaunchHook(exe)) std::_Exit(0);
+    }
+    execl(path.c_str(), path.c_str(), nullptr);
     LOGR("app: execl into %s failed — exiting silently", path.c_str());  // GALLEON-EXIT-FIXES
     std::_Exit(0);]] _boot_src "${_boot_src}")
+string(REPLACE [[    LOGI("boot: launch data from the previous run, type %u", R32(page));]] [[    LOGR("boot: launch data from the previous run, type %u", R32(page));  // GALLEON-EXIT-FIXES]] _boot_src "${_boot_src}")
 if(NOT _boot_src MATCHES "GALLEON-EXIT-FIXES")
     message(FATAL_ERROR "boot.cpp could not be patched (unexpected SDK version)")
 endif()
