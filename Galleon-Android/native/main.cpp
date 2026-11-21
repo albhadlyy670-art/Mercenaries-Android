@@ -529,8 +529,8 @@ namespace kernel {
 bool GalleonRelaunchHook(const char* exe) {
     LOGR("app: relaunch requested (%s) — restarting the app the Android way", exe ? exe : "?");
 #if defined(__ANDROID__)
-    JNIEnv* env = static_cast<JNIEnv*>(SDL_AndroidGetJNIEnv());
-    jobject activity = static_cast<jobject>(SDL_AndroidGetActivity());
+    JNIEnv* env = static_cast<JNIEnv*>(SDL_GetAndroidJNIEnv());
+    jobject activity = static_cast<jobject>(SDL_GetAndroidActivity());
     if (!env || !activity) {
         LOGR("app: relaunch: no JNI env/activity");
         return false;
