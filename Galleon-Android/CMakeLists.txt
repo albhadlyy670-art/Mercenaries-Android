@@ -34,6 +34,18 @@ endif()
 #   - the file operations and their outcome are logged so crash logs show the failing step
 set(_fc ${SDK}/runtime/kernel/files.cpp)
 file(READ ${_fc} _fc_src)
+string(REPLACE [[        if (delete_on_close) {
+            std::error_code ec;
+            fs::remove(host, ec);
+        }]] [[        if (delete_on_close) {
+            std::error_code ec;
+            LOGR("files: delete-on-close %s", host.string().c_str());
+            fs::remove(host, ec);
+        }]] _fc_src "${_fc_src}")
+string(REPLACE [[        case 13:  // disposition
+            f->delete_on_close = G<uint8_t>(in) != 0;]] [[        case 13:  // disposition
+            f->delete_on_close = G<uint8_t>(in) != 0;
+            LOGR("files: disposition %u on %s", f->delete_on_close ? 1u : 0u, f->host.string().c_str());]] _fc_src "${_fc_src}")
 if(NOT _fc_src MATCHES "GALLEON-FILE-FIXES")
 string(REPLACE [[Target Resolve(const std::string& xbox_path, uint32_t root_handle) {
     std::string p = Normalize(xbox_path);
@@ -98,7 +110,7 @@ string(REPLACE [[    if (host.empty() || !fs::exists(host, ec)) {
         return host.empty() ? kObjectPathNotFound : kObjectNameNotFound;
     }]] [[    if (host.empty() || !fs::exists(host, ec)) {
         bool missing_path = host.empty() || !fs::is_directory(fs::path(host).parent_path(), ec);
-        LOGR("files: open missing %s root %08x (%s)", name.c_str(), root, missing_path ? "path" : "name");
+        LOGR("files: open missing %s root %08x (%s) => %s", name.c_str(), root, missing_path ? "path" : "name", host.c_str());
         IoStatus(iosb, missing_path ? kObjectPathNotFound : kObjectNameNotFound, 5);
         return missing_path ? kObjectPathNotFound : kObjectNameNotFound;
     }]] _fc_src "${_fc_src}")
@@ -110,6 +122,12 @@ string(REPLACE [[    (void)options;
     LOGR("files: open ok %s root %08x => %s", name.c_str(), root, host.c_str());
     IoStatus(iosb, kSuccess, 1);
     return kSuccess;]] _fc_src "${_fc_src}")
+string(REPLACE [[    while (out.size() > 1 && out.back() == '\\') out.pop_back();
+    return out;
+}]] [[    while (!out.empty() && out.back() == '\0') out.pop_back();
+    while (out.size() > 1 && out.back() == '\\') out.pop_back();
+    return out;
+}]] _fc_src "${_fc_src}")
 string(REPLACE [[    // a file in a missing folder fails as on the console: XAPI probes saves with OPEN_ALWAYS
     if (!exists && !fs::is_directory(fs::path(host).parent_path(), ec)) {]] [[    LOGR("files: open %s disp %u root %08x => %s", name.c_str(), disposition, root, host.c_str());
     // a file in a missing folder fails as on the console: XAPI probes saves with OPEN_ALWAYS
@@ -118,6 +136,7 @@ string(REPLACE [[    // a file in a missing folder fails as on the console: XAPI
 string(REPLACE [[    f->pos = pos + n;
     if (write && n < len) return Finish(*f, 0xC000007F, n, event, apc, apc_ctx, iosb);  // disk full]] [[    f->pos = pos + n;
     if (write) LOGR("files: write %s %u bytes at %u => %08x", f->xbox.c_str(), n, (uint32_t)pos, n < len ? 0xC000007Fu : 0u);
+    if (!write && n && f->xbox.size() >= 2 && (f->xbox[0] == 'U' || f->xbox[0] == 'u' || f->xbox[0] == 'T' || f->xbox[0] == 't')) LOGR("files: read %s %u bytes at %u", f->xbox.c_str(), n, (uint32_t)pos);
     if (write && n < len) return Finish(*f, 0xC000007F, n, event, apc, apc_ctx, iosb);  // disk full]] _fc_src "${_fc_src}")
 string(REPLACE [[    if (!write && len && !n) return Finish(*f, kEndOfFile, 0, event, apc, apc_ctx, iosb);]] [[    if (!write && len && !n) LOGR("files: read eof %s %u bytes", f->xbox.c_str(), len);
     if (!write && len && !n) return Finish(*f, kEndOfFile, 0, event, apc, apc_ctx, iosb);]] _fc_src "${_fc_src}")
@@ -125,6 +144,23 @@ if(NOT _fc_src MATCHES "GALLEON-FILE-FIXES")
     message(FATAL_ERROR "the SDK's files.cpp could not be patched (unexpected SDK version)")
 endif()
 file(WRITE ${_fc} "${_fc_src}")
+endif()
+
+# v1.0.13: log controller button changes so the crash logs show whether the game received the
+# "Press A to continue" input (the dialog loop either waits forever or repeats its message)
+set(_xapi ${SDK}/runtime/xdk/xapi.cpp)
+file(READ ${_xapi} _xapi_src)
+if(NOT _xapi_src MATCHES "GALLEON-XAPI-FIXES")
+string(REPLACE [[#include "xdk/hle.h"]] [[#include "xdk/hle.h"
+#include "core/log.h"]] _xapi_src "${_xapi_src}")
+string(REPLACE [[    if (std::memcmp(&p, &h.last, sizeof(p))) h.packet++;
+    h.last = p;]] [[    if (std::memcmp(&p, &h.last, sizeof(p))) h.packet++;
+    if (p.buttons != h.last.buttons) LOGR("input: buttons %04x port %u", p.buttons, port);  // GALLEON-XAPI-FIXES
+    h.last = p;]] _xapi_src "${_xapi_src}")
+if(NOT _xapi_src MATCHES "GALLEON-XAPI-FIXES")
+    message(FATAL_ERROR "xapi.cpp could not be patched (unexpected SDK version)")
+endif()
+file(WRITE ${_xapi} "${_xapi_src}")
 endif()
 
 # v1.0.10: recompiled-code fix (GALLEON-RECOMP-FIXES): sub_001B5870 keeps its out-pointer in ebp across the

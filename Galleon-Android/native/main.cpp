@@ -205,6 +205,12 @@ static void InstallCrashHandler() {
     for (int sig : {SIGSEGV, SIGBUS, SIGFPE, SIGILL, SIGABRT}) sigaction(sig, &sa, nullptr);
     // an uncaught exception aborts with no signal of its own: log it, then abort so the SIGABRT
     // handler above writes the crash file (a silent app death would leave nothing to diagnose)
+    std::thread([] {
+        for (unsigned n = 1;; ++n) {
+            std::this_thread::sleep_for(std::chrono::seconds(5));
+            logx::Write(logx::Level::Report, "alive %us", n * 5);
+        }
+    }).detach();
     std::set_terminate([] {
         logx::Write(logx::Level::Error, "std::terminate: uncaught exception");
         try { throw; } catch (const std::exception& e) { logx::Write(logx::Level::Error, "  what: %s", e.what()); } catch (...) {}
