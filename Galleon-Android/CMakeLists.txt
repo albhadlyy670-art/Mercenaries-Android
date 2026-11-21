@@ -540,6 +540,28 @@ string(REPLACE [[X86_FUNC(__imp__sub_00068D10) {
 	uint32_t ca = 0, cb = 0;
 	(void)ca; (void)cb;
 	{ LOGR("boot: starting gameplay with the save"); }  // GALLEON-PROBE-FIXES]] _g10_src "${_g10_src}")
+string(REPLACE [[	// 00068C85 call [edx+0x1C]
+	{ uint32_t t = X86_MEM32((uint32_t)(ctx.edx + 0x1Cu)); X86_PUSH32(0x68C88u); x86_icall(ctx, base, t); }
+	// 00068C88 test al, al]] [[	// 00068C85 call [edx+0x1C]
+	{ uint32_t t = X86_MEM32((uint32_t)(ctx.edx + 0x1Cu)); X86_PUSH32(0x68C88u); x86_icall(ctx, base, t); }
+	{ char gp[72]; int gi; for (gi = 0; gi < 71; gi++) { gp[gi] = (char)X86_MEM8((uint32_t)(ctx.esp + 0x0Cu) + (uint32_t)gi); if (!gp[gi]) break; } gp[gi] = 0; LOGR("check: '%s' -> %u id=%08X", gp, (unsigned)(ctx.eax & 0xFFu), ctx.esi); }  // GALLEON-PROBE-FIXES
+	// 00068C88 test al, al]] _g10_src "${_g10_src}")
+string(REPLACE [[X86_FUNC(__imp__sub_00068CD0) {
+	X86_LOAD_FLAGS();
+	uint32_t ca = 0, cb = 0;
+	(void)ca; (void)cb;
+	// 00068CD0 mov eax, [0x00223688]
+	{ uint32_t ea = (uint32_t)(0x223688u); ctx.eax = (uint32_t)(X86_MEM32(ea)); }]] [[X86_FUNC(__imp__sub_00068CD0) {
+	X86_LOAD_FLAGS();
+	uint32_t ca = 0, cb = 0;
+	(void)ca; (void)cb;
+	{ LOGR("check: refresh marker before=%08X", X86_MEM32((uint32_t)(0x223688u))); }  // GALLEON-PROBE-FIXES
+	// 00068CD0 mov eax, [0x00223688]
+	{ uint32_t ea = (uint32_t)(0x223688u); ctx.eax = (uint32_t)(X86_MEM32(ea)); }]] _g10_src "${_g10_src}")
+string(REPLACE [[	// 00068CE0 mov [0x00223688], eax
+	{ uint32_t ea = (uint32_t)(0x223688u); X86_MEM32(ea) = (uint32_t)(ctx.eax); }]] [[	// 00068CE0 mov [0x00223688], eax
+	{ uint32_t ea = (uint32_t)(0x223688u); X86_MEM32(ea) = (uint32_t)(ctx.eax); }
+	{ LOGR("check: refresh marker after=%08X", ctx.eax); }  // GALLEON-PROBE-FIXES]] _g10_src "${_g10_src}")
 if(NOT _g10_src MATCHES "GALLEON-PROBE-FIXES")
     message(FATAL_ERROR "x86_recomp.10.cpp could not be patched (recompiler output changed?)")
 endif()
