@@ -162,6 +162,7 @@ extern "C" JNIEXPORT void JNICALL Java_com_racas_galleon_GalleonActivity_nativeL
     int bit, analog;
     LooseKey(code, bit, analog);
     if (bit < 0 && analog < 0) return;
+    { static unsigned g_n = 0; if (g_n++ < 120) LOGR("input: loose key %d %s -> bit %d analog %d", int(code), down ? "down" : "up", bit, analog); }
     std::lock_guard lock(g_loose_lock);
     g_loose.seen = true;
     if (bit >= 0) g_loose.buttons = uint16_t(down ? g_loose.buttons | (1u << bit) : g_loose.buttons & ~(1u << bit));
@@ -218,16 +219,20 @@ Pad Poll(int port) {
     touch::Apply(port, p);
     if (app::kGame.pad) app::kGame.pad(port, p);
     // GALLEON-INPUT-FIXES: what a poll hands out, so the log shows whether taps and keys reach the
-    // game at all (the first four polls and the first forty changes of each port)
+    // game at all (the first four polls and the first two hundred changes of each port, analogs included)
     if (port >= 0 && port < 4) {
         static std::mutex log_lock;
         static uint16_t last[4] = {0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF};
         static int seen[4] = {};
         std::lock_guard lk(log_lock);
-        if (seen[port] < 40 && (p.buttons != last[port] || seen[port] < 4)) {
-            LOGR("input: host port %u btn %04x ana %02x%02x conn %d", unsigned(port), p.buttons, p.analog[0],
-                 p.analog[1], int(p.connected));
+        static uint32_t lastana[4] = {};
+        uint32_t ana = uint32_t(p.analog[0]) | uint32_t(p.analog[1]) << 8 | uint32_t(p.analog[6]) << 16 |
+                       uint32_t(p.analog[7]) << 24;
+        if (seen[port] < 200 && (p.buttons != last[port] || ana != lastana[port] || seen[port] < 4)) {
+            LOGR("input: host port %u btn %04x ana %02x%02x rt %02x lt %02x conn %d", unsigned(port), p.buttons,
+                 p.analog[0], p.analog[1], p.analog[7], p.analog[6], int(p.connected));
             last[port] = p.buttons;
+            lastana[port] = ana;
             seen[port]++;
         }
     }

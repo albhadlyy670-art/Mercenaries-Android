@@ -142,6 +142,92 @@ string(REPLACE [[    f->pos = pos + n;
     if (write && n < len) return Finish(*f, 0xC000007F, n, event, apc, apc_ctx, iosb);  // disk full]] _fc_src "${_fc_src}")
 string(REPLACE [[    if (!write && len && !n) return Finish(*f, kEndOfFile, 0, event, apc, apc_ctx, iosb);]] [[    if (!write && len && !n) LOGR("files: read eof %s %u bytes", f->xbox.c_str(), len);
     if (!write && len && !n) return Finish(*f, kEndOfFile, 0, event, apc, apc_ctx, iosb);]] _fc_src "${_fc_src}")
+# v1.0.15: every IRP completes its event like the console's, on the failure paths too. The v1.0.14
+# freeze parked on `wait: forever on B0001000` right after the save: the save-slot listing's last
+# NtQueryDirectoryFile returned STATUS_NO_MORE_FILES without signalling its event, and a wait on it
+# (or on an ioctl's) never woke.
+string(REPLACE [[    auto f = FileFromHandle(h);
+    if (!f || (!f->fp && !f->entry)) return kInvalidHandle;
+    if (write && f->entry) return kAccessDenied;
+    ResetEvent(*f);]] [[    auto f = FileFromHandle(h);
+    if (!f || (!f->fp && !f->entry)) {  // GALLEON-FILE-FIXES: a failed IRP completes like the console's
+        IoStatus(iosb, kInvalidHandle, 0);
+        Complete(event, apc, apc_ctx, iosb);
+        return kInvalidHandle;
+    }
+    if (write && f->entry) {
+        IoStatus(iosb, kAccessDenied, 0);
+        SetEvent(*f);
+        Complete(event, apc, apc_ctx, iosb);
+        return kAccessDenied;
+    }
+    ResetEvent(*f);]] _fc_src "${_fc_src}")
+string(REPLACE [[    auto f = FileFromHandle(h);
+    if (!f || !f->dir) return kInvalidHandle;
+    if (cls != 1) {
+        LOG_FIRST(8, "NtQueryDirectoryFile: class %u", cls);
+        return kInvalidParameter;
+    }]] [[    auto f = FileFromHandle(h);
+    if (!f || !f->dir) {  // GALLEON-FILE-FIXES: a failed IRP completes like the console's
+        IoStatus(iosb, kInvalidHandle, 0);
+        Complete(event, apc, apc_ctx, iosb);
+        return kInvalidHandle;
+    }
+    if (cls != 1) {
+        LOG_FIRST(8, "NtQueryDirectoryFile: class %u", cls);
+        IoStatus(iosb, kInvalidParameter, 0);
+        Complete(event, apc, apc_ctx, iosb);
+        return kInvalidParameter;
+    }]] _fc_src "${_fc_src}")
+string(REPLACE [[    if (f->next >= (f->entry ? f->disc_entries.size() : f->entries.size())) {
+        IoStatus(iosb, kNoMoreFiles, 0);
+        return f->next == 0 ? kNoSuchFile : kNoMoreFiles;
+    }]] [[    if (f->next >= (f->entry ? f->disc_entries.size() : f->entries.size())) {
+        // GALLEON-FILE-FIXES: the end of the listing completes like every other IRP; without the
+        // event's signal a save listing that waits on it never wakes (the v1.0.14 freeze)
+        uint32_t st = f->next == 0 ? kNoSuchFile : kNoMoreFiles;
+        IoStatus(iosb, st, 0);
+        LOGR("files: dir end %s => %08X", f->xbox.c_str(), st);
+        Complete(event, apc, apc_ctx, iosb);
+        return st;
+    }]] _fc_src "${_fc_src}")
+string(REPLACE [[    if (len < need) return kBufferTooSmall;]] [[    if (len < need) {  // GALLEON-FILE-FIXES: a failed IRP completes like the console's
+        IoStatus(iosb, kBufferTooSmall, 0);
+        Complete(event, apc, apc_ctx, iosb);
+        return kBufferTooSmall;
+    }]] _fc_src "${_fc_src}")
+string(REPLACE [[KERNEL_EXPORT(200, NtFsControlFile, 10) {
+    IoStatus(a[4], kSuccess, 0);
+    return kSuccess;
+}]] [[KERNEL_EXPORT(200, NtFsControlFile, 10) {
+    // GALLEON-FILE-FIXES: the IRP completes: without the event's signal a wait on it never wakes
+    { static unsigned g_n = 0; if (g_n++ < 40) LOGR("files: fsctl code %08X event %08X", a[5], a[1]); }
+    IoStatus(a[4], kSuccess, 0);
+    Complete(a[1], a[2], a[3], a[4]);
+    return kSuccess;
+}]] _fc_src "${_fc_src}")
+string(REPLACE [[    if (code == 0x70000 && out_len >= 0x18) {  // IOCTL_DISK_GET_DRIVE_GEOMETRY
+        W64(out, 1000);
+        W32(out + 8, 12);
+        W32(out + 12, 255);
+        W32(out + 16, 63);
+        W32(out + 20, 512);
+    }
+    IoStatus(iosb, kSuccess, out_len);
+    return kSuccess;
+}]] [[    if (code == 0x70000 && out_len >= 0x18) {  // IOCTL_DISK_GET_DRIVE_GEOMETRY
+        W64(out, 1000);
+        W32(out + 8, 12);
+        W32(out + 12, 255);
+        W32(out + 16, 63);
+        W32(out + 20, 512);
+    }
+    IoStatus(iosb, kSuccess, out_len);
+    // GALLEON-FILE-FIXES: the IRP completes like the console's, event and APC included
+    { static unsigned g_n = 0; if (g_n++ < 40) LOGR("files: ioctl code %08X event %08X", code, a[1]); }
+    Complete(a[1], a[2], a[3], iosb);
+    return kSuccess;
+}]] _fc_src "${_fc_src}")
 if(NOT _fc_src MATCHES "GALLEON-FILE-FIXES")
     message(FATAL_ERROR "the SDK's files.cpp could not be patched (unexpected SDK version)")
 endif()
@@ -198,7 +284,12 @@ string(REPLACE [[HLE_STDCALL(XInputGetState, 2) {
     if (g_sn.fetch_add(1) < 40) LOGR("input: GetState port %u btn %04x ana %02x%02x", port, p.buttons, p.analog[0], p.analog[1]);  // GALLEON-XAPI-FIXES]] _xapi_src "${_xapi_src}")
 string(REPLACE [[    if (std::memcmp(&p, &h.last, sizeof(p))) h.packet++;
     h.last = p;]] [[    if (std::memcmp(&p, &h.last, sizeof(p))) h.packet++;
-    if (p.buttons != h.last.buttons) LOGR("input: buttons %04x port %u", p.buttons, port);  // GALLEON-XAPI-FIXES
+    if (p.buttons != h.last.buttons || std::memcmp(p.analog, h.last.analog, 8)) {  // GALLEON-XAPI-FIXES
+        static unsigned g_bn = 0;
+        if (g_bn++ < 200) LOGR("input: pad %04x %02x%02x%02x%02x%02x%02x%02x%02x port %u", p.buttons, p.analog[0],
+                               p.analog[1], p.analog[2], p.analog[3], p.analog[4], p.analog[5], p.analog[6],
+                               p.analog[7], port);
+    }
     h.last = p;]] _xapi_src "${_xapi_src}")
 string(REPLACE [[    input::Rumble(int(port), R16(fb + 66), R16(fb + 68));]] [[    { static std::atomic<unsigned> g_rn{0}; if (g_rn.fetch_add(1) < 40) LOGR("input: SetState port %u mot %04X %04X ev %08X", port, R16(fb + 66), R16(fb + 68), R32(fb + 4)); }  // GALLEON-XAPI-FIXES
     input::Rumble(int(port), R16(fb + 66), R16(fb + 68));]] _xapi_src "${_xapi_src}")
@@ -231,7 +322,10 @@ string(REPLACE [[uint32_t Wait(const std::vector<ObjectRef>& objs, bool wait_all
         int& n = g_wait_forever[guest];
         if (n < 3) {
             n++;
-            LOGR("wait: forever on %08X", guest);
+            static const char* tn[] = {"event", "semaphore", "mutant", "timer", "thread", "file", "symlink", "device", "queue", "other"};
+            LOGR("wait: forever on %08X type %s sig %d", guest,
+                 objs.empty() || !objs[0] || unsigned(objs[0]->type) >= 10 ? "?" : tn[unsigned(objs[0]->type)],
+                 objs.empty() || !objs[0] ? 0 : objs[0]->signal);
         }
     }
     auto t0 = std::chrono::steady_clock::now();
@@ -241,7 +335,9 @@ string(REPLACE [[uint32_t Wait(const std::vector<ObjectRef>& objs, bool wait_all
         std::lock_guard<std::mutex> lk(g_wait_log_lock);
         if (g_wait_long < 60) {
             g_wait_long++;
-            LOGR("wait: %dms on %08X r=%u", int(ms), guest, r);
+            static const char* tn[] = {"event", "semaphore", "mutant", "timer", "thread", "file", "symlink", "device", "queue", "other"};
+            LOGR("wait: %dms on %08X type %s r=%u", int(ms), guest,
+                 objs.empty() || !objs[0] || unsigned(objs[0]->type) >= 10 ? "?" : tn[unsigned(objs[0]->type)], r);
         }
     }
     SuspendPoint();

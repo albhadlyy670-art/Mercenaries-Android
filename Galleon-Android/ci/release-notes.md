@@ -42,6 +42,9 @@
 
 The settings live in the settings panel, opened by Android's back button or the touch controls' gear button.
 
+> [!TIP]
+> The small badges on the touch controls are the original Xbox buttons they act as — when the game asks you to "press Ⓐ", use the **(A)**-badged **Reload** button at the bottom right.
+
 ## 📱 Requirements
 
 - **Android** 10 or newer, arm64

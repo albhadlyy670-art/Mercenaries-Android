@@ -237,6 +237,8 @@ Held PressActions(const Binds& binds, bool play, Pad& p) {
         int b = kActions[i].button;
         if (b == kHostKey || !std::any_of(binds[i].begin(), binds[i].end(), pressed)) continue;
         held.used = true;
+        { static std::array<bool, kCount> was{}; static unsigned g_n = 0;
+          if (!was[i]) { if (g_n++ < 120) LOGR("input: key bind %s", kActions[i].action.id); was[i] = true; } }
         if (g_text && b != kStart) continue;
         if (b == kWalk) {
             held.walk = true;
@@ -854,6 +856,15 @@ void Recount() {
         if (f.role == Role::Stick) stick = true;
     }
     if (!stick) g_stick_x = g_stick_y = 0;
+    {  // which on-screen button each press came from
+        static std::array<bool, kButtonCount> was{};
+        static unsigned g_n = 0;
+        for (size_t i = 0; i < kButtonCount; i++)
+            if (bool now = g_pressed[i]; now != was[i]) {
+                if (g_n++ < 120) LOGR("input: touch %s %s", kButtons[i].id, now ? "press" : "release");
+                was[i] = now;
+            }
+    }
 }
 
 void Resize(size_t i, float r) { g_layout[i].r = std::clamp(r, kMinRadius, kMaxRadius); }
