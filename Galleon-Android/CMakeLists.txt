@@ -499,6 +499,53 @@ endif()
 file(WRITE ${_g59} "${_g59_src}")
 endif()
 
+# v1.0.21: relaunch-loop probes (GALLEON-PROBE-FIXES): the loop is fully traced — the menu's save-commit
+# (obj.method+0x1C at 0x64403) returns -1 instead of the save's slot id, the relaunch carries data0=FFFFFFFF,
+# the boot check for that save fails and the boot path relaunches with the same marker forever.
+# Probe the decisive points until the -1's origin is named: the commit call args/return, the boot save-check,
+# which relaunch branch runs, and the gameplay-start entry.
+set(_g10 ${REPO}/generated/game/x86_recomp.10.cpp)
+file(READ ${_g10} _g10_src)
+if(NOT _g10_src MATCHES "GALLEON-PROBE-FIXES")
+string(REPLACE [[#include "x86_recomp_shared.h"]] [[#include "x86_recomp_shared.h"
+#include "core/log.h"]] _g10_src "${_g10_src}")
+string(REPLACE [[	// 00064403 call [esi+0x1C]
+	{ uint32_t t = X86_MEM32((uint32_t)(ctx.esi + 0x1Cu)); X86_PUSH32(0x64406u); x86_icall(ctx, base, t); }
+	// 00064406 mov [ebp+0x1A4], eax
+	{ uint32_t ea = (uint32_t)(ctx.ebp + 0x1A4u); X86_MEM32(ea) = (uint32_t)(ctx.eax); }]] [[	// 00064403 call [esi+0x1C]
+	{ LOGR("save: commit call obj=%08X m=%08X a1=%08X a2=%08X a3=%08X", ctx.ecx, X86_MEM32((uint32_t)(ctx.esi + 0x1Cu)), ctx.eax, ctx.edx, ctx.ebx); }  // GALLEON-PROBE-FIXES
+	{ uint32_t t = X86_MEM32((uint32_t)(ctx.esi + 0x1Cu)); X86_PUSH32(0x64406u); x86_icall(ctx, base, t); }
+	// 00064406 mov [ebp+0x1A4], eax
+	{ uint32_t ea = (uint32_t)(ctx.ebp + 0x1A4u); X86_MEM32(ea) = (uint32_t)(ctx.eax); }
+	{ LOGR("save: commit ret=%08X", ctx.eax); }  // GALLEON-PROBE-FIXES]] _g10_src "${_g10_src}")
+string(REPLACE [[	// 000635A4 call 0x00068C30
+	X86_PUSH32(0x635A9u); sub_00068C30(ctx, base);
+	// 000635A9 test eax, eax]] [[	// 000635A4 call 0x00068C30
+	X86_PUSH32(0x635A9u); sub_00068C30(ctx, base);
+	{ LOGR("boot: save-check id=%08X ret=%08X", X86_MEM32((uint32_t)(0x223688u)), ctx.eax); }  // GALLEON-PROBE-FIXES
+	// 000635A9 test eax, eax]] _g10_src "${_g10_src}")
+string(REPLACE [[	// 00068EBA mov ebx, [0x00223688]
+	{ uint32_t ea = (uint32_t)(0x223688u); ctx.ebx = (uint32_t)(X86_MEM32(ea)); }]] [[	// 00068EBA mov ebx, [0x00223688]
+	{ uint32_t ea = (uint32_t)(0x223688u); ctx.ebx = (uint32_t)(X86_MEM32(ea)); }
+	{ LOGR("relaunch: marker path ebx=%08X", ctx.ebx); }  // GALLEON-PROBE-FIXES]] _g10_src "${_g10_src}")
+string(REPLACE [[	// 00068ED5 mov ebx, [esi+0x1A4]
+	{ uint32_t ea = (uint32_t)(ctx.esi + 0x1A4u); ctx.ebx = (uint32_t)(X86_MEM32(ea)); }]] [[	// 00068ED5 mov ebx, [esi+0x1A4]
+	{ uint32_t ea = (uint32_t)(ctx.esi + 0x1A4u); ctx.ebx = (uint32_t)(X86_MEM32(ea)); }
+	{ LOGR("relaunch: slot path ebx=%08X", ctx.ebx); }  // GALLEON-PROBE-FIXES]] _g10_src "${_g10_src}")
+string(REPLACE [[X86_FUNC(__imp__sub_00068D10) {
+	X86_LOAD_FLAGS();
+	uint32_t ca = 0, cb = 0;
+	(void)ca; (void)cb;]] [[X86_FUNC(__imp__sub_00068D10) {
+	X86_LOAD_FLAGS();
+	uint32_t ca = 0, cb = 0;
+	(void)ca; (void)cb;
+	{ LOGR("boot: starting gameplay with the save"); }  // GALLEON-PROBE-FIXES]] _g10_src "${_g10_src}")
+if(NOT _g10_src MATCHES "GALLEON-PROBE-FIXES")
+    message(FATAL_ERROR "x86_recomp.10.cpp could not be patched (recompiler output changed?)")
+endif()
+file(WRITE ${_g10} "${_g10_src}")
+endif()
+
 # the recompiled code and the xbe it came from
 set(XBE_GENERATED ${REPO}/generated/game CACHE PATH "the recompiled code of default.xbe")
 set(XBE_IMAGE ${REPO}/assets/default.xbe CACHE FILEPATH "the xbe it was recompiled from")
