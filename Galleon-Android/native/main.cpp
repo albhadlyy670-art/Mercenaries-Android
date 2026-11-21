@@ -202,21 +202,32 @@ static void InstallCrashHandler() {
     sa.sa_sigaction = CrashHandler;
     sigemptyset(&sa.sa_mask);
     sa.sa_flags = SA_SIGINFO | SA_ONSTACK;
-    for (int sig : {SIGSEGV, SIGBUS, SIGFPE, SIGILL, SIGABRT}) sigaction(sig, &sa, nullptr);
+    for (int sig : {SIGSEGV, SIGBUS, SIGFPE, SIGILL, SIGABRT, SIGTERM, SIGHUP, SIGQUIT}) sigaction(sig, &sa, nullptr);
     // an uncaught exception aborts with no signal of its own: log it, then abort so the SIGABRT
     // handler above writes the crash file (a silent app death would leave nothing to diagnose)
     std::thread([] {
         for (unsigned n = 1;; ++n) {
-            std::this_thread::sleep_for(std::chrono::seconds(5));
-            // the live thread set with each tick: a thread that vanishes from one tick to the
-            // next exited, one stuck forever is the one to blame when the log stops (v1.0.16)
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+            // v1.0.17: 1s watchdog with the resident size — the app died silently after the save
+            // (no signal, no Exit) which means an outside kill; the last tick shows the memory it
+            // stood at and whether Android had already backgrounded it
+            unsigned long rss_kb = 0;
+            {
+                std::FILE* f = std::fopen("/proc/self/statm", "r");
+                if (f) {
+                    unsigned long total = 0, resident = 0;
+                    if (std::fscanf(f, "%lu %lu", &total, &resident) == 2) rss_kb = resident * 4;  // 4K pages
+                    std::fclose(f);
+                }
+            }
             std::string tl;
             for (auto& t : kernel::Threads()) {
                 char b[40];
                 std::snprintf(b, sizeof(b), " %X:%s", t->id, t->suspend.load() > 0 ? "susp" : "run");
                 tl += b;
             }
-            logx::Write(logx::Level::Report, "alive %us%s", n * 5, tl.c_str());
+            logx::Write(logx::Level::Report, "alive %us rss=%luKB fg=%d%s", n, rss_kb,
+                        g_foreground.load() ? 1 : 0, tl.c_str());
         }
     }).detach();
     std::set_terminate([] {
@@ -240,7 +251,7 @@ void SetForeground(bool on) {
         g_foreground = on;
     }
     g_foreground_cv.notify_all();
-    LOGI("app: %s", on ? "in front" : "in the background");
+    LOGR("app: %s", on ? "in front" : "in the background");  // v1.0.17: visible (LOGI is release-invisible)
 }
 
 // SDL's display mode in landscape: the window is not up yet when the settings load
@@ -473,17 +484,20 @@ void Dispatch(const SDL_Event& e) {
     switch (e.type) {
         case SDL_EVENT_QUIT:
         case SDL_EVENT_TERMINATING:
+            LOGR("app: SDL event %u — the system is closing the app", e.type);  // v1.0.17
             logx::Flush();
             kernel::Shutdown(0);
             break;
         case SDL_EVENT_WILL_ENTER_BACKGROUND:
+            LOGR("app: SDL event %u — entering background", e.type);  // v1.0.17
             SetForeground(false);
             break;
         case SDL_EVENT_DID_ENTER_FOREGROUND:
+            LOGR("app: SDL event %u — entering foreground", e.type);  // v1.0.17
             SetForeground(true);
             break;
         case SDL_EVENT_LOW_MEMORY:
-            LOGW("app: Android is low on memory");
+            LOGR("app: Android is low on memory");  // v1.0.17: was LOGW (release-invisible)
             break;
         case SDL_EVENT_SENSOR_UPDATE:
         case SDL_EVENT_GAMEPAD_SENSOR_UPDATE:

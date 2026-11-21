@@ -322,10 +322,12 @@ string(REPLACE [[uint32_t Wait(const std::vector<ObjectRef>& objs, bool wait_all
         int& n = g_wait_forever[guest];
         if (n < 3) {
             n++;
+            uint32_t galleon_caller = 0;  // GALLEON-WAIT-FIXES v1.0.17: the guest call site that parked here
+            if (Thread* me = Current()) if (me->ctx) galleon_caller = R32(me->ctx->esp);
             static const char* tn[] = {"event", "semaphore", "mutant", "timer", "thread", "file", "symlink", "device", "queue", "other"};
-            LOGR("wait: forever on %08X type %s sig %d", guest,
+            LOGR("wait: forever on %08X type %s sig %d caller %08X", guest,
                  objs.empty() || !objs[0] || unsigned(objs[0]->type) >= 10 ? "?" : tn[unsigned(objs[0]->type)],
-                 objs.empty() || !objs[0] ? 0 : objs[0]->signal);
+                 objs.empty() || !objs[0] ? 0 : objs[0]->signal, galleon_caller);
         }
     }
     auto t0 = std::chrono::steady_clock::now();
@@ -388,6 +390,43 @@ if(NOT _thr_src MATCHES "GALLEON-THREAD-FIXES")
     message(FATAL_ERROR "threads.cpp could not be patched (unexpected SDK version)")
 endif()
 file(WRITE ${_thr} "${_thr_src}")
+endif()
+
+# v1.0.17: the game's exit paths leave visible traces (GALLEON-EXIT-FIXES): after the save flow the app
+# died with no signal, no Exit and an empty crash file — only an unlogged _Exit or an outside SIGKILL can
+# do that. HalReturnToFirmware's story was LOGI (release-invisible) and Relaunch's execl-failure _Exit
+# logged nothing at all; both speak now.
+set(_krnl ${SDK}/runtime/kernel/xboxkrnl.cpp)
+file(READ ${_krnl} _krnl_src)
+if(NOT _krnl_src MATCHES "GALLEON-EXIT-FIXES")
+string(REPLACE [[LOGI("HalReturnToFirmware(%u): the title asked to leave", a[0]);]] [[LOGR("game: HalReturnToFirmware(%u): the title asked to leave", a[0]);  // GALLEON-EXIT-FIXES]] _krnl_src "${_krnl_src}")
+string(REPLACE [[LOGI("relaunching into %s", path.c_str());]] [[LOGR("game: relaunching into %s", path.c_str());  // GALLEON-EXIT-FIXES]] _krnl_src "${_krnl_src}")
+if(NOT _krnl_src MATCHES "GALLEON-EXIT-FIXES")
+    message(FATAL_ERROR "xboxkrnl.cpp could not be patched (unexpected SDK version)")
+endif()
+file(WRITE ${_krnl} "${_krnl_src}")
+endif()
+set(_boot ${SDK}/runtime/kernel/boot.cpp)
+file(READ ${_boot} _boot_src)
+if(NOT _boot_src MATCHES "GALLEON-EXIT-FIXES")
+string(REPLACE [[    execl(path.c_str(), path.c_str(), nullptr);
+    std::_Exit(0);]] [[    execl(path.c_str(), path.c_str(), nullptr);
+    LOGR("app: execl into %s failed — exiting silently", path.c_str());  // GALLEON-EXIT-FIXES
+    std::_Exit(0);]] _boot_src "${_boot_src}")
+if(NOT _boot_src MATCHES "GALLEON-EXIT-FIXES")
+    message(FATAL_ERROR "boot.cpp could not be patched (unexpected SDK version)")
+endif()
+file(WRITE ${_boot} "${_boot_src}")
+endif()
+
+set(_log ${SDK}/runtime/core/log.cpp)
+file(READ ${_log} _log_src)
+if(NOT _log_src MATCHES "GALLEON-LOG-FIXES")
+string(REPLACE [[                 : std::snprintf(line, sizeof(line), "[%9.3f] %s%s\n", t, lv == Level::Error ? "error: " : "", msg);]] [[                 : std::snprintf(line, sizeof(line), "[%9.3f] [t%04zx] %s%s\n", t, size_t(tid), lv == Level::Error ? "error: " : "", msg);  // GALLEON-LOG-FIXES]] _log_src "${_log_src}")
+if(NOT _log_src MATCHES "GALLEON-LOG-FIXES")
+    message(FATAL_ERROR "log.cpp could not be patched (unexpected SDK version)")
+endif()
+file(WRITE ${_log} "${_log_src}")
 endif()
 
 # v1.0.10: recompiled-code fix (GALLEON-RECOMP-FIXES): sub_001B5870 keeps its out-pointer in ebp across the
