@@ -35,6 +35,31 @@ endif()
 set(_fc ${SDK}/runtime/kernel/files.cpp)
 file(READ ${_fc} _fc_src)
 if(NOT _fc_src MATCHES "GALLEON-FILE-FIXES")
+string(REPLACE [[Target Resolve(const std::string& xbox_path, uint32_t root_handle) {
+    std::string p = Normalize(xbox_path);
+    if (root_handle) {
+        if (auto f = FileFromHandle(root_handle)) p = Normalize(f->xbox + "\\" + p);
+    }]] [[Target Resolve(const std::string& xbox_path, uint32_t root_handle) {
+    std::string p = Normalize(xbox_path);
+    bool absolute = p.size() >= 2 && (p[1] == ':' || p.compare(0, 4, "\\??\\") == 0);
+    if (root_handle && !absolute) {
+        if (auto f = FileFromHandle(root_handle)) {
+            if (!f->entry && !f->host.empty()) {
+                // a bare name resolves within the root directory's own host folder (GALLEON-FILE-FIXES):
+                // building an xbox path and re-resolving it landed the save reads on stale copies
+                std::vector<std::string> parts;
+                size_t s = 0;
+                while (s < p.size()) {
+                    size_t e = p.find('\\', s);
+                    if (e == std::string::npos) e = p.size();
+                    if (e > s) parts.push_back(p.substr(s, e - s));
+                    s = e + 1;
+                }
+                return {MatchCase(f->host, parts).string()};
+            }
+            p = Normalize(f->xbox + "\\" + p);
+        }
+    }]] _fc_src "${_fc_src}")
 string(REPLACE [[        case 10: {  // rename: ReplaceIfExists, RootDirectory, FileName (ANSI_STRING inline)
             uint32_t root = R32(in + 4);
             std::string target = ReadAnsiString(in + 8);
@@ -73,7 +98,7 @@ string(REPLACE [[    if (host.empty() || !fs::exists(host, ec)) {
         return host.empty() ? kObjectPathNotFound : kObjectNameNotFound;
     }]] [[    if (host.empty() || !fs::exists(host, ec)) {
         bool missing_path = host.empty() || !fs::is_directory(fs::path(host).parent_path(), ec);
-        LOGR("files: open missing %s (%s)", name.c_str(), missing_path ? "path" : "name");
+        LOGR("files: open missing %s root %08x (%s)", name.c_str(), root, missing_path ? "path" : "name");
         IoStatus(iosb, missing_path ? kObjectPathNotFound : kObjectNameNotFound, 5);
         return missing_path ? kObjectPathNotFound : kObjectNameNotFound;
     }]] _fc_src "${_fc_src}")
@@ -82,7 +107,7 @@ string(REPLACE [[    (void)options;
     IoStatus(iosb, kSuccess, 1);
     return kSuccess;]] [[    (void)options;
     W32(handle_out, NewHandle(f));
-    LOGR("files: open ok %s", name.c_str());
+    LOGR("files: open ok %s root %08x => %s", name.c_str(), root, host.c_str());
     IoStatus(iosb, kSuccess, 1);
     return kSuccess;]] _fc_src "${_fc_src}")
 string(REPLACE [[    // a file in a missing folder fails as on the console: XAPI probes saves with OPEN_ALWAYS
