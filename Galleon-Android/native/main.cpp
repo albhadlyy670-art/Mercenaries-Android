@@ -521,8 +521,12 @@ int main(int, char**) {
     // The Xbox dashboard provides the virtual drives T/U/V/W/S at game launch
     // (U: is where Galleon saves its profile: U:\<console id>\Prefs.pro).
     // MountDefaults only maps D: and the E/C/X/Y/Z partitions, so add the
-    // missing links here or every save/rename resolves to nothing and fails.
-    for (const char* drive : {"T:", "U:", "V:", "W:", "S:"}) {
+    // the game mounts T:/U: to its per-title TDATA/UDATA folders itself, but only later; before
+    // that, and for the other utility drives, the letters need a target or every save/rename
+    // resolves to nothing and fails (the file layer only maps D: and the harddisk partitions).
+    kernel::CreateSymbolicLink("\\??\\T:", "\\Device\\Harddisk0\\Partition1\\TDATA");
+    kernel::CreateSymbolicLink("\\??\\U:", "\\Device\\Harddisk0\\Partition1\\UDATA");
+    for (const char* drive : {"V:", "W:", "S:"}) {
         std::string link = std::string("\\??\\") + drive;
         kernel::CreateSymbolicLink(link, "\\Device\\Harddisk0\\Partition1");
     }

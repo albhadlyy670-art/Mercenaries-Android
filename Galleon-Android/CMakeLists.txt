@@ -27,6 +27,72 @@ else()
     set(SDK ${xbe_sdk_SOURCE_DIR})
 endif()
 
+# Galleon fixes for the SDK's file layer, applied at configure time (idempotent, marker-checked):
+#   - the profile save rotation renames Prefs.prf to the bare name Prefs.bak: a rename target that
+#     does not resolve on its own is resolved within the source file's directory
+#   - open on a file inside a missing folder fails with STATUS_OBJECT_PATH_NOT_FOUND as on the console
+#   - the file operations and their outcome are logged so crash logs show the failing step
+set(_fc ${SDK}/runtime/kernel/files.cpp)
+file(READ ${_fc} _fc_src)
+string(REPLACE [[        case 10: {  // rename: ReplaceIfExists, RootDirectory, FileName (ANSI_STRING inline)
+            uint32_t root = R32(in + 4);
+            std::string target = ReadAnsiString(in + 8);
+            std::string host = ResolvePath(target, root);
+            if (host.empty()) return kObjectPathNotFound;
+            if (f->fp) std::fflush(f->fp);
+            fs::rename(f->host, host, ec);
+            if (ec) return kAccessDenied;
+            f->host = host;
+            break;
+        }]] [[        case 10: {  // rename: ReplaceIfExists, RootDirectory, FileName (ANSI_STRING inline)  (GALLEON-FILE-FIXES)
+            uint32_t root = R32(in + 4);
+            std::string target = ReadAnsiString(in + 8);
+            std::string host = ResolvePath(target, root);
+            if (host.empty()) {
+                // a bare target like Prefs.bak renames within the source file's directory
+                std::string dir = f->xbox;
+                std::string::size_type p = dir.find_last_of("\\/");
+                if (p != std::string::npos) host = ResolvePath(dir.substr(0, p + 1) + target, 0);
+            }
+            LOGI("files: rename %s -> '%s' => %s", f->host.c_str(), target.c_str(),
+                 host.empty() ? "no mapping" : host.c_str());
+            if (host.empty()) return kObjectPathNotFound;
+            if (f->fp) std::fflush(f->fp);
+            fs::rename(f->host, host, ec);
+            if (ec) {
+                LOGI("files: rename failed: %s", ec.message().c_str());
+                return kAccessDenied;
+            }
+            f->host = host;
+            break;
+        }]] _fc_src "${_fc_src}")
+string(REPLACE [[    if (host.empty() || !fs::exists(host, ec)) {
+        LOG_FIRST(200, "missing %s", name.c_str());
+        IoStatus(iosb, kObjectNameNotFound, 5);
+        return host.empty() ? kObjectPathNotFound : kObjectNameNotFound;
+    }]] [[    if (host.empty() || !fs::exists(host, ec)) {
+        bool missing_path = host.empty() || !fs::is_directory(fs::path(host).parent_path(), ec);
+        LOGI("files: open missing %s (%s)", name.c_str(), missing_path ? "path" : "name");
+        IoStatus(iosb, missing_path ? kObjectPathNotFound : kObjectNameNotFound, 5);
+        return missing_path ? kObjectPathNotFound : kObjectNameNotFound;
+    }]] _fc_src "${_fc_src}")
+string(REPLACE [[    (void)options;
+    W32(handle_out, NewHandle(f));
+    IoStatus(iosb, kSuccess, 1);
+    return kSuccess;]] [[    (void)options;
+    W32(handle_out, NewHandle(f));
+    LOGI("files: open ok %s", name.c_str());
+    IoStatus(iosb, kSuccess, 1);
+    return kSuccess;]] _fc_src "${_fc_src}")
+string(REPLACE [[    // a file in a missing folder fails as on the console: XAPI probes saves with OPEN_ALWAYS
+    if (!exists && !fs::is_directory(fs::path(host).parent_path(), ec)) {]] [[    // a file in a missing folder fails as on the console: XAPI probes saves with OPEN_ALWAYS
+    if (!exists && !fs::is_directory(fs::path(host).parent_path(), ec)) {
+        LOGI("files: create %s disp %u in a missing folder", name.c_str(), disposition);]] _fc_src "${_fc_src}")
+if(NOT _fc_src MATCHES "GALLEON-FILE-FIXES")
+    message(FATAL_ERROR "the SDK's files.cpp could not be patched (unexpected SDK version)")
+endif()
+file(WRITE ${_fc} "${_fc_src}")
+
 # the recompiled code and the xbe it came from
 set(XBE_GENERATED ${REPO}/generated/game CACHE PATH "the recompiled code of default.xbe")
 set(XBE_IMAGE ${REPO}/assets/default.xbe CACHE FILEPATH "the xbe it was recompiled from")
