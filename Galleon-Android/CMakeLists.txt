@@ -539,7 +539,7 @@ string(REPLACE [[X86_FUNC(__imp__sub_00068D10) {
 	X86_LOAD_FLAGS();
 	uint32_t ca = 0, cb = 0;
 	(void)ca; (void)cb;
-	{ LOGR("boot: starting gameplay with the save"); }  // GALLEON-PROBE-FIXES]] _g10_src "${_g10_src}")
+	{ LOGR("menu: save-select entry ret=%08X marker=%08X", X86_MEM32(ctx.esp), X86_MEM32((uint32_t)(0x223688u))); }  // GALLEON-PROBE-FIXES]] _g10_src "${_g10_src}")
 string(REPLACE [[	// 00068C85 call [edx+0x1C]
 	{ uint32_t t = X86_MEM32((uint32_t)(ctx.edx + 0x1Cu)); X86_PUSH32(0x68C88u); x86_icall(ctx, base, t); }
 	// 00068C88 test al, al]] [[	// 00068C85 call [edx+0x1C]
@@ -562,11 +562,57 @@ string(REPLACE [[	// 00068CE0 mov [0x00223688], eax
 	{ uint32_t ea = (uint32_t)(0x223688u); X86_MEM32(ea) = (uint32_t)(ctx.eax); }]] [[	// 00068CE0 mov [0x00223688], eax
 	{ uint32_t ea = (uint32_t)(0x223688u); X86_MEM32(ea) = (uint32_t)(ctx.eax); }
 	{ LOGR("check: refresh marker after=%08X", ctx.eax); }  // GALLEON-PROBE-FIXES]] _g10_src "${_g10_src}")
+# v1.0.23: loop-decision probes (GALLEON-PROBE-FIXES): why the save-check gate never runs + the boot name path
+string(REPLACE [[	// 0006353A mov eax, [ebp+0x1D0]
+	{ uint32_t ea = (uint32_t)(ctx.ebp + 0x1D0u); ctx.eax = (uint32_t)(X86_MEM32(ea)); }]] [[	// 0006353A mov eax, [ebp+0x1D0]
+	{ uint32_t ea = (uint32_t)(ctx.ebp + 0x1D0u); ctx.eax = (uint32_t)(X86_MEM32(ea)); }
+	{ static uint32_t g1 = 0, g2 = 0, g3 = 0, g4 = 0, g5 = 0; static bool gfirst = true; uint32_t n1 = X86_MEM32((uint32_t)(ctx.ebp + 0x1D0u)), n2 = X86_MEM32((uint32_t)(ctx.ebp + 0x1C4u)), n3 = X86_MEM32((uint32_t)(ctx.ebp + 0x130u)), n4 = X86_MEM32((uint32_t)(0x223688u)), n5 = X86_MEM32((uint32_t)(0x2390B8u)); if (gfirst || n1 != g1 || n2 != g2 || n3 != g3 || n4 != g4 || n5 != g5) { gfirst = false; g1 = n1; g2 = n2; g3 = n3; g4 = n4; g5 = n5; LOGR("guard: idx=%08X cnt=%08X f130=%08X marker=%08X p200=%08X b8=%08X", n1, n2, n3, n4, X86_MEM32((uint32_t)(ctx.ebp + 0x200u)), n5); } }  // GALLEON-PROBE-FIXES]] _g10_src "${_g10_src}")
+string(REPLACE [[	// 0006482E comiss xmm1, xmm0
+	{ float a = ctx.xmm[1].f[0], b = ctx.xmm[0].f[0]; bool u = a != a || b != b; zf = u || a == b; pf = u; cf = u || a < b; of = 0; sf = 0; }]] [[	// 0006482E comiss xmm1, xmm0
+	{ float a = ctx.xmm[1].f[0], b = ctx.xmm[0].f[0]; bool u = a != a || b != b; zf = u || a == b; pf = u; cf = u || a < b; of = 0; sf = 0; }
+	{ static int gc = 0; if (gc < 8) { gc++; LOGR("gate: xmm0=%08X marker=%08X", ctx.xmm[0].u[0], X86_MEM32((uint32_t)(0x223688u))); } }  // GALLEON-PROBE-FIXES]] _g10_src "${_g10_src}")
+string(REPLACE [[	// 000634F8 call 0x00061000
+	X86_PUSH32(0x634FDu); sub_00061000(ctx, base);]] [[	// 000634F8 call 0x00061000
+	X86_PUSH32(0x634FDu); sub_00061000(ctx, base);
+	{ static int nb = 0; if (nb < 4) { nb++; LOGR("bootname: shellidx=%08X marker=%08X", ctx.eax, X86_MEM32((uint32_t)(0x223688u))); } }  // GALLEON-PROBE-FIXES]] _g10_src "${_g10_src}")
 if(NOT _g10_src MATCHES "GALLEON-PROBE-FIXES")
     message(FATAL_ERROR "x86_recomp.10.cpp could not be patched (recompiler output changed?)")
 endif()
 file(WRITE ${_g10} "${_g10_src}")
 endif()
+
+# v1.0.23: the relaunch-loop fix (GALLEON-SAVESELECT-FIXES): confirming a save at the save-select
+# runs sub_00067B70 whose tail relaunches via sub_00068F00(1) -> sub_00068E60(obj,1) -> the marker-form
+# launch payload data[0]=[0x223688]. The marker is still -1 (the refresher sub_00068CD0 that would
+# advance it is gated off), so the relaunch lands right back on the save select: the loop. Write the
+# selected save index (ebx) into the marker right before the launch so the payload carries the slot.
+if(NOT _g10_src MATCHES "GALLEON-SAVESELECT-FIXES")
+string(REPLACE [[	// 00067C07 push 0x01
+	{ uint32_t v = (uint32_t)(0x1u); X86_PUSH32(v); }
+	// 00067C09 call 0x00068F00]] [[	// 00067C07 push 0x01
+	{ uint32_t ea = (uint32_t)(0x223688u); X86_MEM32(ea) = (uint32_t)(ctx.ebx); }  // GALLEON-SAVESELECT-FIXES: the relaunch carries the selected save slot
+	{ LOGR("fix: tap relaunch slot=%08X marker=%08X obj=%08X name=%08X", ctx.ebx, X86_MEM32((uint32_t)(0x223688u)), ctx.esi, X86_MEM32((uint32_t)(ctx.esi + 0x154u))); }  // GALLEON-SAVESELECT-FIXES
+	{ uint32_t v = (uint32_t)(0x1u); X86_PUSH32(v); }
+	// 00067C09 call 0x00068F00]] _g10_src "${_g10_src}")
+if(NOT _g10_src MATCHES "GALLEON-SAVESELECT-FIXES")
+    message(FATAL_ERROR "x86_recomp.10.cpp save-select fix could not be patched (recompiler output changed?)")
+endif()
+file(WRITE ${_g10} "${_g10_src}")
+endif()
+
+# v1.0.23: boot-gate probe (GALLEON-GATE-FIXES): where the launch payload's marker restoreset(_g53 ${REPO}/generated/game/x86_recomp.53.cpp)
+file(READ ${_g53} _g53_src)
+if(NOT _g53_src MATCHES "GALLEON-GATE-FIXES")
+string(REPLACE [[	// 001B44F0 mov [0x00223688], eax
+	{ uint32_t ea = (uint32_t)(0x223688u); X86_MEM32(ea) = (uint32_t)(ctx.eax); }]] [[	// 001B44F0 mov [0x00223688], eax
+	{ uint32_t ea = (uint32_t)(0x223688u); X86_MEM32(ea) = (uint32_t)(ctx.eax); }
+	{ LOGR("gate: boot marker=%08X", ctx.eax); }  // GALLEON-GATE-FIXES]] _g53_src "${_g53_src}")
+if(NOT _g53_src MATCHES "GALLEON-GATE-FIXES")
+    message(FATAL_ERROR "x86_recomp.53.cpp gate probe could not be patched (recompiler output changed?)")
+endif()
+file(WRITE ${_g53} "${_g53_src}")
+endif()
+
 
 # the recompiled code and the xbe it came from
 set(XBE_GENERATED ${REPO}/generated/game CACHE PATH "the recompiled code of default.xbe")
