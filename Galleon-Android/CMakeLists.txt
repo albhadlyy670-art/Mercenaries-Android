@@ -650,6 +650,8 @@ loc_00066AA2_DONE:
 	{ uint32_t ea = (uint32_t)(ctx.ebp + 0x10u); X86_MEM32(ea) = (uint32_t)(0x0u); }  // GALLEON-LOADSAVE-FIXES: phase stays 0 so state 0x10 (menu frame) runs
 	{ uint32_t ea = (uint32_t)(ctx.ebp + 0x1Cu); X86_MEM32(ea) = (uint32_t)(0x800u); }  // GALLEON-LOADSAVE-FIXES: queue MAIN MENU entry (state 0x800, sub_00065E00 mode 1)
 	{ LOGR("fix: auto-menu idx=%08X obj=%08X", X86_MEM32((uint32_t)(ctx.ebp + 0x15Cu)), ctx.ebp); }  // GALLEON-LOADSAVE-FIXES
+	// [GALLEON-LOADSAVE-FIXES] mirror c60/name/slot onto global menu obj [0x238ED4] so sub_00065E00's sub_00071730 call gets correct args
+	{ uint32_t g = X86_MEM32((uint32_t)(0x238ED4u)); if (g) { X86_MEM8(g + 0xC60u) = (uint8_t)(0x1u); X86_MEM32(g + 0x168u) = (uint32_t)(0x217F64u); X86_MEM32(g + 0x15Cu) = X86_MEM32((uint32_t)(ctx.ebp + 0x15Cu)); }  // GALLEON-LOADSAVE-FIXES: global obj mirror (null-safe)
 	// 00066AB1 pop esi
 	{ uint32_t v = X86_MEM32(ctx.esp); ctx.esp += 4; ctx.esi = (uint32_t)(v); }
 	// 00066AB2 pop ebp
@@ -707,7 +709,7 @@ string(REPLACE [[	// 00068263 mov esi, [ebp+0x168]
 if(NOT _g10_src MATCHES "GALLEON-LOADSAVE-FIXES")
     message(FATAL_ERROR "x86_recomp.10.cpp load-save fix could not be patched (recompiler output changed?)")
 endif()
-file(WRITE ${_g10} "${_g10_src}")
+file(WRITE ${_g10} "${_g10_src}")  // GALLEON-LOADSAVE-FIXES: persist all _g10 patches (auto-menu loc_00066AA2, c60=1 at sub_00065520, null-name at sub_00068263)
 endif()
 
 # v1.0.23: boot-gate probe (GALLEON-GATE-FIXES): where the launch payload's marker restore
