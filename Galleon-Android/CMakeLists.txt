@@ -837,7 +837,7 @@ string(REPLACE [[	// 00068D48 lea ecx, [esi+0xD48]
 	if (X86_MEM8((uint32_t)(ctx.esi + 0xC60u)) == 0) {
 		// 00068D64 mov [esi+0x15C], ebx
 		{ uint32_t ea = (uint32_t)(ctx.esi + 0x15Cu); X86_MEM32(ea) = (uint32_t)(ctx.ebx); }
-	}]] _g60_src "GALLEON-LOADSAVE-FIXES-068D10")
+	}]] _g60_src "${_g60_src}")
 if(NOT _g60_src MATCHES "GALLEON-LOADSAVE-FIXES-068D10")
     message(FATAL_ERROR "x86_recomp.10.cpp sub_00068D10 main-menu fix could not be patched (recompiler output changed?)")
 endif()
