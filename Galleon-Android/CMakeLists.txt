@@ -805,26 +805,24 @@ endif()
 # so the relaunch boot shows save-select instead of the real main menu. When c60=1, skip
 # both: keep sub_00071730's items and the selected slot.
 set(_g60 ${REPO}/generated/game/x86_recomp.10.cpp)
-file(READ ${_g60} _g60_src)
-if(NOT _g60_src MATCHES "GALLEON-LOADSAVE-FIXES-068D10")
-# Patch 1: guard the sub_00067EE0 stale-data copy with c60==0
-string(REPLACE [[	// 00068D55 call 0x00067EE0
-	X86_PUSH32(0x68D5Au); sub_00067EE0(ctx, base);]] [[	// [GALLEON-LOADSAVE-FIXES v1.0.43] skip stale save-select copy in main-menu mode (c60=1)
-	if (X86_MEM8((uint32_t)(ctx.esi + 0xC60u)) == 0) {
-		// 00068D55 call 0x00067EE0
-		X86_PUSH32(0x68D5Au); sub_00067EE0(ctx, base);
-	}]] _g60_src "${_g60_src}")
-# Patch 2: guard the [esi+0x15C] selected-slot zeroing with c60==0
-string(REPLACE [[	// 00068D64 mov [esi+0x15C], ebx
-	{ uint32_t ea = (uint32_t)(ctx.esi + 0x15Cu); X86_MEM32(ea) = (uint32_t)(ctx.ebx); }]] [[	// [GALLEON-LOADSAVE-FIXES v1.0.43] keep selected slot in main-menu mode (c60=1)
-	if (X86_MEM8((uint32_t)(ctx.esi + 0xC60u)) == 0) {
-		// 00068D64 mov [esi+0x15C], ebx
-		{ uint32_t ea = (uint32_t)(ctx.esi + 0x15Cu); X86_MEM32(ea) = (uint32_t)(ctx.ebx); }
-	}]] _g60_src "${_g60_src}")
-if(NOT _g60_src MATCHES "GALLEON-LOADSAVE-FIXES-068D10")
-    message(FATAL_ERROR "x86_recomp.10.cpp sub_00068D10 main-menu fix could not be patched (recompiler output changed?)")
+if(NOT EXISTS "${_g60}")
+    message(FATAL_ERROR "x86_recomp.10.cpp not found: ${_g60}")
 endif()
-file(WRITE ${_g60} "${_g60_src}")
+
+# v1.0.43: main-menu items not wiped on relaunch boot (GALLEON-LOADSAVE-FIXES-068D10).
+# sub_00068D10 copies [obj+0xD48] (stale save-select data) over [obj+0xC5C] (the main-menu
+# items sub_00065E00/sub_00071730 just built) and zeroes [obj+0x15C] (the selected slot),
+# so the relaunch boot shows save-select instead of the real main menu. When c60=1, skip
+# both: keep sub_00071730's items and the selected slot.
+execute_process(
+    COMMAND python3 "${REPO}/tools/patch_g60.py" "${_g60}"
+    WORKING_DIRECTORY ${REPO}
+    RESULT_VARIABLE _g60_result
+    ERROR_VARIABLE _g60_error
+    OUTPUT_VARIABLE _g60_output
+)
+if(NOT _g60_result EQUAL 0)
+    message(FATAL_ERROR "x86_recomp.10.cpp _g60 patch failed: ${_g60_error}\n${_g60_output}")
 endif()
 
 
