@@ -799,6 +799,51 @@ endif()
 file(WRITE ${_g12} "${_g12_src}")
 endif()
 
+# v1.0.43: main-menu items not wiped on relaunch boot (GALLEON-LOADSAVE-FIXES).
+# sub_00068D10 copies [obj+0xD48] (stale save-select data) over [obj+0xC5C] (the main-menu
+# items sub_00065E00/sub_00071730 just built) and zeroes [obj+0x15C] (the selected slot),
+# so the relaunch boot shows save-select instead of the real main menu. When c60=1, skip
+# both: keep sub_00071730's items and the selected slot.
+set(_g60 ${REPO}/generated/game/x86_recomp.10.cpp)
+file(READ ${_g60} _g60_src)
+if(NOT _g60_src MATCHES "GALLEON-LOADSAVE-FIXES-068D10")
+string(REPLACE [[	// 00068D48 lea ecx, [esi+0xD48]
+	ctx.ecx = (uint32_t)((uint32_t)(ctx.esi + 0xD48u));
+	// 00068D4E push ecx
+	{ uint32_t v = (uint32_t)(ctx.ecx); X86_PUSH32(v); }
+	// 00068D4F lea edi, [esi+0xC5C]
+	ctx.edi = (uint32_t)((uint32_t)(ctx.esi + 0xC5Cu));
+	// 00068D55 call 0x00067EE0
+	X86_PUSH32(0x68D5Au); sub_00067EE0(ctx, base);
+	// 00068D5A mov dword ptr [esi+0x188], 0xFFFFFFFF
+	{ uint32_t ea = (uint32_t)(ctx.esi + 0x188u); X86_MEM32(ea) = (uint32_t)(0xFFFFFFFFu); }
+	// 00068D64 mov [esi+0x15C], ebx
+	{ uint32_t ea = (uint32_t)(ctx.esi + 0x15Cu); X86_MEM32(ea) = (uint32_t)(ctx.ebx); }]] [[	// [GALLEON-LOADSAVE-FIXES v1.0.43] in main-menu mode (c60=1) keep the items sub_00071730
+	// built at [esi+0xC5C]: don't overwrite them with stale save-select data from [esi+0xD48],
+	// and don't zero the selected slot [esi+0x15C].
+	if (X86_MEM8((uint32_t)(ctx.esi + 0xC60u)) == 0) {
+		// 00068D48 lea ecx, [esi+0xD48]
+		ctx.ecx = (uint32_t)((uint32_t)(ctx.esi + 0xD48u));
+		// 00068D4E push ecx
+		{ uint32_t v = (uint32_t)(ctx.ecx); X86_PUSH32(v); }
+		// 00068D4F lea edi, [esi+0xC5C]
+		ctx.edi = (uint32_t)((uint32_t)(ctx.esi + 0xC5Cu));
+		// 00068D55 call 0x00067EE0
+		X86_PUSH32(0x68D5Au); sub_00067EE0(ctx, base);
+	}
+	// 00068D5A mov dword ptr [esi+0x188], 0xFFFFFFFF
+	{ uint32_t ea = (uint32_t)(ctx.esi + 0x188u); X86_MEM32(ea) = (uint32_t)(0xFFFFFFFFu); }
+	// [GALLEON-LOADSAVE-FIXES v1.0.43] main-menu mode: keep the selected slot in [esi+0x15C]
+	if (X86_MEM8((uint32_t)(ctx.esi + 0xC60u)) == 0) {
+		// 00068D64 mov [esi+0x15C], ebx
+		{ uint32_t ea = (uint32_t)(ctx.esi + 0x15Cu); X86_MEM32(ea) = (uint32_t)(ctx.ebx); }
+	}]] _g60_src "GALLEON-LOADSAVE-FIXES-068D10")
+if(NOT _g60_src MATCHES "GALLEON-LOADSAVE-FIXES-068D10")
+    message(FATAL_ERROR "x86_recomp.10.cpp sub_00068D10 main-menu fix could not be patched (recompiler output changed?)")
+endif()
+file(WRITE ${_g60} "${_g60_src}")
+endif()
+
 
 # the recompiled code and the xbe it came from
 set(XBE_GENERATED ${REPO}/generated/game CACHE PATH "the recompiled code of default.xbe")
