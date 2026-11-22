@@ -807,33 +807,16 @@ endif()
 set(_g60 ${REPO}/generated/game/x86_recomp.10.cpp)
 file(READ ${_g60} _g60_src)
 if(NOT _g60_src MATCHES "GALLEON-LOADSAVE-FIXES-068D10")
-string(REPLACE [[	// 00068D48 lea ecx, [esi+0xD48]
-	ctx.ecx = (uint32_t)((uint32_t)(ctx.esi + 0xD48u));
-	// 00068D4E push ecx
-	{ uint32_t v = (uint32_t)(ctx.ecx); X86_PUSH32(v); }
-	// 00068D4F lea edi, [esi+0xC5C]
-	ctx.edi = (uint32_t)((uint32_t)(ctx.esi + 0xC5Cu));
-	// 00068D55 call 0x00067EE0
-	X86_PUSH32(0x68D5Au); sub_00067EE0(ctx, base);
-	// 00068D5A mov dword ptr [esi+0x188], 0xFFFFFFFF
-	{ uint32_t ea = (uint32_t)(ctx.esi + 0x188u); X86_MEM32(ea) = (uint32_t)(0xFFFFFFFFu); }
-	// 00068D64 mov [esi+0x15C], ebx
-	{ uint32_t ea = (uint32_t)(ctx.esi + 0x15Cu); X86_MEM32(ea) = (uint32_t)(ctx.ebx); }]] [[	// [GALLEON-LOADSAVE-FIXES v1.0.43] in main-menu mode (c60=1) keep the items sub_00071730
-	// built at [esi+0xC5C]: don't overwrite them with stale save-select data from [esi+0xD48],
-	// and don't zero the selected slot [esi+0x15C].
+# Patch 1: guard the sub_00067EE0 stale-data copy with c60==0
+string(REPLACE [[	// 00068D55 call 0x00067EE0
+	X86_PUSH32(0x68D5Au); sub_00067EE0(ctx, base);]] [[	// [GALLEON-LOADSAVE-FIXES v1.0.43] skip stale save-select copy in main-menu mode (c60=1)
 	if (X86_MEM8((uint32_t)(ctx.esi + 0xC60u)) == 0) {
-		// 00068D48 lea ecx, [esi+0xD48]
-		ctx.ecx = (uint32_t)((uint32_t)(ctx.esi + 0xD48u));
-		// 00068D4E push ecx
-		{ uint32_t v = (uint32_t)(ctx.ecx); X86_PUSH32(v); }
-		// 00068D4F lea edi, [esi+0xC5C]
-		ctx.edi = (uint32_t)((uint32_t)(ctx.esi + 0xC5Cu));
 		// 00068D55 call 0x00067EE0
 		X86_PUSH32(0x68D5Au); sub_00067EE0(ctx, base);
-	}
-	// 00068D5A mov dword ptr [esi+0x188], 0xFFFFFFFF
-	{ uint32_t ea = (uint32_t)(ctx.esi + 0x188u); X86_MEM32(ea) = (uint32_t)(0xFFFFFFFFu); }
-	// [GALLEON-LOADSAVE-FIXES v1.0.43] main-menu mode: keep the selected slot in [esi+0x15C]
+	}]] _g60_src "${_g60_src}")
+# Patch 2: guard the [esi+0x15C] selected-slot zeroing with c60==0
+string(REPLACE [[	// 00068D64 mov [esi+0x15C], ebx
+	{ uint32_t ea = (uint32_t)(ctx.esi + 0x15Cu); X86_MEM32(ea) = (uint32_t)(ctx.ebx); }]] [[	// [GALLEON-LOADSAVE-FIXES v1.0.43] keep selected slot in main-menu mode (c60=1)
 	if (X86_MEM8((uint32_t)(ctx.esi + 0xC60u)) == 0) {
 		// 00068D64 mov [esi+0x15C], ebx
 		{ uint32_t ea = (uint32_t)(ctx.esi + 0x15Cu); X86_MEM32(ea) = (uint32_t)(ctx.ebx); }
