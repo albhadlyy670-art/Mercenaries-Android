@@ -788,8 +788,8 @@ string(REPLACE [[// 00067DF6 jz 0x00067E06
 	if (((uint32_t)(ca & cb)) == 0) { goto loc_00067E06; }
 	// 00067DF8 push eax
 	{ uint32_t v = (uint32_t)(ctx.eax); X86_PUSH32(v); }]] [[// 00067DF6 jz 0x00067E06
-	if (((uint32_t)(ca & cb)) == 0) { goto loc_00067E06; }
-	{ uint8_t b = X86_MEM8((uint32_t)(ctx.eax)); if (b == 0) { goto loc_00067E06; } }  // GALLEON-LOADSAVE-FIXES-067DE0: v1.0.32 skip sub_001C3EA8 empty-name processing
+	if (((uint32_t)(ca & cb)) == 0) { goto loc_00067E28; }  // GALLEON-LOADSAVE-FIXES-067DE0: v1.0.32 empty name -> skip name processing AND the [obj+0x168] zeroing at 0x67E22
+	{ uint8_t b = X86_MEM8((uint32_t)(ctx.eax)); if (b == 0) { goto loc_00067E28; } }  // GALLEON-LOADSAVE-FIXES-067DE0: v1.0.32 skip sub_001C3EA8 empty-name processing + name zeroing (crash-13)
 	// 00067DF8 push eax
 	{ uint32_t v = (uint32_t)(ctx.eax); X86_PUSH32(v); }]] _g12_src "${_g12_src}")
 if(NOT _g12_src MATCHES "GALLEON-LOADSAVE-FIXES-067DE0")
