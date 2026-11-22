@@ -801,9 +801,10 @@ endif()
 
 # v1.0.43: main-menu items not wiped on relaunch boot (GALLEON-LOADSAVE-FIXES).
 # sub_00068D10 copies [obj+0xD48] (stale save-select data) over [obj+0xC5C] (the main-menu
-# items sub_00065E00/sub_00071730 just built) and zeroes [obj+0x15C] (the selected slot),
-# so the relaunch boot shows save-select instead of the real main menu. When c60=1, skip
-# both: keep sub_00071730's items and the selected slot.
+# items sub_00071730 just built) and zeroes [obj+0x15C] (the selected slot),
+# so the relaunch boot shows save-select instead of the real main menu. When main-menu
+# items are already built at [obj+0xC5C], skip both: keep sub_00071730's items and
+# the selected slot.
 set(_g60 ${REPO}/generated/game/x86_recomp.10.cpp)
 if(NOT EXISTS "${_g60}")
     message(FATAL_ERROR "x86_recomp.10.cpp not found: ${_g60}")
@@ -812,8 +813,9 @@ endif()
 # v1.0.43: main-menu items not wiped on relaunch boot (GALLEON-LOADSAVE-FIXES-068D10).
 # sub_00068D10 copies [obj+0xD48] (stale save-select data) over [obj+0xC5C] (the main-menu
 # items sub_00065E00/sub_00071730 just built) and zeroes [obj+0x15C] (the selected slot),
-# so the relaunch boot shows save-select instead of the real main menu. When c60=1, skip
-# both: keep sub_00071730's items and the selected slot.
+# so the relaunch boot shows save-select instead of the real main menu. When main-menu
+# items already exist at [obj+0xC5C], skip both: keep sub_00071730's items and
+# the selected slot.
 execute_process(
     COMMAND python3 "${REPO}/tools/patch_g60.py" "${_g60}"
     WORKING_DIRECTORY ${REPO}

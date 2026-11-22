@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Apply _g60 patch to x86_recomp.10.cpp: guard sub_00068D10 stale-data copy
-and selected-slot zeroing with c60==0 so main-menu items survive relaunch boot."""
+and selected-slot zeroing when main-menu items are already built at [obj+0xC5C],
+so sub_00071730's main-menu items survive into the menu frame instead of being
+wiped by stale save-select data from [obj+0xD48]."""
 import sys
 
 if len(sys.argv) < 2:
@@ -16,18 +18,23 @@ with open(path, 'r') as f:
 if 'GALLEON-LOADSAVE-FIXES-068D10' in content:
     sys.exit(0)
 
+# Patch 1: guard the sub_00067EE0 stale-data copy — only copy when [obj+0xC5C]
+# is empty (i.e. sub_00071730 has not yet built main-menu items there).
 patch1_old = '''\t// 00068D55 call 0x00067EE0
 \tX86_PUSH32(0x68D5Au); sub_00067EE0(ctx, base);'''
-patch1_new = '''\t// [GALLEON-LOADSAVE-FIXES-068D10] skip stale save-select copy in main-menu mode (c60=1)
-\tif (X86_MEM8((uint32_t)(ctx.esi + 0xC60u)) == 0) {
+patch1_new = '''\t// [GALLEON-LOADSAVE-FIXES-068D10] skip stale save-select copy when main-menu
+\t// items already built at [esi+0xC5C]
+\tif (X86_MEM32((uint32_t)(ctx.esi + 0xC5Cu)) == 0) {
 \t\t// 00068D55 call 0x00067EE0
 \t\tX86_PUSH32(0x68D5Au); sub_00067EE0(ctx, base);
 \t}'''
 
+# Patch 2: guard the [esi+0x15C] selected-slot zeroing — only zero when
+# [obj+0xC5C] is empty (main-menu items not yet built there).
 patch2_old = '''\t// 00068D64 mov [esi+0x15C], ebx
 \t{ uint32_t ea = (uint32_t)(ctx.esi + 0x15Cu); X86_MEM32(ea) = (uint32_t)(ctx.ebx); }'''
-patch2_new = '''\t// [GALLEON-LOADSAVE-FIXES v1.0.43] keep selected slot in main-menu mode (c60=1)
-\tif (X86_MEM8((uint32_t)(ctx.esi + 0xC60u)) == 0) {
+patch2_new = '''\t// [GALLEON-LOADSAVE-FIXES-068D10] keep selected slot when main-menu items exist
+\tif (X86_MEM32((uint32_t)(ctx.esi + 0xC5Cu)) == 0) {
 \t\t// 00068D64 mov [esi+0x15C], ebx
 \t\t{ uint32_t ea = (uint32_t)(ctx.esi + 0x15Cu); X86_MEM32(ea) = (uint32_t)(ctx.ebx); }
 \t}'''
