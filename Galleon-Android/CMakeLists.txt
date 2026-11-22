@@ -600,7 +600,7 @@ endif()
 file(WRITE ${_g10} "${_g10_src}")
 endif()
 
-# v1.0.26: the relaunch boot now goes to the game's REAL MAIN MENU (GALLEON-LOADSAVE-FIXES).
+# v1.0.27/1.0.26: the relaunch boot goes to the game's REAL MAIN MENU (GALLEON-LOADSAVE-FIXES).
 # v1.0.24 queued state 0x1000 (the attract demo); v1.0.25 queued 0x8000 (the save load, which
 # ran the save machinery and stalled in a fade = the black screen). The user wants the real
 # main menu (New Game / Options / Clear Save Game) after selecting a save and relaunching.
@@ -611,6 +611,10 @@ endif()
 # (sub_00066A00 at 0x66AA2) queues the save-select (mode 0) unconditionally. Fix: when the
 # marker is not -1 (a save slot was selected before the relaunch), skip the save-select entry
 # and queue state 0x800 instead - the game then shows the real main menu.
+# v1.0.27: sub_00068210 decodes the slot letter from the save name's last wchar
+# ([obj+0x168]); at a relaunch boot that name is null and the read crashed (SIGSEGV at
+# 0x100000000, galleon-crash-10.log). When the name is null, take the slot from the marker
+# (0x223688 = the chosen save) and continue at loc_00068295.
 if(NOT _g10_src MATCHES "GALLEON-LOADSAVE-FIXES")
 string(REPLACE [[loc_00066AA2:
 	// 00066AA2 test [ebp+0x130], bl
@@ -670,6 +674,14 @@ string(REPLACE [[X86_FUNC(__imp__sub_00067970) {
 	uint32_t ca = 0, cb = 0;
 	(void)ca; (void)cb;
 	{ LOGR("tap-in ret=%08X", X86_MEM32(ctx.esp)); }  // GALLEON-LOADSAVE-FIXES]] _g10_src "${_g10_src}")
+string(REPLACE [[	// 00068263 mov esi, [ebp+0x168]
+	{ uint32_t ea = (uint32_t)(ctx.ebp + 0x168u); ctx.esi = (uint32_t)(X86_MEM32(ea)); }
+	// 00068269 push esi]] [[	// 00068263 mov esi, [ebp+0x168]
+	{ uint32_t ea = (uint32_t)(ctx.ebp + 0x168u); ctx.esi = (uint32_t)(X86_MEM32(ea)); }
+	// [GALLEON-LOADSAVE-FIXES v1.0.27] null save name at a relaunch boot: derive the slot
+	// letter from the marker (the chosen save) instead of decoding the name's last wchar.
+	if (!ctx.esi) { ctx.ebx = (uint32_t)(X86_MEM32((uint32_t)(0x223688u))); goto loc_00068295; }  // GALLEON-LOADSAVE-FIXES
+	// 00068269 push esi]] _g10_src "${_g10_src}")
 if(NOT _g10_src MATCHES "GALLEON-LOADSAVE-FIXES")
     message(FATAL_ERROR "x86_recomp.10.cpp load-save fix could not be patched (recompiler output changed?)")
 endif()
