@@ -611,6 +611,9 @@ endif()
 # (sub_00066A00 at 0x66AA2) queues the save-select (mode 0) unconditionally. Fix: when the
 # marker is not -1 (a save slot was selected before the relaunch), skip the save-select entry
 # and queue state 0x800 instead - the game then shows the real main menu.
+# v1.0.29: the menu items are built by state 0x10 (sub_00065520), which sub_00068D10 queues only
+# when the phase [obj+0x10] is 0; the v1.0.26 fix set it to 1 and the queue never happened, so the
+# relaunch boot stayed on the bare save-rows panel (galleon-25.log). The phase now stays 0.
 # v1.0.27: sub_00068210 decodes the slot letter from the save name's last wchar
 # ([obj+0x168]); at a relaunch boot that name is null and the read crashed (SIGSEGV at
 # 0x100000000, galleon-crash-10.log). When the name is null, take the slot from the marker
@@ -630,7 +633,7 @@ string(REPLACE [[loc_00066AA2:
 	// 00066AA9 jz 0x00066AA2_MENU
 	if (zf) { goto loc_00066AA2_MENU; }
 	{ uint32_t ea = (uint32_t)(ctx.ebp + 0x1A4u); X86_MEM32(ea) = (uint32_t)(ctx.eax); }  // GALLEON-LOADSAVE-FIXES: save spec = marker (the chosen slot)
-	{ uint32_t ea = (uint32_t)(ctx.ebp + 0x10u); X86_MEM32(ea) = (uint32_t)(0x1u); }
+	{ uint32_t ea = (uint32_t)(ctx.ebp + 0x10u); X86_MEM32(ea) = (uint32_t)(0x0u); }  // GALLEON-LOADSAVE-FIXES: phase stays 0 so sub_00068D10 queues state 0x10 (the menu frame sub_00065520 which builds the menu items)
 	{ uint32_t ea = (uint32_t)(ctx.ebp + 0x1Cu); X86_MEM32(ea) = (uint32_t)(0x800u); }  // GALLEON-LOADSAVE-FIXES: queue the MAIN MENU entry (sub_00065E00 mode 1)
 	{ LOGR("fix: auto-menu marker=%08X obj=%08X", ctx.eax, ctx.ebp); }  // GALLEON-LOADSAVE-FIXES
 	// 00066AB1 pop esi
