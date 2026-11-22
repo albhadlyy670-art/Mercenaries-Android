@@ -666,7 +666,7 @@ string(REPLACE [[X86_FUNC(__imp__sub_00065520) {
 	X86_LOAD_FLAGS();
 	uint32_t ca = 0, cb = 0;
 	(void)ca; (void)cb;
-	{ uint32_t o = X86_MEM32((uint32_t)(ctx.esp + 0x4u)); LOGR("frame: c60=%02X idx=%08X name=%08X", X86_MEM8((uint32_t)(o + 0xC60u)), X86_MEM32((uint32_t)(o + 0x15Cu)), X86_MEM32((uint32_t)(o + 0x168u))); }  // GALLEON-LOADSAVE-FIXES: obj = the stack arg (eax is NOT the obj - crash-12)
+	{ uint32_t o = (uint32_t)(ctx.eax); X86_MEM8((uint32_t)(o + 0xC60u)) = (uint8_t)(0x1u); LOGR("frame: c60=%02X idx=%08X name=%08X", X86_MEM8((uint32_t)(o + 0xC60u)), X86_MEM32((uint32_t)(o + 0x15Cu)), X86_MEM32((uint32_t)(o + 0x168u))); }  // GALLEON-LOADSAVE-FIXES: force c60=1 main-menu mode at state 0x10 (obj from eax)
 	// 00065520 push ebp]] _g10_src "${_g10_src}")
 string(REPLACE [[X86_FUNC(__imp__sub_00065A20) {
 	X86_LOAD_FLAGS();
