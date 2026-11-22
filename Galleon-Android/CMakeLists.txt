@@ -600,34 +600,36 @@ endif()
 file(WRITE ${_g10} "${_g10_src}")
 endif()
 
-# v1.0.24: the relaunch auto-load fix (GALLEON-LOADSAVE-FIXES): v1.0.23 carries the selected save
-# slot through the relaunch (the boot gate restores the marker: gate: boot marker=00000000), but the
-# boot still enters the save-select (menu: save-select entry) and the loop is only half-broken: the
-# slot survives, the menu just shows again. The game's own save-load path is state 0x1000: the
-# dispatcher routes it to sub_00065A20 which formats demo%04d.gcg from the marker and loads it via
-# sub_000688A0, then queues 0x20 -> sub_00065520 -> 0x400 (sub_00066AD0 menu teardown) -> state 1,
-# at which point the boot gate's loop (53.cpp 0x1B4541, exits when [obj+0x18]==1) leaves the menu
-# and starts gameplay. The state-0x200 entry (sub_00066A00 at 0x66AA2) queues the save-select
-# unconditionally, so a relaunch boot with a save selected still lands in the menu. Fix: when the
-# marker is not -1 (a save was selected before the relaunch), skip the save-select entry and queue
-# state 0x1000 instead - the game then loads its own save and starts.
+# v1.0.25: the relaunch auto-load fix (GALLEON-LOADSAVE-FIXES) retargeted to the real SAVE loader.
+# v1.0.24 queued state 0x1000, but that is the ATTRACT-DEMO starter: sub_00065A20 formats
+# demo%04d.gcg(marker) and loads the demo descriptor (demo0000.GDG -> FightArena.* + demo0000.dem),
+# which is exactly what galleon-21.log showed. The real save load is state 0x8000: the dispatcher
+# routes it to sub_00066C90 which reads the save spec [obj+0x1A4] (low word = the save number,
+# high word set => autosave%d.GDG else save%d.GDG), formats the name and loads the session via
+# sub_000686B0 - the same chain the save-select's load choice runs (sub_00065EC0 choice 1 sets
+# [obj+0x1A4]=[obj+0x1B0] and queues 0x8000). The state-0x200 entry (sub_00066A00 at 0x66AA2)
+# queues the save-select unconditionally, so a relaunch boot with a save selected still lands in
+# the menu. Fix: when the marker is not -1 (a save was selected before the relaunch), skip the
+# save-select entry, set the save spec [obj+0x1A4]=marker and queue state 0x8000 - the game then
+# loads the selected save (save%d.GDG) and starts gameplay.
 if(NOT _g10_src MATCHES "GALLEON-LOADSAVE-FIXES")
 string(REPLACE [[loc_00066AA2:
 	// 00066AA2 test [ebp+0x130], bl
 	{ uint32_t ea = (uint32_t)(ctx.ebp + 0x130u); uint8_t a = (uint8_t)(X86_MEM8(ea)), b = (uint8_t)(((uint8_t)ctx.ebx)); uint8_t r = (uint8_t)(a & b); ca = a; cb = b; cf = 0; of = 0; zf = r == 0; sf = (uint32_t)(r >> 7) & 1; pf = X86_PARITY(r); }
 	// 00066AA8 jz 0x00066AB7
 	if (((uint8_t)(ca & cb)) == 0) { goto loc_00066AB7; }]] [[loc_00066AA2:
-	// [GALLEON-LOADSAVE-FIXES v1.0.24] relaunch boot with a selected save (marker != -1): skip the
-	// save-select and queue state 0x1000 (sub_00065A20 loads demo%04d.gcg(marker)).
+	// [GALLEON-LOADSAVE-FIXES v1.0.25] relaunch boot with a selected save (marker != -1): skip the
+	// save-select and run the real save load (state 0x8000 -> sub_00066C90: save%d.GDG(marker)).
 	// 00066AA2 mov eax, [0x00223688]
 	{ ctx.eax = (uint32_t)(X86_MEM32((uint32_t)(0x223688u))); }
 	// 00066AA7 cmp eax, 0xFFFFFFFF
 	{ uint32_t a = (uint32_t)(ctx.eax), b = (uint32_t)(0xFFFFFFFFu); uint32_t r = (uint32_t)(a - b); ca = a; cb = b; cf = a < b; of = (uint32_t)(((a ^ b) & (a ^ r)) >> 31) & 1; zf = r == 0; sf = (uint32_t)(r >> 31) & 1; pf = X86_PARITY(r); }
 	// 00066AA9 jz 0x00066AA2_MENU
 	if (zf) { goto loc_00066AA2_MENU; }
+	{ uint32_t ea = (uint32_t)(ctx.ebp + 0x1A4u); X86_MEM32(ea) = (uint32_t)(ctx.eax); }  // GALLEON-LOADSAVE-FIXES: save spec = marker (choice-1 form)
 	{ uint32_t ea = (uint32_t)(ctx.ebp + 0x10u); X86_MEM32(ea) = (uint32_t)(0x1u); }
-	{ uint32_t ea = (uint32_t)(ctx.ebp + 0x1Cu); X86_MEM32(ea) = (uint32_t)(0x1000u); }  // GALLEON-LOADSAVE-FIXES: queue the load state
-	{ LOGR("fix: auto-load marker=%08X obj=%08X", ctx.eax, ctx.ebp); }  // GALLEON-LOADSAVE-FIXES
+	{ uint32_t ea = (uint32_t)(ctx.ebp + 0x1Cu); X86_MEM32(ea) = (uint32_t)(0x8000u); }  // GALLEON-LOADSAVE-FIXES: queue the SAVE load (sub_00066C90)
+	{ LOGR("fix: auto-load-save marker=%08X obj=%08X", ctx.eax, ctx.ebp); }  // GALLEON-LOADSAVE-FIXES
 	// 00066AB1 pop esi
 	{ uint32_t v = X86_MEM32(ctx.esp); ctx.esp += 4; ctx.esi = (uint32_t)(v); }
 	// 00066AB2 pop ebp
