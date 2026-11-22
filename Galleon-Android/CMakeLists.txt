@@ -825,12 +825,13 @@ endif()
 
 
 # v1.0.40: fix sub_00071730 gate - don't skip sub_00067970 main-menu item builder when c60=1
+# Read c60 from global menu object [0x238ED4+0xC60] (esi at this point is 0x24F8, not menu obj)
 set(_g14 ${REPO}/generated/game/x86_recomp.11.cpp)
 file(READ ${_g14} _g14_src)
 if(NOT _g14_src MATCHES "GALLEON-LOADSAVE-FIXES-071730")
 string(REPLACE [[	// 000717C4 jnz 0x000717F5
 	if ((uint8_t)ca != (uint8_t)cb) { goto loc_000717F5; }]] [[	// 000717C4 jnz 0x000717F5
-	if ((uint8_t)ca != (uint8_t)cb && X86_MEM8((uint32_t)(ctx.esi + 0x4u)) != 1u) { goto loc_000717F5; }  // GALLEON-LOADSAVE-FIXES-071730: v1.0.40 don't skip sub_00067970 main-menu item builder when c60=1]] _g14_src "${_g14_src}")
+	if ((uint8_t)ca != (uint8_t)cb && X86_MEM8(X86_MEM32((uint32_t)(0x238ED4u)) + 0xC60u) != 1u) { goto loc_000717F5; }  // GALLEON-LOADSAVE-FIXES-071730: v1.0.40 don't skip sub_00067970 main-menu item builder when c60=1 (read c60 from [0x238ED4+0xC60])]] _g14_src "${_g14_src}")
 if(NOT _g14_src MATCHES "GALLEON-LOADSAVE-FIXES-071730")
     message(FATAL_ERROR "x86_recomp.11.cpp sub_00071730 gate could not be patched (recompiler output changed?)")
 endif()
