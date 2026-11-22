@@ -630,21 +630,26 @@ string(REPLACE [[loc_00066AA2:
 	{ uint32_t ea = (uint32_t)(ctx.ebp + 0x130u); uint8_t a = (uint8_t)(X86_MEM8(ea)), b = (uint8_t)(((uint8_t)ctx.ebx)); uint8_t r = (uint8_t)(a & b); ca = a; cb = b; cf = 0; of = 0; zf = r == 0; sf = (uint32_t)(r >> 7) & 1; pf = X86_PARITY(r); }
 	// 00066AA8 jz 0x00066AB7
 	if (((uint8_t)(ca & cb)) == 0) { goto loc_00066AB7; }]] [[loc_00066AA2:
-	// [GALLEON-LOADSAVE-FIXES v1.0.26] relaunch boot with a selected save (marker != -1): skip the
-	// save-select and show the game's real main menu (state 0x800 -> sub_00065E00 mode 1).
+	// [GALLEON-LOADSAVE-FIXES v1.0.34] boot to main menu mode (c60=1): press A -> New Game/Options/Clear Save Game
+	// marker != -1: relaunch boot with selected save; marker == -1: cold boot, use slot 0.
 	// 00066AA2 mov eax, [0x00223688]
 	{ ctx.eax = (uint32_t)(X86_MEM32((uint32_t)(0x223688u))); }
 	// 00066AA7 cmp eax, 0xFFFFFFFF
 	{ uint32_t a = (uint32_t)(ctx.eax), b = (uint32_t)(0xFFFFFFFFu); uint32_t r = (uint32_t)(a - b); ca = a; cb = b; cf = a < b; of = (uint32_t)(((a ^ b) & (a ^ r)) >> 31) & 1; zf = r == 0; sf = (uint32_t)(r >> 31) & 1; pf = X86_PARITY(r); }
-	// 00066AA9 jz 0x00066AA2_MENU
+	// 00066AA9 jz 0x00066AA2_MENU   ; marker == -1: cold boot -> slot 0
 	if (zf) { goto loc_00066AA2_MENU; }
-	{ uint32_t ea = (uint32_t)(ctx.ebp + 0x1A4u); X86_MEM32(ea) = (uint32_t)(ctx.eax); }  // GALLEON-LOADSAVE-FIXES: save spec = marker (the chosen slot)
-	{ uint32_t ea = (uint32_t)(ctx.ebp + 0x15Cu); X86_MEM32(ea) = (uint32_t)(ctx.eax); }  // GALLEON-LOADSAVE-FIXES: v1.0.30 the save index = the marker (sub_00071730 gate)
-	{ uint32_t ea = (uint32_t)(ctx.ebp + 0x168u); X86_MEM32(ea) = (uint32_t)(0x217F64u); }  // GALLEON-LOADSAVE-FIXES: v1.0.30 the game's empty-name fallback (sub_00071730 needs a name)
-	{ uint32_t ea = (uint32_t)(ctx.ebp + 0xC60u); X86_MEM8(ea) = (uint8_t)(0x1u); }  // GALLEON-LOADSAVE-FIXES: v1.0.34 c60=1 main-menu mode on boot so press A -> New Game/Options/Clear Save Game
-	{ uint32_t ea = (uint32_t)(ctx.ebp + 0x10u); X86_MEM32(ea) = (uint32_t)(0x0u); }  // GALLEON-LOADSAVE-FIXES: phase stays 0 so sub_00068D10 queues state 0x10 (the menu frame sub_00065520 which builds the menu items)
-	{ uint32_t ea = (uint32_t)(ctx.ebp + 0x1Cu); X86_MEM32(ea) = (uint32_t)(0x800u); }  // GALLEON-LOADSAVE-FIXES: queue the MAIN MENU entry (sub_00065E00 mode 1)
-	{ LOGR("fix: auto-menu marker=%08X obj=%08X", ctx.eax, ctx.ebp); }  // GALLEON-LOADSAVE-FIXES
+	// marker != -1: relaunch boot -> idx = marker
+	{ uint32_t ea = (uint32_t)(ctx.ebp + 0x15Cu); X86_MEM32(ea) = (uint32_t)(ctx.eax); }  // GALLEON-LOADSAVE-FIXES: idx = marker (relaunch boot)
+	goto loc_00066AA2_DONE;
+loc_00066AA2_MENU:
+	// marker == -1: cold boot -> idx = 0
+	{ uint32_t ea = (uint32_t)(ctx.ebp + 0x15Cu); X86_MEM32(ea) = (uint32_t)(0x0u); }  // GALLEON-LOADSAVE-FIXES: idx = 0 (cold boot)
+loc_00066AA2_DONE:
+	{ uint32_t ea = (uint32_t)(ctx.ebp + 0x168u); X86_MEM32(ea) = (uint32_t)(0x217F64u); }  // GALLEON-LOADSAVE-FIXES: name = empty fallback (game's own 0x217F64)
+	{ uint32_t ea = (uint32_t)(ctx.ebp + 0xC60u); X86_MEM8(ea) = (uint8_t)(0x1u); }  // GALLEON-LOADSAVE-FIXES: c60=1 main-menu mode
+	{ uint32_t ea = (uint32_t)(ctx.ebp + 0x10u); X86_MEM32(ea) = (uint32_t)(0x0u); }  // GALLEON-LOADSAVE-FIXES: phase stays 0 so state 0x10 (menu frame) runs
+	{ uint32_t ea = (uint32_t)(ctx.ebp + 0x1Cu); X86_MEM32(ea) = (uint32_t)(0x800u); }  // GALLEON-LOADSAVE-FIXES: queue MAIN MENU entry (state 0x800, sub_00065E00 mode 1)
+	{ LOGR("fix: auto-menu idx=%08X obj=%08X", X86_MEM32((uint32_t)(ctx.ebp + 0x15Cu)), ctx.ebp); }  // GALLEON-LOADSAVE-FIXES
 	// 00066AB1 pop esi
 	{ uint32_t v = X86_MEM32(ctx.esp); ctx.esp += 4; ctx.esi = (uint32_t)(v); }
 	// 00066AB2 pop ebp
@@ -652,12 +657,7 @@ string(REPLACE [[loc_00066AA2:
 	// 00066AB3 pop ebx
 	{ uint32_t v = X86_MEM32(ctx.esp); ctx.esp += 4; ctx.ebx = (uint32_t)(v); }
 	// 00066AB4 ret 0x04
-	ctx.esp += 8; return;
-loc_00066AA2_MENU:
-	// 00066AA2 test [ebp+0x130], bl
-	{ uint32_t ea = (uint32_t)(ctx.ebp + 0x130u); uint8_t a = (uint8_t)(X86_MEM8(ea)), b = (uint8_t)(((uint8_t)ctx.ebx)); uint8_t r = (uint8_t)(a & b); ca = a; cb = b; cf = 0; of = 0; zf = r == 0; sf = (uint32_t)(r >> 7) & 1; pf = X86_PARITY(r); }
-	// 00066AA8 jz 0x00066AB7
-	if (((uint8_t)(ca & cb)) == 0) { goto loc_00066AB7; }]] _g10_src "${_g10_src}")
+	ctx.esp += 8; return;]] _g10_src "${_g10_src}")
 string(REPLACE [[X86_FUNC(__imp__sub_00065520) {
 	X86_LOAD_FLAGS();
 	uint32_t ca = 0, cb = 0;
