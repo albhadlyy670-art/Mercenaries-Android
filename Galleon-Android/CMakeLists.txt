@@ -780,6 +780,25 @@ file(WRITE ${_g11} "${_g11_src}")
 endif()
 
 
+# v1.0.32: skip sub_001C3EA8 empty-name processing in sub_00067DE0 (crash-13)
+set(_g12 ${REPO}/generated/game/x86_recomp.10.cpp)
+file(READ ${_g12} _g12_src)
+if(NOT _g12_src MATCHES "GALLEON-LOADSAVE-FIXES-067DE0")
+string(REPLACE [[// 00067DF6 jz 0x00067E06
+	if (((uint32_t)(ca & cb)) == 0) { goto loc_00067E06; }
+	// 00067DF8 push eax
+	{ uint32_t v = (uint32_t)(ctx.eax); X86_PUSH32(v); }]] [[// 00067DF6 jz 0x00067E06
+	if (((uint32_t)(ca & cb)) == 0) { goto loc_00067E06; }
+	{ uint8_t b = X86_MEM8((uint32_t)(ctx.eax)); if (b == 0) { goto loc_00067E06; } }  // GALLEON-LOADSAVE-FIXES-067DE0: v1.0.32 skip sub_001C3EA8 empty-name processing
+	// 00067DF8 push eax
+	{ uint32_t v = (uint32_t)(ctx.eax); X86_PUSH32(v); }]] _g12_src "${_g12_src}")
+if(NOT _g12_src MATCHES "GALLEON-LOADSAVE-FIXES-067DE0")
+    message(FATAL_ERROR "x86_recomp.10.cpp sub_00067DE0 empty-name guard could not be patched (recompiler output changed?)")
+endif()
+file(WRITE ${_g12} "${_g12_src}")
+endif()
+
+
 # the recompiled code and the xbe it came from
 set(XBE_GENERATED ${REPO}/generated/game CACHE PATH "the recompiled code of default.xbe")
 set(XBE_IMAGE ${REPO}/assets/default.xbe CACHE FILEPATH "the xbe it was recompiled from")
