@@ -800,45 +800,6 @@ file(WRITE ${_g12} "${_g12_src}")
 endif()
 
 
-# v1.0.40: skip 0x00067EE0 save-item population in sub_00068D10 when c60=1 (main menu mode)
-# Combined with gate fix in sub_00071730 (_g14), this ensures main menu items are built
-# and not overwritten by save-select items.
-set(_g13 ${REPO}/generated/game/x86_recomp.10.cpp)
-file(READ ${_g13} _g13_src)
-if(NOT _g13_src MATCHES "GALLEON-LOADSAVE-FIXES-068D10")
-string(REPLACE [[	// 00068D55 call 0x00067EE0
-	X86_PUSH32(0x68D5Au); sub_00067EE0(ctx, base);
-	// 00068D5A mov dword ptr [esi+0x188], 0xFFFFFFFF
-	{ uint32_t ea = (uint32_t)(ctx.esi + 0x188u); X86_MEM32(ea) = (uint32_t)(0xFFFFFFFFu); }
-	// 00068D64 mov [esi+0x15C], ebx
-	{ uint32_t ea = (uint32_t)(ctx.esi + 0x15Cu); X86_MEM32(ea) = (uint32_t)(ctx.ebx); }]] [[	// 00068D55 call 0x00067EE0
-	{ if (X86_MEM8((uint32_t)(ctx.esi + 0xC60u)) != 1u) { X86_PUSH32(0x68D5Au); sub_00067EE0(ctx, base); } }  // GALLEON-LOADSAVE-FIXES-068D10: v1.0.40 skip 0x00067EE0 save-item population in main-menu mode (c60=1)
-	// 00068D5A mov dword ptr [esi+0x188], 0xFFFFFFFF
-	{ uint32_t ea = (uint32_t)(ctx.esi + 0x188u); X86_MEM32(ea) = (uint32_t)(0xFFFFFFFFu); }
-	// 00068D64 mov [esi+0x15C], ebx
-	{ uint32_t ea = (uint32_t)(ctx.esi + 0x15Cu); X86_MEM32(ea) = (uint32_t)(ctx.ebx); }]] _g13_src "${_g13_src}")
-if(NOT _g13_src MATCHES "GALLEON-LOADSAVE-FIXES-068D10")
-    message(FATAL_ERROR "x86_recomp.10.cpp sub_00068D10 save-item skip could not be patched (recompiler output changed?)")
-endif()
-file(WRITE ${_g13} "${_g13_src}")
-endif()
-
-
-# v1.0.40: fix sub_00071730 gate - don't skip sub_00067970 main-menu item builder when c60=1
-# Read c60 from global menu object [0x238ED4+0xC60] (esi at this point is 0x24F8, not menu obj)
-set(_g14 ${REPO}/generated/game/x86_recomp.11.cpp)
-file(READ ${_g14} _g14_src)
-if(NOT _g14_src MATCHES "GALLEON-LOADSAVE-FIXES-071730")
-string(REPLACE [[	// 000717C4 jnz 0x000717F5
-	if ((uint8_t)ca != (uint8_t)cb) { goto loc_000717F5; }]] [[	// 000717C4 jnz 0x000717F5
-	if ((uint8_t)ca != (uint8_t)cb && X86_MEM8(X86_MEM32((uint32_t)(0x238ED4u)) + 0xC60u) != 1u) { goto loc_000717F5; }  // GALLEON-LOADSAVE-FIXES-071730: v1.0.40 don't skip sub_00067970 main-menu item builder when c60=1 (read c60 from [0x238ED4+0xC60])]] _g14_src "${_g14_src}")
-if(NOT _g14_src MATCHES "GALLEON-LOADSAVE-FIXES-071730")
-    message(FATAL_ERROR "x86_recomp.11.cpp sub_00071730 gate could not be patched (recompiler output changed?)")
-endif()
-file(WRITE ${_g14} "${_g14_src}")
-endif()
-
-
 # the recompiled code and the xbe it came from
 set(XBE_GENERATED ${REPO}/generated/game CACHE PATH "the recompiled code of default.xbe")
 set(XBE_IMAGE ${REPO}/assets/default.xbe CACHE FILEPATH "the xbe it was recompiled from")
