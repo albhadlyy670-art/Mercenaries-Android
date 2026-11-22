@@ -641,6 +641,7 @@ string(REPLACE [[loc_00066AA2:
 	{ uint32_t ea = (uint32_t)(ctx.ebp + 0x1A4u); X86_MEM32(ea) = (uint32_t)(ctx.eax); }  // GALLEON-LOADSAVE-FIXES: save spec = marker (the chosen slot)
 	{ uint32_t ea = (uint32_t)(ctx.ebp + 0x15Cu); X86_MEM32(ea) = (uint32_t)(ctx.eax); }  // GALLEON-LOADSAVE-FIXES: v1.0.30 the save index = the marker (sub_00071730 gate)
 	{ uint32_t ea = (uint32_t)(ctx.ebp + 0x168u); X86_MEM32(ea) = (uint32_t)(0x217F64u); }  // GALLEON-LOADSAVE-FIXES: v1.0.30 the game's empty-name fallback (sub_00071730 needs a name)
+	{ uint32_t ea = (uint32_t)(ctx.ebp + 0xC60u); X86_MEM8(ea) = (uint8_t)(0x1u); }  // GALLEON-LOADSAVE-FIXES: v1.0.34 c60=1 main-menu mode on boot so press A -> New Game/Options/Clear Save Game
 	{ uint32_t ea = (uint32_t)(ctx.ebp + 0x10u); X86_MEM32(ea) = (uint32_t)(0x0u); }  // GALLEON-LOADSAVE-FIXES: phase stays 0 so sub_00068D10 queues state 0x10 (the menu frame sub_00065520 which builds the menu items)
 	{ uint32_t ea = (uint32_t)(ctx.ebp + 0x1Cu); X86_MEM32(ea) = (uint32_t)(0x800u); }  // GALLEON-LOADSAVE-FIXES: queue the MAIN MENU entry (sub_00065E00 mode 1)
 	{ LOGR("fix: auto-menu marker=%08X obj=%08X", ctx.eax, ctx.ebp); }  // GALLEON-LOADSAVE-FIXES
