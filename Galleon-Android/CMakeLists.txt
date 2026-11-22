@@ -600,36 +600,35 @@ endif()
 file(WRITE ${_g10} "${_g10_src}")
 endif()
 
-# v1.0.25: the relaunch auto-load fix (GALLEON-LOADSAVE-FIXES) retargeted to the real SAVE loader.
-# v1.0.24 queued state 0x1000, but that is the ATTRACT-DEMO starter: sub_00065A20 formats
-# demo%04d.gcg(marker) and loads the demo descriptor (demo0000.GDG -> FightArena.* + demo0000.dem),
-# which is exactly what galleon-21.log showed. The real save load is state 0x8000: the dispatcher
-# routes it to sub_00066C90 which reads the save spec [obj+0x1A4] (low word = the save number,
-# high word set => autosave%d.GDG else save%d.GDG), formats the name and loads the session via
-# sub_000686B0 - the same chain the save-select's load choice runs (sub_00065EC0 choice 1 sets
-# [obj+0x1A4]=[obj+0x1B0] and queues 0x8000). The state-0x200 entry (sub_00066A00 at 0x66AA2)
-# queues the save-select unconditionally, so a relaunch boot with a save selected still lands in
-# the menu. Fix: when the marker is not -1 (a save was selected before the relaunch), skip the
-# save-select entry, set the save spec [obj+0x1A4]=marker and queue state 0x8000 - the game then
-# loads the selected save (save%d.GDG) and starts gameplay.
+# v1.0.26: the relaunch boot now goes to the game's REAL MAIN MENU (GALLEON-LOADSAVE-FIXES).
+# v1.0.24 queued state 0x1000 (the attract demo); v1.0.25 queued 0x8000 (the save load, which
+# ran the save machinery and stalled in a fade = the black screen). The user wants the real
+# main menu (New Game / Options / Clear Save Game) after selecting a save and relaunching.
+# The menu system has two modes selected by [obj+0xC60]: mode 0 = the save-select (slot picker,
+# A/B/C slot letters), mode 1 = the post-select main menu. The game's own mode-1 entry is
+# state 0x800 -> sub_00065E00: sets [obj+0xC60]=1, runs sub_00068210 (the save-name setup),
+# then sub_00068D10 (the menu entry) -> state 0x10 (the menu frame). The state-0x200 entry
+# (sub_00066A00 at 0x66AA2) queues the save-select (mode 0) unconditionally. Fix: when the
+# marker is not -1 (a save slot was selected before the relaunch), skip the save-select entry
+# and queue state 0x800 instead - the game then shows the real main menu.
 if(NOT _g10_src MATCHES "GALLEON-LOADSAVE-FIXES")
 string(REPLACE [[loc_00066AA2:
 	// 00066AA2 test [ebp+0x130], bl
 	{ uint32_t ea = (uint32_t)(ctx.ebp + 0x130u); uint8_t a = (uint8_t)(X86_MEM8(ea)), b = (uint8_t)(((uint8_t)ctx.ebx)); uint8_t r = (uint8_t)(a & b); ca = a; cb = b; cf = 0; of = 0; zf = r == 0; sf = (uint32_t)(r >> 7) & 1; pf = X86_PARITY(r); }
 	// 00066AA8 jz 0x00066AB7
 	if (((uint8_t)(ca & cb)) == 0) { goto loc_00066AB7; }]] [[loc_00066AA2:
-	// [GALLEON-LOADSAVE-FIXES v1.0.25] relaunch boot with a selected save (marker != -1): skip the
-	// save-select and run the real save load (state 0x8000 -> sub_00066C90: save%d.GDG(marker)).
+	// [GALLEON-LOADSAVE-FIXES v1.0.26] relaunch boot with a selected save (marker != -1): skip the
+	// save-select and show the game's real main menu (state 0x800 -> sub_00065E00 mode 1).
 	// 00066AA2 mov eax, [0x00223688]
 	{ ctx.eax = (uint32_t)(X86_MEM32((uint32_t)(0x223688u))); }
 	// 00066AA7 cmp eax, 0xFFFFFFFF
 	{ uint32_t a = (uint32_t)(ctx.eax), b = (uint32_t)(0xFFFFFFFFu); uint32_t r = (uint32_t)(a - b); ca = a; cb = b; cf = a < b; of = (uint32_t)(((a ^ b) & (a ^ r)) >> 31) & 1; zf = r == 0; sf = (uint32_t)(r >> 31) & 1; pf = X86_PARITY(r); }
 	// 00066AA9 jz 0x00066AA2_MENU
 	if (zf) { goto loc_00066AA2_MENU; }
-	{ uint32_t ea = (uint32_t)(ctx.ebp + 0x1A4u); X86_MEM32(ea) = (uint32_t)(ctx.eax); }  // GALLEON-LOADSAVE-FIXES: save spec = marker (choice-1 form)
+	{ uint32_t ea = (uint32_t)(ctx.ebp + 0x1A4u); X86_MEM32(ea) = (uint32_t)(ctx.eax); }  // GALLEON-LOADSAVE-FIXES: save spec = marker (the chosen slot)
 	{ uint32_t ea = (uint32_t)(ctx.ebp + 0x10u); X86_MEM32(ea) = (uint32_t)(0x1u); }
-	{ uint32_t ea = (uint32_t)(ctx.ebp + 0x1Cu); X86_MEM32(ea) = (uint32_t)(0x8000u); }  // GALLEON-LOADSAVE-FIXES: queue the SAVE load (sub_00066C90)
-	{ LOGR("fix: auto-load-save marker=%08X obj=%08X", ctx.eax, ctx.ebp); }  // GALLEON-LOADSAVE-FIXES
+	{ uint32_t ea = (uint32_t)(ctx.ebp + 0x1Cu); X86_MEM32(ea) = (uint32_t)(0x800u); }  // GALLEON-LOADSAVE-FIXES: queue the MAIN MENU entry (sub_00065E00 mode 1)
+	{ LOGR("fix: auto-menu marker=%08X obj=%08X", ctx.eax, ctx.ebp); }  // GALLEON-LOADSAVE-FIXES
 	// 00066AB1 pop esi
 	{ uint32_t v = X86_MEM32(ctx.esp); ctx.esp += 4; ctx.esi = (uint32_t)(v); }
 	// 00066AB2 pop ebp
@@ -663,6 +662,14 @@ string(REPLACE [[X86_FUNC(__imp__sub_00066AD0) {
 	uint32_t ca = 0, cb = 0;
 	(void)ca; (void)cb;
 	{ LOGR("menu: done-entry (state 0x400 teardown) marker=%08X", X86_MEM32((uint32_t)(0x223688u))); }  // GALLEON-LOADSAVE-FIXES]] _g10_src "${_g10_src}")
+string(REPLACE [[X86_FUNC(__imp__sub_00067970) {
+	X86_LOAD_FLAGS();
+	uint32_t ca = 0, cb = 0;
+	(void)ca; (void)cb;]] [[X86_FUNC(__imp__sub_00067970) {
+	X86_LOAD_FLAGS();
+	uint32_t ca = 0, cb = 0;
+	(void)ca; (void)cb;
+	{ LOGR("tap-in ret=%08X", X86_MEM32(ctx.esp)); }  // GALLEON-LOADSAVE-FIXES]] _g10_src "${_g10_src}")
 if(NOT _g10_src MATCHES "GALLEON-LOADSAVE-FIXES")
     message(FATAL_ERROR "x86_recomp.10.cpp load-save fix could not be patched (recompiler output changed?)")
 endif()
