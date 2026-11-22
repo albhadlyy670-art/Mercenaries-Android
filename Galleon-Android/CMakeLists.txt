@@ -702,6 +702,40 @@ endif()
 file(WRITE ${_g53} "${_g53_src}")
 endif()
 
+# v1.0.28: crash-11 null path suffix (GALLEON-LOADSAVE-FIXES): the mode-1 menu context resolves
+# assets through sub_001B5C70 -> sub_001C5979 (path append) -> sub_001C553F (wide append) and a
+# NULL asset name faults reading guest-NULL. Guard both helpers: sub_001C5979's caller (@0x1B5CA1
+# "test eax,eax / jz") continues on 0 and bails on non-zero, so return 1 on a null suffix;
+# sub_001C553F appends nothing and returns 0 on a null source. ret 0x18 -> esp += 28; ret 0x0C -> esp += 16.
+set(_g55 ${REPO}/generated/game/x86_recomp.55.cpp)
+file(READ ${_g55} _g55_src)
+if(NOT _g55_src MATCHES "GALLEON-LOADSAVE-FIXES")
+string(REPLACE [[X86_FUNC(__imp__sub_001C5979) {
+	X86_LOAD_FLAGS();
+	uint32_t ca = 0, cb = 0;
+	(void)ca; (void)cb;
+	// 001C5979 push ebp]] [[X86_FUNC(__imp__sub_001C5979) {
+	X86_LOAD_FLAGS();
+	uint32_t ca = 0, cb = 0;
+	(void)ca; (void)cb;
+	if (!X86_MEM32((uint32_t)(ctx.esp + 0x8u))) { ctx.eax = 1u; ctx.esp += 28; return; }  // GALLEON-LOADSAVE-FIXES: v1.0.28 null path suffix -> fail cleanly
+	// 001C5979 push ebp]] _g55_src "${_g55_src}")
+string(REPLACE [[X86_FUNC(__imp__sub_001C553F) {
+	X86_LOAD_FLAGS();
+	uint32_t ca = 0, cb = 0;
+	(void)ca; (void)cb;
+	// 001C553F push ebp]] [[X86_FUNC(__imp__sub_001C553F) {
+	X86_LOAD_FLAGS();
+	uint32_t ca = 0, cb = 0;
+	(void)ca; (void)cb;
+	if (!X86_MEM32((uint32_t)(ctx.esp + 0x4u))) { ctx.eax = 0u; ctx.esp += 16; return; }  // GALLEON-LOADSAVE-FIXES: v1.0.28 null wide source -> append nothing
+	// 001C553F push ebp]] _g55_src "${_g55_src}")
+if(NOT _g55_src MATCHES "GALLEON-LOADSAVE-FIXES")
+    message(FATAL_ERROR "x86_recomp.55.cpp null-path guard could not be patched (recompiler output changed?)")
+endif()
+file(WRITE ${_g55} "${_g55_src}")
+endif()
+
 
 # the recompiled code and the xbe it came from
 set(XBE_GENERATED ${REPO}/generated/game CACHE PATH "the recompiled code of default.xbe")
