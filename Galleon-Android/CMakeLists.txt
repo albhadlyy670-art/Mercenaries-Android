@@ -800,6 +800,23 @@ file(WRITE ${_g12} "${_g12_src}")
 endif()
 
 
+# v1.0.38: skip 0x00067EE0 save-item population in sub_00068D10 when c60=1 (main menu mode)
+set(_g13 ${REPO}/generated/game/x86_recomp.10.cpp)
+file(READ ${_g13} _g13_src)
+if(NOT _g13_src MATCHES "GALLEON-LOADSAVE-FIXES-068D10")
+string(REPLACE [[	// 00068D4F lea edi, [esi+0xC5C]
+	ctx.edi = (uint32_t)((uint32_t)(ctx.esi + 0xC5Cu));
+	// 00068D55 call 0x00067EE0
+	X86_PUSH32(0x68D5Au); sub_00067EE0(ctx, base);]] [[	// 00068D4F lea edi, [esi+0xC5C]
+	ctx.edi = (uint32_t)((uint32_t)(ctx.esi + 0xC5Cu));
+	{ if (X86_MEM8((uint32_t)(ctx.esi + 0xC60u)) != 1u) { X86_PUSH32(0x68D5Au); sub_00067EE0(ctx, base); } }  // GALLEON-LOADSAVE-FIXES-068D10: v1.0.38 skip 0x00067EE0 save-item population in main-menu mode (c60=1)]] _g13_src "${_g13_src}")
+if(NOT _g13_src MATCHES "GALLEON-LOADSAVE-FIXES-068D10")
+    message(FATAL_ERROR "x86_recomp.10.cpp sub_00068D10 save-item skip could not be patched (recompiler output changed?)")
+endif()
+file(WRITE ${_g13} "${_g13_src}")
+endif()
+
+
 # the recompiled code and the xbe it came from
 set(XBE_GENERATED ${REPO}/generated/game CACHE PATH "the recompiled code of default.xbe")
 set(XBE_IMAGE ${REPO}/assets/default.xbe CACHE FILEPATH "the xbe it was recompiled from")
