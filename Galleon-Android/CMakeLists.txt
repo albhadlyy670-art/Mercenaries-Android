@@ -611,6 +611,12 @@ endif()
 # (sub_00066A00 at 0x66AA2) queues the save-select (mode 0) unconditionally. Fix: when the
 # marker is not -1 (a save slot was selected before the relaunch), skip the save-select entry
 # and queue state 0x800 instead - the game then shows the real main menu.
+# v1.0.30: sub_00071730 (the menu-item list) exits immediately when [obj+0x168] (the save name)
+# is null; at a relaunch boot nothing restores it and the items never build (the save-rows panel
+# stays visible). Seed the selection at the auto-menu entry: [obj+0x15C] = the marker slot and
+# [obj+0x168] = the game's own empty-name fallback (the string 0x217F64, which the tap handler
+# itself uses for a missing name at 0x67BC0). The v1.0.27 null-name fallback also treats the
+# empty name as missing (its last-wchar decode would read before the string).
 # v1.0.29: the menu items are built by state 0x10 (sub_00065520), which sub_00068D10 queues only
 # when the phase [obj+0x10] is 0; the v1.0.26 fix set it to 1 and the queue never happened, so the
 # relaunch boot stayed on the bare save-rows panel (galleon-25.log). The phase now stays 0.
@@ -633,6 +639,8 @@ string(REPLACE [[loc_00066AA2:
 	// 00066AA9 jz 0x00066AA2_MENU
 	if (zf) { goto loc_00066AA2_MENU; }
 	{ uint32_t ea = (uint32_t)(ctx.ebp + 0x1A4u); X86_MEM32(ea) = (uint32_t)(ctx.eax); }  // GALLEON-LOADSAVE-FIXES: save spec = marker (the chosen slot)
+	{ uint32_t ea = (uint32_t)(ctx.ebp + 0x15Cu); X86_MEM32(ea) = (uint32_t)(ctx.eax); }  // GALLEON-LOADSAVE-FIXES: v1.0.30 the save index = the marker (sub_00071730 gate)
+	{ uint32_t ea = (uint32_t)(ctx.ebp + 0x168u); X86_MEM32(ea) = (uint32_t)(0x217F64u); }  // GALLEON-LOADSAVE-FIXES: v1.0.30 the game's empty-name fallback (sub_00071730 needs a name)
 	{ uint32_t ea = (uint32_t)(ctx.ebp + 0x10u); X86_MEM32(ea) = (uint32_t)(0x0u); }  // GALLEON-LOADSAVE-FIXES: phase stays 0 so sub_00068D10 queues state 0x10 (the menu frame sub_00065520 which builds the menu items)
 	{ uint32_t ea = (uint32_t)(ctx.ebp + 0x1Cu); X86_MEM32(ea) = (uint32_t)(0x800u); }  // GALLEON-LOADSAVE-FIXES: queue the MAIN MENU entry (sub_00065E00 mode 1)
 	{ LOGR("fix: auto-menu marker=%08X obj=%08X", ctx.eax, ctx.ebp); }  // GALLEON-LOADSAVE-FIXES
@@ -649,6 +657,16 @@ loc_00066AA2_MENU:
 	{ uint32_t ea = (uint32_t)(ctx.ebp + 0x130u); uint8_t a = (uint8_t)(X86_MEM8(ea)), b = (uint8_t)(((uint8_t)ctx.ebx)); uint8_t r = (uint8_t)(a & b); ca = a; cb = b; cf = 0; of = 0; zf = r == 0; sf = (uint32_t)(r >> 7) & 1; pf = X86_PARITY(r); }
 	// 00066AA8 jz 0x00066AB7
 	if (((uint8_t)(ca & cb)) == 0) { goto loc_00066AB7; }]] _g10_src "${_g10_src}")
+string(REPLACE [[X86_FUNC(__imp__sub_00065520) {
+	X86_LOAD_FLAGS();
+	uint32_t ca = 0, cb = 0;
+	(void)ca; (void)cb;
+	// 00065520 push ebp]] [[X86_FUNC(__imp__sub_00065520) {
+	X86_LOAD_FLAGS();
+	uint32_t ca = 0, cb = 0;
+	(void)ca; (void)cb;
+	{ LOGR("frame: c60=%02X idx=%08X name=%08X", X86_MEM8((uint32_t)(ctx.eax + 0xC60u)), X86_MEM32((uint32_t)(ctx.eax + 0x15Cu)), X86_MEM32((uint32_t)(ctx.eax + 0x168u))); }  // GALLEON-LOADSAVE-FIXES
+	// 00065520 push ebp]] _g10_src "${_g10_src}")
 string(REPLACE [[X86_FUNC(__imp__sub_00065A20) {
 	X86_LOAD_FLAGS();
 	uint32_t ca = 0, cb = 0;
@@ -683,7 +701,7 @@ string(REPLACE [[	// 00068263 mov esi, [ebp+0x168]
 	{ uint32_t ea = (uint32_t)(ctx.ebp + 0x168u); ctx.esi = (uint32_t)(X86_MEM32(ea)); }
 	// [GALLEON-LOADSAVE-FIXES v1.0.27] null save name at a relaunch boot: derive the slot
 	// letter from the marker (the chosen save) instead of decoding the name's last wchar.
-	if (!ctx.esi) { ctx.ebx = (uint32_t)(X86_MEM32((uint32_t)(0x223688u))); goto loc_00068295; }  // GALLEON-LOADSAVE-FIXES
+	if (!ctx.esi || X86_MEM16((uint32_t)(ctx.esi)) == 0) { ctx.ebx = (uint32_t)(X86_MEM32((uint32_t)(0x223688u))); goto loc_00068295; }  // GALLEON-LOADSAVE-FIXES
 	// 00068269 push esi]] _g10_src "${_g10_src}")
 if(NOT _g10_src MATCHES "GALLEON-LOADSAVE-FIXES")
     message(FATAL_ERROR "x86_recomp.10.cpp load-save fix could not be patched (recompiler output changed?)")
@@ -737,6 +755,28 @@ if(NOT _g55_src MATCHES "GALLEON-LOADSAVE-FIXES")
     message(FATAL_ERROR "x86_recomp.55.cpp null-path guard could not be patched (recompiler output changed?)")
 endif()
 file(WRITE ${_g55} "${_g55_src}")
+endif()
+
+# v1.0.30: probe the menu-item list builder (GALLEON-LOADSAVE-FIXES)
+set(_g11 ${REPO}/generated/game/x86_recomp.11.cpp)
+file(READ ${_g11} _g11_src)
+if(NOT _g11_src MATCHES "GALLEON-LOADSAVE-FIXES")
+string(REPLACE [[#include "x86_recomp_shared.h"]] [[#include "x86_recomp_shared.h"
+#include "core/log.h"]] _g11_src "${_g11_src}")
+string(REPLACE [[X86_FUNC(__imp__sub_00071730) {
+	X86_LOAD_FLAGS();
+	uint32_t ca = 0, cb = 0;
+	(void)ca; (void)cb;
+	// 00071730 mov eax, 0x295C]] [[X86_FUNC(__imp__sub_00071730) {
+	X86_LOAD_FLAGS();
+	uint32_t ca = 0, cb = 0;
+	(void)ca; (void)cb;
+	{ LOGR("list: a1=%08X a2=%08X a3=%08X a4=%08X", X86_MEM32((uint32_t)(ctx.esp + 0x4u)), X86_MEM32((uint32_t)(ctx.esp + 0x8u)), X86_MEM32((uint32_t)(ctx.esp + 0xCu)), X86_MEM32((uint32_t)(ctx.esp + 0x10u))); }  // GALLEON-LOADSAVE-FIXES
+	// 00071730 mov eax, 0x295C]] _g11_src "${_g11_src}")
+if(NOT _g11_src MATCHES "GALLEON-LOADSAVE-FIXES")
+    message(FATAL_ERROR "x86_recomp.11.cpp menu-list probe could not be patched (recompiler output changed?)")
+endif()
+file(WRITE ${_g11} "${_g11_src}")
 endif()
 
 
