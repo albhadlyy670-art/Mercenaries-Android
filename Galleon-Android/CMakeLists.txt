@@ -771,59 +771,33 @@ endif()
 file(WRITE ${_g55} "${_g55_src}")
 endif()
 
-# v1.0.93: Patch 8 (_g11) - guard sub_00071730 internals in x86_recomp.11.cpp
-# sub_00071730 does mov eax,0x295C then mov esi,[eax+0x168]=[0x2AC4]=0, resetting esi to 0
-# -> crash at [esi+0xC5C]. Guard after mov eax,0x295C AND after mov esi,[eax+0x168].
-# Try tab-prefixed pattern first (recompiler indents with tabs), fall back to untabbed.
+# v1.0.94: Patch 8 (_g11) - guard esi at sub_00071730 function entry in x86_recomp.11.cpp
+# sub_00071730 resets esi to 0 internally via mov esi,[eax+0x168]=[0x2AC4]=0
+# -> crash at [esi+0xC5C]. Guard at function entry: set esi = global menu obj or ebp, bail if 0.
+# Match the standardized function prologue (guaranteed to exist in every recompiled function).
 set(_g11 ${REPO}/generated/game/x86_recomp.11.cpp)
 file(READ ${_g11} _g11_src)
 if(NOT _g11_src MATCHES "GALLEON-LOADSAVE-FIXES-068D10-8")
-string(REPLACE [[	{ ctx.eax = (uint32_t)(0x295Cu); }]] [[
-	{ ctx.eax = (uint32_t)(0x295Cu); }
-	// [GALLEON-LOADSAVE-FIXES-068D10-8] guard esi before/after mov eax,0x295C in sub_00071730
+string(REPLACE [[X86_FUNC(__imp__sub_00071730) {
+	X86_LOAD_FLAGS();
+	uint32_t ca = 0, cb = 0;
+	(void)ca; (void)cb;]] [[X86_FUNC(__imp__sub_00071730) {
+	X86_LOAD_FLAGS();
+	uint32_t ca = 0, cb = 0;
+	(void)ca; (void)cb;
+	// [GALLEON-LOADSAVE-FIXES-068D10-8] guard esi at sub_00071730 entry: esi = menu obj or ebp
 	{if (ctx.esi == 0) { uint32_t _g = X86_MEM32((uint32_t)(0x238ED4u)); ctx.esi = (uint32_t)(_g ? _g : ctx.ebp); }}
 	{if (ctx.esi == 0) { ctx.esp += 4; return; }}]] _g11_src "${_g11_src}")
 endif()
 if(NOT _g11_src MATCHES "GALLEON-LOADSAVE-FIXES-068D10-8")
-string(REPLACE [[{ ctx.eax = (uint32_t)(0x295Cu); }]] [[
-{ ctx.eax = (uint32_t)(0x295Cu); }
-// [GALLEON-LOADSAVE-FIXES-068D10-8] guard esi before/after mov eax,0x295C in sub_00071730
-{if (ctx.esi == 0) { uint32_t _g = X86_MEM32((uint32_t)(0x238ED4u)); ctx.esi = (uint32_t)(_g ? _g : ctx.ebp); }}
-{if (ctx.esi == 0) { ctx.esp += 4; return; }}]] _g11_src "${_g11_src}")
-endif()
-if(NOT _g11_src MATCHES "GALLEON-LOADSAVE-FIXES-068D10-8")
-    message(FATAL_ERROR "x86_recomp.11.cpp Patch 8 esi guard could not be patched (recompiler output changed?)")
+    message(FATAL_ERROR "x86_recomp.11.cpp Patch 8 esi guard at function entry could not be patched")
 endif()
 file(WRITE ${_g11} "${_g11_src}")
 endif()
 
-# v1.0.93: Patch 8b (_g14) - guard mov esi,[eax+0x168] in sub_00071730 (likely resets esi to 0)
-# If [eax+0x168]=[0x2AC4]=0, esi becomes 0 -> crash at [esi+0xC5C]. Guard after this read.
-set(_g14 ${REPO}/generated/game/x86_recomp.11.cpp)
-file(READ ${_g14} _g14_src)
-if(NOT _g14_src MATCHES "GALLEON-LOADSAVE-FIXES-068D10-8b")
-string(REPLACE [[	{ uint32_t ea = (uint32_t)(ctx.eax + 0x168u); ctx.esi = (uint32_t)(X86_MEM32(ea)); }]] [[
-	{ uint32_t ea = (uint32_t)(ctx.eax + 0x168u); ctx.esi = (uint32_t)(X86_MEM32(ea)); }
-	// [GALLEON-LOADSAVE-FIXES-068D10-8b] guard esi after mov esi,[eax+0x168] (may read 0)
-	{if (ctx.esi == 0) { uint32_t _g3 = X86_MEM32((uint32_t)(0x238ED4u)); ctx.esi = (uint32_t)(_g3 ? _g3 : ctx.ebp); }}
-	{if (ctx.esi == 0) { ctx.esp += 4; return; }}]] _g14_src "${_g14_src}")
-endif()
-if(NOT _g14_src MATCHES "GALLEON-LOADSAVE-FIXES-068D10-8b")
-string(REPLACE [[{ uint32_t ea = (uint32_t)(ctx.eax + 0x168u); ctx.esi = (uint32_t)(X86_MEM32(ea)); }]] [[
-{ uint32_t ea = (uint32_t)(ctx.eax + 0x168u); ctx.esi = (uint32_t)(X86_MEM32(ea)); }
-// [GALLEON-LOADSAVE-FIXES-068D10-8b] guard esi after mov esi,[eax+0x168] (may read 0)
-{if (ctx.esi == 0) { uint32_t _g3 = X86_MEM32((uint32_t)(0x238ED4u)); ctx.esi = (uint32_t)(_g3 ? _g3 : ctx.ebp); }}
-{if (ctx.esi == 0) { ctx.esp += 4; return; }}]] _g14_src "${_g14_src}")
-endif()
-if(NOT _g14_src MATCHES "GALLEON-LOADSAVE-FIXES-068D10-8b")
-    message(FATAL_ERROR "x86_recomp.11.cpp Patch 8b esi guard after [eax+0x168] could not be patched")
-endif()
-file(WRITE ${_g14} "${_g14_src}")
-endif()
-
-# v1.0.93: Patch 9 (_g13) - ensure esi = menu obj before every sub_00071730 call site
-# sub_00071730 is called from 10 sites in x86_recomp.10.cpp; at 7 of them esi is not set before the call.
-# Patch 8/8b guard inside the function; Patch 9 guards at each call site.
+# v1.0.94: Patch 9 (_g13) - ensure esi = menu obj before every sub_00071730 call site in x86_recomp.10.cpp
+# sub_00071730 is called from 10 sites; at 7 of them esi is not set before the call.
+# Patch 8 guards inside the function; Patch 9 guards at each call site.
 set(_g13 ${REPO}/generated/game/x86_recomp.10.cpp)
 file(READ ${_g13} _g13_src)
 if(NOT _g13_src MATCHES "GALLEON-LOADSAVE-FIXES-068D10-9")
