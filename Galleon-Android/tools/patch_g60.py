@@ -19,8 +19,10 @@ path = sys.argv[1]
 with open(path, 'r') as f:
     content = f.read()
 
-# Already patched?
-if 'GALLEON-LOADSAVE-FIXES-068D10' in content:
+# Already patched? Check for Patch 7d marker (last patch applied).
+# Patches 1-3 use the base marker GALLEON-LOADSAVE-FIXES-068D10, so
+# checking that would skip Patches 7+ even though they were never applied.
+if 'GALLEON-LOADSAVE-FIXES-068D10-7d' in content:
     sys.exit(0)
 
 # Patch 1: guard the sub_00067EE0 stale-data copy — only copy when c60 != 1

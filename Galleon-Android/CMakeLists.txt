@@ -764,23 +764,12 @@ endif()
 # v1.0.30: probe the menu-item list builder (GALLEON-LOADSAVE-FIXES)
 set(_g11 ${REPO}/generated/game/x86_recomp.11.cpp)
 file(READ ${_g11} _g11_src)
-if(NOT _g11_src MATCHES "GALLEON-LOADSAVE-FIXES")
-string(REPLACE [[#include "x86_recomp_shared.h"]] [[#include "x86_recomp_shared.h"
-#include "core/log.h"]] _g11_src "${_g11_src}")
-string(REPLACE [[X86_FUNC(__imp__sub_00071730) {
-	X86_LOAD_FLAGS();
-	uint32_t ca = 0, cb = 0;
-	(void)ca; (void)cb;
-	// 00071730 mov eax, 0x295C]] [[X86_FUNC(__imp__sub_00071730) {
-	X86_LOAD_FLAGS();
-	uint32_t ca = 0, cb = 0;
-	(void)ca; (void)cb;
-	{ LOGR("list: a1=%08X a2=%08X a3=%08X a4=%08X", X86_MEM32((uint32_t)(ctx.esp + 0x4u)), X86_MEM32((uint32_t)(ctx.esp + 0x8u)), X86_MEM32((uint32_t)(ctx.esp + 0xCu)), X86_MEM32((uint32_t)(ctx.esp + 0x10u))); }  // GALLEON-LOADSAVE-FIXES
-	// [GALLEON-LOADSAVE-FIXES-068D10-8] if esi=0, use ebp (menu obj)
-	if (ctx.esi == 0) { ctx.esi = ctx.ebp; }
-	// 00071730 mov eax, 0x295C]] _g11_src "${_g11_src}")
-if(NOT _g11_src MATCHES "GALLEON-LOADSAVE-FIXES")
-    message(FATAL_ERROR "x86_recomp.11.cpp menu-list probe could not be patched (recompiler output changed?)")
+if(NOT _g11_src MATCHES "GALLEON-LOADSAVE-FIXES-068D10-8")
+string(REPLACE [[\t// 00071730 mov eax, 0x295C]] [[\t// [GALLEON-LOADSAVE-FIXES-068D10-8] if esi=0, use ebp (menu obj)
+\tif (ctx.esi == 0) { ctx.esi = ctx.ebp; }
+\t// 00071730 mov eax, 0x295C]] _g11_src "${_g11_src}")
+if(NOT _g11_src MATCHES "GALLEON-LOADSAVE-FIXES-068D10-8")
+    message(FATAL_ERROR "x86_recomp.11.cpp menu-list esi guard could not be patched (recompiler output changed?)")
 endif()
 file(WRITE ${_g11} "${_g11_src}")
 endif()
