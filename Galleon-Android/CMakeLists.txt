@@ -649,7 +649,7 @@ loc_00066AA2_DONE:
 	{ uint32_t ea = (uint32_t)(ctx.esi + 0x168u); X86_MEM32(ea) = (uint32_t)(0x217F64u); }  // GALLEON-LOADSAVE-FIXES: name = empty fallback (esi copy, for sub_00065520 via esi)
 	{ uint32_t ea = (uint32_t)(ctx.ebp + 0xC60u); X86_MEM8(ea) = (uint8_t)(0x1u); }  // GALLEON-LOADSAVE-FIXES: c60=1 main-menu mode
 	{ uint32_t ea = (uint32_t)(ctx.ebp + 0x10u); X86_MEM32(ea) = (uint32_t)(0x0u); }  // GALLEON-LOADSAVE-FIXES: phase stays 0 so state 0x10 (menu frame) runs
-	{ uint32_t ea = (uint32_t)(ctx.ebp + 0x1Cu); X86_MEM32(ea) = (uint32_t)(0x10u); }  // GALLEON-LOADSAVE-FIXES: queue state 0x10 (main menu frame, sub_00065520)
+	{ uint32_t ea = (uint32_t)(ctx.ebp + 0x1Cu); X86_MEM32(ea) = (uint32_t)(0x800u); }  // GALLEON-LOADSAVE-FIXES: queue state 0x800 (main menu entry, sub_00065E00) — runs full setup before state 0x10
 	{ uint32_t ea = (uint32_t)(0x238ED4u); X86_MEM32(ea) = (uint32_t)(ctx.ebp); }  // GALLEON-LOADSAVE-FIXES: set global menu obj [0x238ED4] = our menu obj (002D1EF0)
 	{ uint32_t g = X86_MEM32((uint32_t)(0x238ED4u)); X86_MEM8(g + 0xC60u) = (uint8_t)(0x1u); X86_MEM32(g + 0x168u) = X86_MEM32((uint32_t)(0x217F64u)); X86_MEM32(g + 0x15Cu) = X86_MEM32((uint32_t)(ctx.ebp + 0x15Cu)); }  // GALLEON-LOADSAVE-FIXES: mirror c60/name/slot onto global menu obj for sub_00071730 internal reads
 	{ LOGR("fix: auto-menu idx=%08X obj=%08X", X86_MEM32((uint32_t)(ctx.ebp + 0x15Cu)), ctx.ebp); }  // GALLEON-LOADSAVE-FIXES
