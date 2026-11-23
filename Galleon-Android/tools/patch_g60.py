@@ -23,8 +23,8 @@ if 'GALLEON-LOADSAVE-FIXES-068D10' in content:
 patch1_old = '''\t// 00068D55 call 0x00067EE0
 \tX86_PUSH32(0x68D5Au); sub_00067EE0(ctx, base);'''
 patch1_new = '''\t// [GALLEON-LOADSAVE-FIXES-068D10] skip stale save-select copy when main-menu
-\t// items already built at [esi+0xC5C]
-\tif (X86_MEM32((uint32_t)(ctx.esi + 0xC5Cu)) == 0) {
+\t// mode is active (c60==1)
+\tif (X86_MEM8((uint32_t)(ctx.esi + 0xC60u)) != 1) {
 \t\t// 00068D55 call 0x00067EE0
 \t\tX86_PUSH32(0x68D5Au); sub_00067EE0(ctx, base);
 \t}'''
@@ -33,8 +33,8 @@ patch1_new = '''\t// [GALLEON-LOADSAVE-FIXES-068D10] skip stale save-select copy
 # [obj+0xC5C] is empty (main-menu items not yet built there).
 patch2_old = '''\t// 00068D64 mov [esi+0x15C], ebx
 \t{ uint32_t ea = (uint32_t)(ctx.esi + 0x15Cu); X86_MEM32(ea) = (uint32_t)(ctx.ebx); }'''
-patch2_new = '''\t// [GALLEON-LOADSAVE-FIXES-068D10] keep selected slot when main-menu items exist
-\tif (X86_MEM32((uint32_t)(ctx.esi + 0xC5Cu)) == 0) {
+patch2_new = '''\t// [GALLEON-LOADSAVE-FIXES-068D10] keep selected slot when main-menu mode is active (c60==1)
+\tif (X86_MEM8((uint32_t)(ctx.esi + 0xC60u)) != 1) {
 \t\t// 00068D64 mov [esi+0x15C], ebx
 \t\t{ uint32_t ea = (uint32_t)(ctx.esi + 0x15Cu); X86_MEM32(ea) = (uint32_t)(ctx.ebx); }
 \t}'''
