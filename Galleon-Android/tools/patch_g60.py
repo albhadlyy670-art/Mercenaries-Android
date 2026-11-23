@@ -85,14 +85,15 @@ else:
 
 # Patch 7: sub_00065E00 entry sets esi = eax (dispatcher's eax), but the
 # dispatcher doesn't set eax to the menu obj -> esi=0 -> sub_00071730 crashes.
-# Fix: after mov esi, eax, override esi with the global menu obj [0x238ED4]
-# which _g10 sets unconditionally to ctx.ebp.
+# Fix: after mov esi, eax, override esi with the menu obj from ebp (which
+# the caller set to the menu obj, e.g. 0x2D2B4C in the crash log), falling
+# back to the global [0x238ED4] that _g10 sets.
 patch7_old = '''\t// 00065E01 mov esi, eax
 \t{ ctx.esi = (uint32_t)(ctx.eax); }'''
 patch7_new = '''\t// 00065E01 mov esi, eax
 \t{ ctx.esi = (uint32_t)(ctx.eax); }
-// [GALLEON-LOADSAVE-FIXES-068D10-7] set esi = global menu obj [0x238ED4]
-\t{ ctx.esi = (uint32_t)(X86_MEM32((uint32_t)(0x238ED4u))); }'''
+// [GALLEON-LOADSAVE-FIXES-068D10-7] set esi = menu obj (ebp, fallback to [0x238ED4])
+\t{ uint32_t _g = X86_MEM32((uint32_t)(0x238ED4u)); ctx.esi = (uint32_t)(_g ? _g : ctx.ebp); }'''
 
 count7 = content.count(patch7_old)
 if count7 != 1:
