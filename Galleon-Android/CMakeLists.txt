@@ -646,6 +646,7 @@ loc_00066AA2_MENU:
 	{ uint32_t ea = (uint32_t)(ctx.ebp + 0x15Cu); X86_MEM32(ea) = (uint32_t)(0x0u); }  // GALLEON-LOADSAVE-FIXES: idx = 0 (cold boot)
 loc_00066AA2_DONE:
 	{ uint32_t ea = (uint32_t)(ctx.ebp + 0x168u); X86_MEM32(ea) = (uint32_t)(0x217F64u); }  // GALLEON-LOADSAVE-FIXES: name = empty fallback (game's own 0x217F64)
+	{ uint32_t ea = (uint32_t)(ctx.esi + 0x168u); X86_MEM32(ea) = (uint32_t)(0x217F64u); }  // GALLEON-LOADSAVE-FIXES: name = empty fallback (esi copy, for sub_00065520 via esi)
 	{ uint32_t ea = (uint32_t)(ctx.ebp + 0xC60u); X86_MEM8(ea) = (uint8_t)(0x1u); }  // GALLEON-LOADSAVE-FIXES: c60=1 main-menu mode
 	{ uint32_t ea = (uint32_t)(ctx.ebp + 0x10u); X86_MEM32(ea) = (uint32_t)(0x0u); }  // GALLEON-LOADSAVE-FIXES: phase stays 0 so state 0x10 (menu frame) runs
 	{ uint32_t ea = (uint32_t)(ctx.ebp + 0x1Cu); X86_MEM32(ea) = (uint32_t)(0x10u); }  // GALLEON-LOADSAVE-FIXES: queue state 0x10 (main menu frame, sub_00065520)
