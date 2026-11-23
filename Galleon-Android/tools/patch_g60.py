@@ -109,8 +109,9 @@ patch7b_new = '''\t// 00065E1D push 0x01
 patch7c_old = '''\t// 00065E08 mov byte ptr [esi+0xC60], 0x01
 \t{ uint32_t ea = (uint32_t)(ctx.esi + 0xC60u); X86_MEM8(ea) = (uint8_t)(0x1u); }'''
 patch7c_new = '''\t// 00065E08 mov byte ptr [esi+0xC60], 0x01
-// [GALLEON-LOADSAVE-FIXES-068D10-7c] use ebp (menu obj) instead of esi
-\t{ uint32_t ea = (uint32_t)(ctx.ebp + 0xC60u); X86_MEM8(ea) = (uint8_t)(0x1u); }'''
+// [GALLEON-LOADSAVE-FIXES-068D10-7c] esi is valid (set by Patch 7/7d/8)
+// so [esi+0xC60] is safe - ebp is NOT the menu obj on all code paths
+\t{ uint32_t ea = (uint32_t)(ctx.esi + 0xC60u); X86_MEM8(ea) = (uint8_t)(0x1u); }'''
 
 # ---- Patch 7d: guard ALL sub_00071730(ctx, base) call sites ----
 guard7d = '''// [GALLEON-LOADSAVE-FIXES-068D10-7d] ensure esi is valid before sub_00071730
