@@ -710,6 +710,22 @@ endif()
 file(WRITE ${_g10} "${_g10_src}")
 endif()
 
+# v1.0.59: sub_00068D10 (menu entry called from sub_00065E00) sets phase=1 but may
+# not queue state 0x10 (the menu frame). Without state 0x10, the menu never renders
+# — black screen. Explicitly queue state 0x10 after menu entry setup.
+if(NOT _g10_src MATCHES "GALLEON-LOADSAVE-FIXES-068D10-3")
+string(REPLACE [[	// 00068D90 mov [esi+0x10], eax
+	{ uint32_t ea = (uint32_t)(ctx.esi + 0x10u); X86_MEM32(ea) = (uint32_t)(ctx.eax); }
+	loc_00068D9A:]] [[	// 00068D90 mov [esi+0x10], eax
+	{ uint32_t ea = (uint32_t)(ctx.esi + 0x10u); X86_MEM32(ea) = (uint32_t)(ctx.eax); }
+	// [GALLEON-LOADSAVE-FIXES] queue state 0x10 (menu frame) after menu entry setup
+	{ uint32_t ea = (uint32_t)(ctx.esi + 0x1Cu); X86_MEM32(ea) = (uint32_t)(0x10u); }
+	loc_00068D9A:]] _g10_src "${_g10_src}")
+if(NOT _g10_src MATCHES "GALLEON-LOADSAVE-FIXES-068D10-3")
+    message(FATAL_ERROR "x86_recomp.10.cpp sub_00068D10 state-0x10 queue fix could not be patched (recompiler output changed?)")
+endif()
+file(WRITE ${_g10} "${_g10_src}")
+
 # v1.0.23: boot-gate probe (GALLEON-GATE-FIXES): where the launch payload's marker restore
 set(_g53 ${REPO}/generated/game/x86_recomp.53.cpp)
 file(READ ${_g53} _g53_src)
