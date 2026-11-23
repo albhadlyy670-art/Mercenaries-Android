@@ -100,10 +100,52 @@ if count7 != 1:
     sys.stderr.write(f'Patch 7: expected 1 match, found {count7}\n')
     sys.exit(1)
 
+# Patch 7b: sub_00065E00 passes &[esi+0xC5C] as first arg to sub_00071730.
+# If esi is 0, this is &[0xC5C] (invalid). Use ebp (menu obj) instead.
+patch7b_old = '''\t// 00065E1D push 0x01
+\t{ uint32_t v = (uint32_t)(0x1u); X86_PUSH32(v); }
+\t// 00065E1F lea eax, [esi+0xC5C]
+\tctx.eax = (uint32_t)((uint32_t)(ctx.esi + 0xC5Cu));
+\t// 00065E25 push eax
+\t{ uint32_t v = (uint32_t)(ctx.eax); X86_PUSH32(v); }
+\t// 00065E26 call 0x00071730
+\tX86_PUSH32(0x65E2Bu); sub_00071730(ctx, base);'''
+
+patch7b_new = '''\t// 00065E1D push 0x01
+\t{ uint32_t v = (uint32_t)(0x1u); X86_PUSH32(v); }
+// [GALLEON-LOADSAVE-FIXES-068D10-7b] use ebp (menu obj) instead of esi for sub_00071730 arg
+\t{ uint32_t _esi = ctx.esi ? ctx.esi : ctx.ebp;
+\t  ctx.eax = (uint32_t)((uint32_t)(_esi + 0xC5Cu)); }
+\t// 00065E25 push eax
+\t{ uint32_t v = (uint32_t)(ctx.eax); X86_PUSH32(v); }
+\t// 00065E26 call 0x00071730
+\tX86_PUSH32(0x65E2Bu); sub_00071730(ctx, base);'''
+
+count7b = content.count(patch7b_old)
+if count7b != 1:
+    sys.stderr.write(f'Patch 7b: expected 1 match, found {count7b}\n')
+    sys.exit(1)
+
+# Patch 7c: sub_00065E00 writes [esi+0xC60]=1. If esi is 0, writes to [0xC60].
+# Use ebp (menu obj) instead.
+patch7c_old = '''\t// 00065E08 mov byte ptr [esi+0xC60], 0x01
+\t{ uint32_t ea = (uint32_t)(ctx.esi + 0xC60u); X86_MEM8(ea) = (uint8_t)(0x1u); }'''
+
+patch7c_new = '''\t// 00065E08 mov byte ptr [esi+0xC60], 0x01
+// [GALLEON-LOADSAVE-FIXES-068D10-7c] use ebp (menu obj) instead of esi
+\t{ uint32_t ea = (uint32_t)(ctx.ebp + 0xC60u); X86_MEM8(ea) = (uint8_t)(0x1u); }'''
+
+count7c = content.count(patch7c_old)
+if count7c != 1:
+    sys.stderr.write(f'Patch 7c: expected 1 match, found {count7c}\n')
+    sys.exit(1)
+
 content = content.replace(patch1_old, patch1_new, 1)
 content = content.replace(patch2_old, patch2_new, 1)
 content = content.replace(patch3_old, patch3_new, 1)
 content = content.replace(patch7_old, patch7_new, 1)
+content = content.replace(patch7b_old, patch7b_new, 1)
+content = content.replace(patch7c_old, patch7c_new, 1)
 
 with open(path, 'w') as f:
     f.write(content)
