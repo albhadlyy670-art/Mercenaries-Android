@@ -776,6 +776,8 @@ string(REPLACE [[X86_FUNC(__imp__sub_00071730) {
 	uint32_t ca = 0, cb = 0;
 	(void)ca; (void)cb;
 	{ LOGR("list: a1=%08X a2=%08X a3=%08X a4=%08X", X86_MEM32((uint32_t)(ctx.esp + 0x4u)), X86_MEM32((uint32_t)(ctx.esp + 0x8u)), X86_MEM32((uint32_t)(ctx.esp + 0xCu)), X86_MEM32((uint32_t)(ctx.esp + 0x10u))); }  // GALLEON-LOADSAVE-FIXES
+	// [GALLEON-LOADSAVE-FIXES-068D10-8] if esi=0, use ebp (menu obj)
+	if (ctx.esi == 0) { ctx.esi = ctx.ebp; }
 	// 00071730 mov eax, 0x295C]] _g11_src "${_g11_src}")
 if(NOT _g11_src MATCHES "GALLEON-LOADSAVE-FIXES")
     message(FATAL_ERROR "x86_recomp.11.cpp menu-list probe could not be patched (recompiler output changed?)")
