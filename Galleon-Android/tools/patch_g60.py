@@ -142,12 +142,28 @@ if count7c != 1:
     sys.stderr.write(f'Patch 7c: expected 1 match, found {count7c}\n')
     sys.exit(1)
 
+# Patch 7d: guard ALL sub_00071730(ctx, base) call sites in 10.cpp — if esi is
+# 0 at any call site, set it from [0x238ED4] (global menu obj set by _g10) or
+# ebp (caller's menu obj). This catches sub_00065520 (state 0x10 handler) and
+# any other caller that doesn't set esi properly.
+guard = '''// [GALLEON-LOADSAVE-FIXES-068D10-7d] ensure esi is valid before sub_00071730
+\tif (ctx.esi == 0) {
+\t\tuint32_t _g = X86_MEM32((uint32_t)(0x238ED4u));
+\t\tctx.esi = (uint32_t)(_g ? _g : ctx.ebp);
+\t}'''
+
+count7d = content.count('sub_00071730(ctx, base);')
+if count7d < 1:
+    sys.stderr.write(f'Patch 7d: expected >=1 sub_00071730 calls, found {count7d}\n')
+    sys.exit(1)
+
 content = content.replace(patch1_old, patch1_new, 1)
 content = content.replace(patch2_old, patch2_new, 1)
 content = content.replace(patch3_old, patch3_new, 1)
 content = content.replace(patch7_old, patch7_new, 1)
 content = content.replace(patch7b_old, patch7b_new, 1)
 content = content.replace(patch7c_old, patch7c_new, 1)
+content = content.replace('sub_00071730(ctx, base);', guard + '\n\tsub_00071730(ctx, base);', count7d)
 
 with open(path, 'w') as f:
     f.write(content)
