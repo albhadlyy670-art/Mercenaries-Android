@@ -577,6 +577,13 @@ string(REPLACE [[	// 000634F8 call 0x00061000
 	{ static int nb = 0; if (nb < 4) { nb++; LOGR("bootname: shellidx=%08X marker=%08X", ctx.eax, X86_MEM32((uint32_t)(0x223688u))); } }  // GALLEON-PROBE-FIXES]] _g10_src "${_g10_src}")
 if(NOT _g10_src MATCHES "GALLEON-PROBE-FIXES")
     message(FATAL_ERROR "x86_recomp.10.cpp could not be patched (recompiler output changed?)")
+# Patch 7: sub_00065E00 entry — set esi = [0x238ED4] or ebp fallback
+string(REPLACE [	// 00065E01 mov esi, eax
+	{ ctx.esi = (uint32_t)(ctx.eax); }] [	// 00065E01 mov esi, eax
+	{ ctx.esi = (uint32_t)(ctx.eax); }
+	// [GALLEON-LOADSAVE-FIXES-068D10-7] set esi = [0x238ED4] or ebp fallback
+	{ uint32_t _g = X86_MEM32((uint32_t)(0x238ED4u)); ctx.esi = (uint32_t)(_g ? _g : ctx.ebp); }]] _g10_src "${_g10_src}")
+
 endif()
 file(WRITE ${_g10} "${_g10_src}")
 endif()
