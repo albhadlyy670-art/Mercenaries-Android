@@ -771,13 +771,23 @@ endif()
 file(WRITE ${_g55} "${_g55_src}")
 endif()
 
-# v1.0.30: probe the menu-item list builder (GALLEON-LOADSAVE-FIXES)
+# v1.0.30: guard the menu-item list builder (GALLEON-LOADSAVE-FIXES).
+# sub_00071730 is called from 10 sites; at several (e.g. 0x656E3, 0x67EA7) esi is never set before the call.
+# Even when entry guard sets esi, the function does mov eax,0x295C then may read [eax+0x168]=[0x2AC4]=0 resetting esi to 0
+# -> crash at [esi+0xC5C]. Fix: always set esi at entry, re-guard after eax setup, bail safely if no valid obj.
 set(_g11 ${REPO}/generated/game/x86_recomp.11.cpp)
 file(READ ${_g11} _g11_src)
 if(NOT _g11_src MATCHES "GALLEON-LOADSAVE-FIXES-068D10-8")
-string(REPLACE [[	// 00071730 mov eax, 0x295C]] [[	// [GALLEON-LOADSAVE-FIXES-068D10-8] if esi=0, use global menu obj or ebp
-	if (ctx.esi == 0) { uint32_t _g = X86_MEM32((uint32_t)(0x238ED4u)); ctx.esi = (uint32_t)(_g ? _g : ctx.ebp); }
-	// 00071730 mov eax, 0x295C]] _g11_src "${_g11_src}")
+string(REPLACE [[	// 00071730 mov eax, 0x295C
+	{ ctx.eax = (uint32_t)(0x295Cu); }]] [[	// [GALLEON-LOADSAVE-FIXES-068D10-8] always set esi = global menu obj or ebp at entry
+	{ uint32_t _g = X86_MEM32((uint32_t)(0x238ED4u)); ctx.esi = (uint32_t)(_g ? _g : ctx.ebp); }
+	// [GALLEON-LOADSAVE-FIXES-068D10-8b] bail if no valid menu obj
+	if (ctx.esi == 0) { ctx.esp += 4; return; }
+	// 00071730 mov eax, 0x295C
+	{ ctx.eax = (uint32_t)(0x295Cu); }
+	// [GALLEON-LOADSAVE-FIXES-068D10-8c] re-guard esi after eax=0x295C setup (function may reset esi to 0)
+	if (ctx.esi == 0) { uint32_t _g2 = X86_MEM32((uint32_t)(0x238ED4u)); ctx.esi = (uint32_t)(_g2 ? _g2 : ctx.ebp); }
+	if (ctx.esi == 0) { ctx.esp += 4; return; }]] _g11_src "${_g11_src}")
 if(NOT _g11_src MATCHES "GALLEON-LOADSAVE-FIXES-068D10-8")
     message(FATAL_ERROR "x86_recomp.11.cpp menu-list esi guard could not be patched (recompiler output changed?)")
 endif()
