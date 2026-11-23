@@ -771,14 +771,23 @@ endif()
 file(WRITE ${_g55} "${_g55_src}")
 endif()
 
-# v1.0.94: Patch 8 (_g11) - guard esi at sub_00071730 function entry in x86_recomp.11.cpp
+# v1.0.95: Patch 8 (_g11) - guard esi at sub_00071730 function entry in ANY partition
 # sub_00071730 resets esi to 0 internally via mov esi,[eax+0x168]=[0x2AC4]=0
 # -> crash at [esi+0xC5C]. Guard at function entry: set esi = global menu obj or ebp, bail if 0.
-# Match the standardized function prologue (guaranteed to exist in every recompiled function).
-set(_g11 ${REPO}/generated/game/x86_recomp.11.cpp)
-file(READ ${_g11} _g11_src)
-if(NOT _g11_src MATCHES "GALLEON-LOADSAVE-FIXES-068D10-8")
-string(REPLACE [[X86_FUNC(__imp__sub_00071730) {
+# Search all partition files for sub_00071730 definition (partition number varies by build).
+set(_g11_files "")
+file(GLOB _g11_glob "${REPO}/generated/game/x86_recomp.*.cpp")
+foreach(_g_file ${_g11_glob})
+    file(READ ${_g_file} _g11_src)
+    if(_g11_src MATCHES "X86_FUNC\(__imp__sub_00071730\)")
+        set(_g11_files "${_g11_files};${_g_file}")
+    endif()
+endforeach()
+list(REMOVE_DUPLICATES _g11_files)
+foreach(_g11 ${_g11_files})
+    file(READ ${_g11} _g11_src)
+    if(NOT _g11_src MATCHES "GALLEON-LOADSAVE-FIXES-068D10-8")
+    string(REPLACE [[X86_FUNC(__imp__sub_00071730) {
 	X86_LOAD_FLAGS();
 	uint32_t ca = 0, cb = 0;
 	(void)ca; (void)cb;]] [[X86_FUNC(__imp__sub_00071730) {
@@ -788,14 +797,14 @@ string(REPLACE [[X86_FUNC(__imp__sub_00071730) {
 	// [GALLEON-LOADSAVE-FIXES-068D10-8] guard esi at sub_00071730 entry: esi = menu obj or ebp
 	{if (ctx.esi == 0) { uint32_t _g = X86_MEM32((uint32_t)(0x238ED4u)); ctx.esi = (uint32_t)(_g ? _g : ctx.ebp); }}
 	{if (ctx.esi == 0) { ctx.esp += 4; return; }}]] _g11_src "${_g11_src}")
-endif()
-if(NOT _g11_src MATCHES "GALLEON-LOADSAVE-FIXES-068D10-8")
-    message(FATAL_ERROR "x86_recomp.11.cpp Patch 8 esi guard at function entry could not be patched")
-endif()
-file(WRITE ${_g11} "${_g11_src}")
-endif()
+    endif()
+    if(NOT _g11_src MATCHES "GALLEON-LOADSAVE-FIXES-068D10-8")
+        message(FATAL_ERROR "sub_00071730 entry guard could not be patched in ${_g11} (recompiler output changed?)")
+    endif()
+    file(WRITE ${_g11} "${_g11_src}")
+endforeach()
 
-# v1.0.94: Patch 9 (_g13) - ensure esi = menu obj before every sub_00071730 call site in x86_recomp.10.cpp
+# v1.0.95: Patch 9 (_g13) - ensure esi = menu obj before every sub_00071730 call site in x86_recomp.10.cpp
 # sub_00071730 is called from 10 sites; at 7 of them esi is not set before the call.
 # Patch 8 guards inside the function; Patch 9 guards at each call site.
 set(_g13 ${REPO}/generated/game/x86_recomp.10.cpp)
