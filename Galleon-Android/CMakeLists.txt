@@ -765,8 +765,8 @@ endif()
 set(_g11 ${REPO}/generated/game/x86_recomp.11.cpp)
 file(READ ${_g11} _g11_src)
 if(NOT _g11_src MATCHES "GALLEON-LOADSAVE-FIXES-068D10-8")
-string(REPLACE [[	// 00071730 mov eax, 0x295C]] [[	// [GALLEON-LOADSAVE-FIXES-068D10-8] set esi = global menu obj [0x238ED4] at entry
-	ctx.esi = X86_MEM32((uint32_t)(0x238ED4u));
+string(REPLACE [[	// 00071730 mov eax, 0x295C]] [[	// [GALLEON-LOADSAVE-FIXES-068D10-8] set esi = ebp (menu obj) at entry
+	ctx.esi = ctx.ebp;
 	// 00071730 mov eax, 0x295C]] _g11_src "${_g11_src}")
 if(NOT _g11_src MATCHES "GALLEON-LOADSAVE-FIXES-068D10-8")
     message(FATAL_ERROR "x86_recomp.11.cpp menu-list esi guard could not be patched (recompiler output changed?)")
