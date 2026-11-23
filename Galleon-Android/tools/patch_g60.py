@@ -83,20 +83,6 @@ if count4 == 1:
 else:
     sys.stderr.write(f'Patch 4: expected 1 match, found {count4} (skipping - pattern may not match this build)\n')
 
-
-# Patch 6: sub_00065E00 (state 0x800 handler) calls sub_00068D10 then returns.
-# Queue state 0x10 (menu frame) after sub_00068D10 so sub_00065520 renders the main menu.
-patch6_old = '\\tsub_00068D10(ctx);'
-patch6_new = '''\\tsub_00068D10(ctx);
-// [GALLEON-LOADSAVE-FIXES-068D10-6] queue state 0x10 (menu frame) after sub_00065E00
-{ uint32_t ea = (uint32_t)(ctx.esi + 0x1Cu); X86_MEM32(ea) = (uint32_t)(0x10u); }'''
-
-count6 = content.count(patch6_old)
-if count6 == 1:
-    content = content.replace(patch6_old, patch6_new, 1)
-else:
-    sys.stderr.write(f'Patch 6: expected 1 match, found {count6} (skipping - pattern may not match this build)\n')
-
 content = content.replace(patch1_old, patch1_new, 1)
 content = content.replace(patch2_old, patch2_new, 1)
 content = content.replace(patch3_old, patch3_new, 1)
