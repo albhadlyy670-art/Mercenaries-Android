@@ -85,25 +85,12 @@ patch7_new = '''\t// 00065E01 mov esi, eax
 // [GALLEON-LOADSAVE-FIXES-068D10-7] set esi = menu obj (ebp, fallback to [0x238ED4])
 \t{ uint32_t _g = X86_MEM32((uint32_t)(0x238ED4u)); ctx.esi = (uint32_t)(_g ? _g : ctx.ebp); }'''
 
-# ---- Patch 7b: sub_00065E00 uses ebp (menu obj) instead of esi for sub_00071730 arg ----
-patch7b_old = '''\t// 00065E1D push 0x01
-\t{ uint32_t v = (uint32_t)(0x1u); X86_PUSH32(v); }
-\t// 00065E1F lea eax, [esi+0xC5C]
-\tctx.eax = (uint32_t)((uint32_t)(ctx.esi + 0xC5Cu));
-\t// 00065E25 push eax
-\t{ uint32_t v = (uint32_t)(ctx.eax); X86_PUSH32(v); }
-\t// 00065E26 call 0x00071730
-\tX86_PUSH32(0x65E2Bu); sub_00071730(ctx, base);'''
-
-patch7b_new = '''\t// 00065E1D push 0x01
-\t{ uint32_t v = (uint32_t)(0x1u); X86_PUSH32(v); }
-// [GALLEON-LOADSAVE-FIXES-068D10-7b] use ebp (menu obj) instead of esi for sub_00071730 arg
-\t{ uint32_t _esi = ctx.esi ? ctx.esi : ctx.ebp;
-\t  ctx.eax = (uint32_t)((uint32_t)(_esi + 0xC5Cu)); }
-\t// 00065E25 push eax
-\t{ uint32_t v = (uint32_t)(ctx.eax); X86_PUSH32(v); }
-\t// 00065E26 call 0x00071730
-\tX86_PUSH32(0x65E2Bu); sub_00071730(ctx, base);'''
+# ---- Patch 7b: all lea eax, [esi+0xC5C] -> use ebp when esi=0 ----
+# This directly fixes the faulting instruction: &[esi+0xC5C] with esi=0 is &[0xC5C] (SIGSEGV).
+# Uses ebp (menu obj, 0x2D2B4C per crash logs) as fallback when esi is 0.
+# Matches all 4 occurrences in x86_recomp.10.cpp.
+patch7b_old = '''\tctx.eax = (uint32_t)((uint32_t)(ctx.esi + 0xC5Cu));'''
+patch7b_new = '''\t{ uint32_t _s = ctx.esi ? ctx.esi : ctx.ebp; ctx.eax = (uint32_t)((uint32_t)(_s + 0xC5Cu)); }'''
 
 # ---- Patch 7c: [esi+0xC60] write -> [ebp+0xC60] (ebp is menu obj at this point) ----
 patch7c_old = '''\t// 00065E08 mov byte ptr [esi+0xC60], 0x01
@@ -120,14 +107,21 @@ guard7d = '''// [GALLEON-LOADSAVE-FIXES-068D10-7d] ensure esi is valid before su
 \t\tctx.esi = (uint32_t)(_g ? _g : ctx.ebp);
 \t}'''
 
-# Apply all patches (non-fatal)
+# Apply patches 1-4 and 7, 7c (single-match, non-fatal)
 try_replace('Patch 1', patch1_old, patch1_new)
 try_replace('Patch 2', patch2_old, patch2_new)
 try_replace('Patch 3', patch3_old, patch3_new)
 try_replace('Patch 4', patch4_old, patch4_new)
 try_replace('Patch 7', patch7_old, patch7_new)
-try_replace('Patch 7b', patch7b_old, patch7b_new)
 try_replace('Patch 7c', patch7c_old, patch7c_new)
+
+# Patch 7b: replace ALL occurrences of lea eax, [esi+0xC5C] computation
+count7b = content.count(patch7b_old)
+if count7b > 0:
+    content = content.replace(patch7b_old, patch7b_new)
+    sys.stderr.write(f'Patch 7b: replaced {count7b} occurrences of lea eax, [esi+0xC5C]\n')
+else:
+    sys.stderr.write(f'Patch 7b: pattern not found (skipping)\n')
 
 # Patch 7d: guard ALL sub_00071730(ctx, base) call sites
 count7d = content.count('sub_00071730(ctx, base);')
