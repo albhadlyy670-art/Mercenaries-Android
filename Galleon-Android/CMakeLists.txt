@@ -710,19 +710,19 @@ endif()
 file(WRITE ${_g10} "${_g10_src}")
 endif()
 
-# v1.0.59: sub_00068D10 (menu entry called from sub_00065E00) sets phase=1 but may
-# not queue state 0x10 (the menu frame). Without state 0x10, the menu never renders
-# — black screen. Explicitly queue state 0x10 after menu entry setup.
-if(NOT _g10_src MATCHES "GALLEON-LOADSAVE-FIXES-068D10-3")
-string(REPLACE [[	// 00068D90 mov [esi+0x10], eax
-	{ uint32_t ea = (uint32_t)(ctx.esi + 0x10u); X86_MEM32(ea) = (uint32_t)(ctx.eax); }
-	loc_00068D9A:]] [[	// 00068D90 mov [esi+0x10], eax
-	{ uint32_t ea = (uint32_t)(ctx.esi + 0x10u); X86_MEM32(ea) = (uint32_t)(ctx.eax); }
-	// [GALLEON-LOADSAVE-FIXES] queue state 0x10 (menu frame) after menu entry setup
-	{ uint32_t ea = (uint32_t)(ctx.esi + 0x1Cu); X86_MEM32(ea) = (uint32_t)(0x10u); }
-	loc_00068D9A:]] _g10_src "${_g10_src}")
-if(NOT _g10_src MATCHES "GALLEON-LOADSAVE-FIXES-068D10-3")
-    message(FATAL_ERROR "x86_recomp.10.cpp sub_00068D10 state-0x10 queue fix could not be patched (recompiler output changed?)")
+# v1.0.59: sub_00071730 (called from sub_00065E00) also reads [0x238ED4] internally
+# (via sub_00060F80 at 0x7176F). On relaunch boot the global menu obj isn't
+# initialized, so sub_00060F80 returns non-zero and sub_00071730 exits without
+# building items — black screen. Mirror c60/name/slot onto [0x238ED4] at the
+# _g10 auto-menu entry so sub_00071730's internal reads get correct values.
+if(NOT _g10_src MATCHES "GALLEON-LOADSAVE-FIXES-068D10-4")
+string(REPLACE [[	{ LOGR("fix: auto-menu idx=%08X obj=%08X", X86_MEM32((uint32_t)(ctx.ebp + 0x15Cu)), ctx.ebp); }  // GALLEON-LOADSAVE-FIXES
+	// 00066AB1 pop esi]] [[	{ LOGR("fix: auto-menu idx=%08X obj=%08X", X86_MEM32((uint32_t)(ctx.ebp + 0x15Cu)), ctx.ebp); }  // GALLEON-LOADSAVE-FIXES
+	// [GALLEON-LOADSAVE-FIXES] mirror c60/name/slot onto global menu obj [0x238ED4]
+	{ uint32_t g = X86_MEM32((uint32_t)(0x238ED4u)); if (g) { X86_MEM8(g + 0xC60u) = (uint8_t)(0x1u); X86_MEM32(g + 0x168u) = X86_MEM32((uint32_t)(0x217F64u)); X86_MEM32(g + 0x15Cu) = X86_MEM32((uint32_t)(ctx.ebp + 0x15Cu)); } }  // GALLEON-LOADSAVE-FIXES: global obj mirror
+	// 00066AB1 pop esi]] _g10_src "${_g10_src}")
+if(NOT _g10_src MATCHES "GALLEON-LOADSAVE-FIXES-068D10-4")
+    message(FATAL_ERROR "x86_recomp.10.cpp global obj mirror fix could not be patched (recompiler output changed?)")
 endif()
 file(WRITE ${_g10} "${_g10_src}")
 
