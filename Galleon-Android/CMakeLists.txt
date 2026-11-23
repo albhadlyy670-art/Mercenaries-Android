@@ -710,22 +710,6 @@ endif()
 file(WRITE ${_g10} "${_g10_src}")
 endif()
 
-# v1.0.59: sub_00071730 (called from sub_00065E00) also reads [0x238ED4] internally
-# (via sub_00060F80 at 0x7176F). On relaunch boot the global menu obj isn't
-# initialized, so sub_00060F80 returns non-zero and sub_00071730 exits without
-# building items — black screen. Mirror c60/name/slot onto [0x238ED4] at the
-# _g10 auto-menu entry so sub_00071730's internal reads get correct values.
-if(NOT _g10_src MATCHES "GALLEON-LOADSAVE-FIXES-068D10-4")
-string(REPLACE [[	{ LOGR("fix: auto-menu idx=%08X obj=%08X", X86_MEM32((uint32_t)(ctx.ebp + 0x15Cu)), ctx.ebp); }  // GALLEON-LOADSAVE-FIXES
-	// 00066AB1 pop esi]] [[	{ LOGR("fix: auto-menu idx=%08X obj=%08X", X86_MEM32((uint32_t)(ctx.ebp + 0x15Cu)), ctx.ebp); }  // GALLEON-LOADSAVE-FIXES
-	// [GALLEON-LOADSAVE-FIXES] mirror c60/name/slot onto global menu obj [0x238ED4]
-	{ uint32_t g = X86_MEM32((uint32_t)(0x238ED4u)); if (g) { X86_MEM8(g + 0xC60u) = (uint8_t)(0x1u); X86_MEM32(g + 0x168u) = X86_MEM32((uint32_t)(0x217F64u)); X86_MEM32(g + 0x15Cu) = X86_MEM32((uint32_t)(ctx.ebp + 0x15Cu)); } }  // GALLEON-LOADSAVE-FIXES: global obj mirror
-	// 00066AB1 pop esi]] _g10_src "${_g10_src}")
-if(NOT _g10_src MATCHES "GALLEON-LOADSAVE-FIXES-068D10-4")
-    message(FATAL_ERROR "x86_recomp.10.cpp global obj mirror fix could not be patched (recompiler output changed?)")
-endif()
-file(WRITE ${_g10} "${_g10_src}")
-
 # v1.0.23: boot-gate probe (GALLEON-GATE-FIXES): where the launch payload's marker restore
 set(_g53 ${REPO}/generated/game/x86_recomp.53.cpp)
 file(READ ${_g53} _g53_src)

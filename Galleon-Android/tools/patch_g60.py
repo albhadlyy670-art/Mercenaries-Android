@@ -3,6 +3,8 @@
 and selected-slot zeroing when main-menu mode is active (c60==1).
 Also patch sub_00065E00 to read name/slot from esi (the obj _g10 set up)
 instead of from global [0x238ED4], so sub_00071730 builds main-menu items.
+Patch 4: queue state 0x10 (menu frame) in sub_00068D10 after phase setup so
+the main menu actually renders instead of black screen.
 c60==1 is more reliable than [obj+0xC5C] because sub_00071730 reads name/slot
 from the global menu obj which may not match the dispatcher's obj.
 """
@@ -67,9 +69,25 @@ if count3 != 1:
     sys.stderr.write(f'Patch 3: expected 1 match, found {count3}\n')
     sys.exit(1)
 
+# Patch 4: sub_00068D10 sets phase=1 ([esi+0x10]=ctx.eax) but may not queue
+# state 0x10 (the menu frame handler). Without state 0x10, the menu never
+# renders — black screen. Queue state 0x10 right after phase setup.
+patch4_old = '''\\t// 00068D90 mov [esi+0x10], eax
+\\t{ uint32_t ea = (uint32_t)(ctx.esi + 0x10u); X86_MEM32(ea) = (uint32_t)(ctx.eax); }'''
+patch4_new = '''\\t// 00068D90 mov [esi+0x10], eax
+\\t{ uint32_t ea = (uint32_t)(ctx.esi + 0x10u); X86_MEM32(ea) = (uint32_t)(ctx.eax); }
+// [GALLEON-LOADSAVE-FIXES-068D10-4] queue state 0x10 (menu frame) after menu entry setup
+{ uint32_t ea = (uint32_t)(ctx.esi + 0x1Cu); X86_MEM32(ea) = (uint32_t)(0x10u); }'''
+
+count4 = content.count(patch4_old)
+if count4 != 1:
+    sys.stderr.write(f'Patch 4: expected 1 match, found {count4}\\n')
+    sys.exit(1)
+
 content = content.replace(patch1_old, patch1_new, 1)
 content = content.replace(patch2_old, patch2_new, 1)
 content = content.replace(patch3_old, patch3_new, 1)
+content = content.replace(patch4_old, patch4_new, 1)
 
 with open(path, 'w') as f:
     f.write(content)
