@@ -57,6 +57,24 @@ count1 = content.count(patch1_old)
 count2 = content.count(patch2_old)
 count3 = content.count(patch3_old)
 
+# Patch 4: sub_00071730 ALSO reads [0x238ED4] internally (via sub_00060F80
+# check at 0x7176F). On relaunch boot the global obj isn't initialized, so
+# sub_00060F80 returns non-zero and sub_00071730 exits without building items.
+# Mirror c60/name/slot onto the global obj so sub_00071730's internal reads
+# get correct values.
+patch4_old = '''\\t// 00065E03 mov eax, [0x00238ED4]
+\\t{ uint32_t ea = (uint32_t)(0x238ED4u); ctx.eax = (uint32_t)(X86_MEM32(ea)); }
+\\t// 00065E08 mov byte ptr [esi+0xC60], 0x01
+\\t{ uint32_t ea = (uint32_t)(ctx.esi + 0xC60u); X86_MEM8(ea) = (uint8_t)(0x1u); }'''
+patch4_new = '''\\t// 00065E03 mov eax, [0x00238ED4]
+\\t{ uint32_t ea = (uint32_t)(0x238ED4u); ctx.eax = (uint32_t)(X86_MEM32(ea)); }
+\\t// [GALLEON-LOADSAVE-FIXES] mirror c60/name/slot onto global menu obj [0x238ED4]
+\\t{ uint32_t g = X86_MEM32((uint32_t)(0x238ED4u)); if (g) { X86_MEM8(g + 0xC60u) = (uint8_t)(0x1u); X86_MEM32(g + 0x168u) = X86_MEM32((uint32_t)(ctx.esi + 0x168u)); X86_MEM32(g + 0x15Cu) = X86_MEM32((uint32_t)(ctx.esi + 0x15Cu)); } }  // GALLEON-LOADSAVE-FIXES: global obj mirror
+\\t// 00065E08 mov byte ptr [esi+0xC60], 0x01
+\\t{ uint32_t ea = (uint32_t)(ctx.esi + 0xC60u); X86_MEM8(ea) = (uint8_t)(0x1u); }'''
+
+count4 = content.count(patch4_old)
+
 if count1 != 1:
     sys.stderr.write(f'Patch 1: expected 1 match, found {count1}\n')
     sys.exit(1)
@@ -66,10 +84,14 @@ if count2 != 1:
 if count3 != 1:
     sys.stderr.write(f'Patch 3: expected 1 match, found {count3}\n')
     sys.exit(1)
+if count4 != 1:
+    sys.stderr.write(f'Patch 4: expected 1 match, found {count4}\n')
+    sys.exit(1)
 
 content = content.replace(patch1_old, patch1_new, 1)
 content = content.replace(patch2_old, patch2_new, 1)
 content = content.replace(patch3_old, patch3_new, 1)
+content = content.replace(patch4_old, patch4_new, 1)
 
 with open(path, 'w') as f:
     f.write(content)
