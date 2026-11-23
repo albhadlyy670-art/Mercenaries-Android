@@ -583,6 +583,9 @@ string(REPLACE [	// 00065E01 mov esi, eax
 	{ ctx.esi = (uint32_t)(ctx.eax); }
 	// [GALLEON-LOADSAVE-FIXES-068D10-7] set esi = [0x238ED4] or ebp fallback
 	{ uint32_t _g = X86_MEM32((uint32_t)(0x238ED4u)); ctx.esi = (uint32_t)(_g ? _g : ctx.ebp); }]] _g10_src "${_g10_src}")
+if(NOT _g10_src MATCHES "GALLEON-LOADSAVE-FIXES-068D10-7")
+    message(FATAL_ERROR "x86_recomp.10.cpp Patch 7 esi fallback could not be patched (recompiler output changed?)")
+endif()
 
 endif()
 file(WRITE ${_g10} "${_g10_src}")
@@ -772,8 +775,8 @@ endif()
 set(_g11 ${REPO}/generated/game/x86_recomp.11.cpp)
 file(READ ${_g11} _g11_src)
 if(NOT _g11_src MATCHES "GALLEON-LOADSAVE-FIXES-068D10-8")
-string(REPLACE [[	// 00071730 mov eax, 0x295C]] [[	// [GALLEON-LOADSAVE-FIXES-068D10-8] if esi=0, use ebp (menu obj)
-	if (ctx.esi == 0) { ctx.esi = ctx.ebp; }
+string(REPLACE [[	// 00071730 mov eax, 0x295C]] [[	// [GALLEON-LOADSAVE-FIXES-068D10-8] if esi=0, use global menu obj or ebp
+	if (ctx.esi == 0) { uint32_t _g = X86_MEM32((uint32_t)(0x238ED4u)); ctx.esi = (uint32_t)(_g ? _g : ctx.ebp); }
 	// 00071730 mov eax, 0x295C]] _g11_src "${_g11_src}")
 if(NOT _g11_src MATCHES "GALLEON-LOADSAVE-FIXES-068D10-8")
     message(FATAL_ERROR "x86_recomp.11.cpp menu-list esi guard could not be patched (recompiler output changed?)")
