@@ -822,6 +822,36 @@ endif()
 
 
 # the recompiled code and the xbe it came from
+
+# v1.0.78: esi=0 guard at ALL sub_00071730 callers + sub_00065520 entry
+# The dispatcher may call sub_00065520 / sub_00065E00 with esi=0, causing
+# sub_00071730 to receive &[esi+0xC5C] = &[0xC5C] (SIGSEGV). Guard every
+# caller so esi is always the menu obj (from [0x238ED4]).
+set(_g78 ${REPO}/generated/game/x86_recomp.10.cpp)
+file(READ ${_g78} _g78_src)
+if(NOT _g78_src MATCHES "GALLEON-LOADSAVE-FIXES-068D10-78")
+# Patch A: sub_00065520 entry - after mov esi, [ebp+0x08], if esi==0 set from [0x238ED4]
+string(REPLACE [[
+	// 0006552E mov esi, [ebp+0x08]
+	{ uint32_t ea = (uint32_t)(ctx.ebp + 0x8u); ctx.esi = (uint32_t)(X86_MEM32(ea)); }
+	// 00065531 mov eax, [esi+0x1D0]]] [[
+	// 0006552E mov esi, [ebp+0x08]
+	{ uint32_t ea = (uint32_t)(ctx.ebp + 0x8u); ctx.esi = (uint32_t)(X86_MEM32(ea)); }
+// [GALLEON-LOADSAVE-FIXES-068D10-78A] if esi==0 at sub_00065520 entry, use global menu obj
+	if (ctx.esi == 0) { ctx.esi = X86_MEM32((uint32_t)(0x238ED4u)); }
+	// 00065531 mov eax, [esi+0x1D0]]] _g78_src "${_g78_src}")
+# Patch B: guard every sub_00071730(ctx, base) call site
+string(REPLACE [[
+sub_00071730(ctx, base);]]] [[
+// [GALLEON-LOADSAVE-FIXES-068D10-78B] ensure esi valid before sub_00071730
+	if (ctx.esi == 0) { ctx.esi = X86_MEM32((uint32_t)(0x238ED4u)); }
+	sub_00071730(ctx, base);]] _g78_src "${_g78_src}")
+if(NOT _g78_src MATCHES "GALLEON-LOADSAVE-FIXES-068D10-78")
+    message(FATAL_ERROR "x86_recomp.10.cpp esi guard could not be patched (recompiler output changed?)")
+endif()
+file(WRITE ${_g78} "${_g78_src}")
+endif()
+
 set(XBE_GENERATED ${REPO}/generated/game CACHE PATH "the recompiled code of default.xbe")
 set(XBE_IMAGE ${REPO}/assets/default.xbe CACHE FILEPATH "the xbe it was recompiled from")
 set(GEN ${XBE_GENERATED})

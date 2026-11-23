@@ -5,8 +5,11 @@ Also patch sub_00065E00 to read name/slot from esi (the obj _g10 set up)
 instead of from global [0x238ED4], so sub_00071730 builds main-menu items.
 Patch 4: queue state 0x10 (menu frame) in sub_00068D10 after phase setup so
 the main menu actually renders instead of black screen.
-c60==1 is more reliable than [obj+0xC5C] because sub_00071730 reads name/slot
-from the global menu obj which may not match the dispatcher's obj.
+
+NOTE: Patches 7, 7b, 7c, 7d (esi=0 guards) have been moved to CMakeLists.txt
+because patch_g60.py's early-exit guards were skipping them when Patches 1-3
+had already set the GALLEON-LOADSAVE-FIXES marker. CMake string(REPLACE) is
+more reliable for these guards.
 """
 import sys
 
@@ -19,10 +22,8 @@ path = sys.argv[1]
 with open(path, 'r') as f:
     content = f.read()
 
-# Already patched? Check for Patch 7d marker (last patch applied).
-# Patches 1-3 use the base marker GALLEON-LOADSAVE-FIXES-068D10, so
-# checking that would skip Patches 7+ even though they were never applied.
-if 'GALLEON-LOADSAVE-FIXES-068D10-7d' in content:
+# Already patched?
+if 'GALLEON-LOADSAVE-FIXES-068D10-4' in content:
     sys.exit(0)
 
 # Patch 1: guard the sub_00067EE0 stale-data copy — only copy when c60 != 1
@@ -61,13 +62,21 @@ count1 = content.count(patch1_old)
 count2 = content.count(patch2_old)
 count3 = content.count(patch3_old)
 
-if count1 != 1:
+if count1 == 1:
+    content = content.replace(patch1_old, patch1_new, 1)
+elif count1 > 0:
     sys.stderr.write(f'Patch 1: expected 1 match, found {count1}\n')
     sys.exit(1)
-if count2 != 1:
+
+if count2 == 1:
+    content = content.replace(patch2_old, patch2_new, 1)
+elif count2 > 0:
     sys.stderr.write(f'Patch 2: expected 1 match, found {count2}\n')
     sys.exit(1)
-if count3 != 1:
+
+if count3 == 1:
+    content = content.replace(patch3_old, patch3_new, 1)
+elif count3 > 0:
     sys.stderr.write(f'Patch 3: expected 1 match, found {count3}\n')
     sys.exit(1)
 
@@ -82,90 +91,9 @@ patch4_new = '''\\t{ uint32_t ea = (uint32_t)(ctx.esi + 0x10u); X86_MEM32(ea) = 
 count4 = content.count(patch4_old)
 if count4 == 1:
     content = content.replace(patch4_old, patch4_new, 1)
-else:
-    sys.stderr.write(f'Patch 4: expected 1 match, found {count4} (skipping - pattern may not match this build)\n')
-
-# Patch 7: sub_00065E00 entry sets esi = eax (dispatcher's eax), but the
-# dispatcher doesn't set eax to the menu obj -> esi=0 -> sub_00071730 crashes.
-# Fix: after mov esi, eax, override esi with the menu obj from ebp (which
-# the caller set to the menu obj, e.g. 0x2D2B4C in the crash log), falling
-# back to the global [0x238ED4] that _g10 sets.
-patch7_old = '''\t// 00065E01 mov esi, eax
-\t{ ctx.esi = (uint32_t)(ctx.eax); }'''
-patch7_new = '''\t// 00065E01 mov esi, eax
-\t{ ctx.esi = (uint32_t)(ctx.eax); }
-// [GALLEON-LOADSAVE-FIXES-068D10-7] set esi = menu obj (ebp, fallback to [0x238ED4])
-\t{ uint32_t _g = X86_MEM32((uint32_t)(0x238ED4u)); ctx.esi = (uint32_t)(_g ? _g : ctx.ebp); }'''
-
-count7 = content.count(patch7_old)
-if count7 != 1:
-    sys.stderr.write(f'Patch 7: expected 1 match, found {count7}\n')
+elif count4 > 0:
+    sys.stderr.write(f'Patch 4: expected 1 match, found {count4}\n')
     sys.exit(1)
-
-# Patch 7b: sub_00065E00 passes &[esi+0xC5C] as first arg to sub_00071730.
-# If esi is 0, this is &[0xC5C] (invalid). Use ebp (menu obj) instead.
-patch7b_old = '''\t// 00065E1D push 0x01
-\t{ uint32_t v = (uint32_t)(0x1u); X86_PUSH32(v); }
-\t// 00065E1F lea eax, [esi+0xC5C]
-\tctx.eax = (uint32_t)((uint32_t)(ctx.esi + 0xC5Cu));
-\t// 00065E25 push eax
-\t{ uint32_t v = (uint32_t)(ctx.eax); X86_PUSH32(v); }
-\t// 00065E26 call 0x00071730
-\tX86_PUSH32(0x65E2Bu); sub_00071730(ctx, base);'''
-
-patch7b_new = '''\t// 00065E1D push 0x01
-\t{ uint32_t v = (uint32_t)(0x1u); X86_PUSH32(v); }
-// [GALLEON-LOADSAVE-FIXES-068D10-7b] use ebp (menu obj) instead of esi for sub_00071730 arg
-\t{ uint32_t _esi = ctx.esi ? ctx.esi : ctx.ebp;
-\t  ctx.eax = (uint32_t)((uint32_t)(_esi + 0xC5Cu)); }
-\t// 00065E25 push eax
-\t{ uint32_t v = (uint32_t)(ctx.eax); X86_PUSH32(v); }
-\t// 00065E26 call 0x00071730
-\tX86_PUSH32(0x65E2Bu); sub_00071730(ctx, base);'''
-
-count7b = content.count(patch7b_old)
-if count7b != 1:
-    sys.stderr.write(f'Patch 7b: expected 1 match, found {count7b}\n')
-    sys.exit(1)
-
-# Patch 7c: sub_00065E00 writes [esi+0xC60]=1. Patch 7 now guarantees esi is
-# non-zero (set from [0x238ED4] or ebp at entry), so writing to [esi+0xC60]
-# is safe. ebp is NOT the menu obj at this point (it was 0x10 in the crash),
-# so we must NOT use ebp here.
-patch7c_old = '''\t// 00065E08 mov byte ptr [esi+0xC60], 0x01
-\t{ uint32_t ea = (uint32_t)(ctx.esi + 0xC60u); X86_MEM8(ea) = (uint8_t)(0x1u); }'''
-
-patch7c_new = '''\t// 00065E08 mov byte ptr [esi+0xC60], 0x01
-// [GALLEON-LOADSAVE-FIXES-068D10-7c] esi is guaranteed non-zero by Patch 7
-\t{ uint32_t ea = (uint32_t)(ctx.esi + 0xC60u); X86_MEM8(ea) = (uint8_t)(0x1u); }'''
-
-count7c = content.count(patch7c_old)
-if count7c != 1:
-    sys.stderr.write(f'Patch 7c: expected 1 match, found {count7c}\n')
-    sys.exit(1)
-
-# Patch 7d: guard ALL sub_00071730(ctx, base) call sites in 10.cpp — if esi is
-# 0 at any call site, set it from [0x238ED4] (global menu obj set by _g10) or
-# ebp (caller's menu obj). This catches sub_00065520 (state 0x10 handler) and
-# any other caller that doesn't set esi properly.
-guard = '''// [GALLEON-LOADSAVE-FIXES-068D10-7d] ensure esi is valid before sub_00071730
-\tif (ctx.esi == 0) {
-\t\tuint32_t _g = X86_MEM32((uint32_t)(0x238ED4u));
-\t\tctx.esi = (uint32_t)(_g ? _g : ctx.ebp);
-\t}'''
-
-count7d = content.count('sub_00071730(ctx, base);')
-if count7d < 1:
-    sys.stderr.write(f'Patch 7d: expected >=1 sub_00071730 calls, found {count7d}\n')
-    sys.exit(1)
-
-content = content.replace(patch1_old, patch1_new, 1)
-content = content.replace(patch2_old, patch2_new, 1)
-content = content.replace(patch3_old, patch3_new, 1)
-content = content.replace(patch7_old, patch7_new, 1)
-content = content.replace(patch7b_old, patch7b_new, 1)
-content = content.replace(patch7c_old, patch7c_new, 1)
-content = content.replace('sub_00071730(ctx, base);', guard + '\n\tsub_00071730(ctx, base);', count7d)
 
 with open(path, 'w') as f:
     f.write(content)
