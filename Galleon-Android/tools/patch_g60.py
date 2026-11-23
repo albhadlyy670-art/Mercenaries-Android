@@ -126,14 +126,16 @@ if count7b != 1:
     sys.stderr.write(f'Patch 7b: expected 1 match, found {count7b}\n')
     sys.exit(1)
 
-# Patch 7c: sub_00065E00 writes [esi+0xC60]=1. If esi is 0, writes to [0xC60].
-# Use ebp (menu obj) instead.
+# Patch 7c: sub_00065E00 writes [esi+0xC60]=1. Patch 7 now guarantees esi is
+# non-zero (set from [0x238ED4] or ebp at entry), so writing to [esi+0xC60]
+# is safe. ebp is NOT the menu obj at this point (it was 0x10 in the crash),
+# so we must NOT use ebp here.
 patch7c_old = '''\t// 00065E08 mov byte ptr [esi+0xC60], 0x01
 \t{ uint32_t ea = (uint32_t)(ctx.esi + 0xC60u); X86_MEM8(ea) = (uint8_t)(0x1u); }'''
 
 patch7c_new = '''\t// 00065E08 mov byte ptr [esi+0xC60], 0x01
-// [GALLEON-LOADSAVE-FIXES-068D10-7c] use ebp (menu obj) instead of esi
-\t{ uint32_t ea = (uint32_t)(ctx.ebp + 0xC60u); X86_MEM8(ea) = (uint8_t)(0x1u); }'''
+// [GALLEON-LOADSAVE-FIXES-068D10-7c] esi is guaranteed non-zero by Patch 7
+\t{ uint32_t ea = (uint32_t)(ctx.esi + 0xC60u); X86_MEM8(ea) = (uint8_t)(0x1u); }'''
 
 count7c = content.count(patch7c_old)
 if count7c != 1:
