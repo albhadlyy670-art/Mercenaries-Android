@@ -72,10 +72,8 @@ if count3 != 1:
 # Patch 4: sub_00068D10 sets phase=1 ([esi+0x10]=ctx.eax) but may not queue
 # state 0x10 (the menu frame handler). Without state 0x10, the menu never
 # renders — black screen. Queue state 0x10 right after phase setup.
-patch4_old = '''\\t// 00068D90 mov [esi+0x10], eax
-\\t{ uint32_t ea = (uint32_t)(ctx.esi + 0x10u); X86_MEM32(ea) = (uint32_t)(ctx.eax); }'''
-patch4_new = '''\\t// 00068D90 mov [esi+0x10], eax
-\\t{ uint32_t ea = (uint32_t)(ctx.esi + 0x10u); X86_MEM32(ea) = (uint32_t)(ctx.eax); }
+patch4_old = '''\\t{ uint32_t ea = (uint32_t)(ctx.esi + 0x10u); X86_MEM32(ea) = (uint32_t)(ctx.eax); }'''
+patch4_new = '''\\t{ uint32_t ea = (uint32_t)(ctx.esi + 0x10u); X86_MEM32(ea) = (uint32_t)(ctx.eax); }
 // [GALLEON-LOADSAVE-FIXES-068D10-4] queue state 0x10 (menu frame) after menu entry setup
 { uint32_t ea = (uint32_t)(ctx.esi + 0x1Cu); X86_MEM32(ea) = (uint32_t)(0x10u); }'''
 
