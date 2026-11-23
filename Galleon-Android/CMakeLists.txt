@@ -794,6 +794,22 @@ endif()
 file(WRITE ${_g11} "${_g11_src}")
 endif()
 
+# v1.0.91: Patch 9 - ensure esi = menu obj before every sub_00071730 call site
+# sub_00071730 is called from 10 sites in x86_recomp.10.cpp; at 7 of them esi is not set before the call.
+# Patching call sites is more reliable than patching sub_00071730 internals (which we can't verify locally).
+set(_g13 ${REPO}/generated/game/x86_recomp.10.cpp)
+file(READ ${_g13} _g13_src)
+if(NOT _g13_src MATCHES "GALLEON-LOADSAVE-FIXES-068D10-9")
+string(REPLACE [[sub_00071730(ctx, base);]] [[
+// [GALLEON-LOADSAVE-FIXES-068D10-9] ensure esi = menu obj before sub_00071730 call
+{ uint32_t _m = X86_MEM32((uint32_t)(0x238ED4u)); ctx.esi = (uint32_t)(_m ? _m : ctx.ebp); }
+sub_00071730(ctx, base);]] _g13_src "${_g13_src}")
+if(NOT _g13_src MATCHES "GALLEON-LOADSAVE-FIXES-068D10-9")
+    message(FATAL_ERROR "x86_recomp.10.cpp Patch 9 esi-before-sub_00071730-call could not be patched (recompiler output changed?)")
+endif()
+file(WRITE ${_g13} "${_g13_src}")
+endif()
+
 # v1.0.32: skip sub_001C3EA8 empty-name processing in sub_00067DE0 (crash-13)
 set(_g12 ${REPO}/generated/game/x86_recomp.10.cpp)
 file(READ ${_g12} _g12_src)
