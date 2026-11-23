@@ -710,6 +710,23 @@ endif()
 file(WRITE ${_g10} "${_g10_src}")
 endif()
 
+# v1.0.52: sub_00065E00 (state 0x800 handler) reads name/slot from global menu obj [0x238ED4],
+# but _g10 set them on the dispatcher obj (ebp). Fix: read from esi (the obj _g10 set up)
+# so sub_00071730 gets correct args and builds main-menu items at [obj+0xC5C].
+if(NOT _g10_src MATCHES "GALLEON-LOADSAVE-FIXES-068D10-2")
+string(REPLACE [[\t// 00065E0F mov ecx, [eax+0x168]
+\t{ uint32_t ea = (uint32_t)(ctx.eax + 0x168u); ctx.ecx = (uint32_t)(X86_MEM32(ea)); }
+\t// 00065E15 mov edx, [eax+0x15C]
+\t{ uint32_t ea = (uint32_t)(ctx.eax + 0x15Cu); ctx.edx = (uint32_t)(X86_MEM32(ea)); }]] [[\t// [GALLEON-LOADSAVE-FIXES-068D10-2] read name/slot from obj (esi), not global [0x238ED4]
+\t// 00065E0F mov ecx, [esi+0x168]
+\t{ uint32_t ea = (uint32_t)(ctx.esi + 0x168u); ctx.ecx = (uint32_t)(X86_MEM32(ea)); }
+\t// 00065E15 mov edx, [esi+0x15C]
+\t{ uint32_t ea = (uint32_t)(ctx.esi + 0x15Cu); ctx.edx = (uint32_t)(X86_MEM32(ea)); }]] _g10_src "${_g10_src}")
+if(NOT _g10_src MATCHES "GALLEON-LOADSAVE-FIXES-068D10-2")
+    message(FATAL_ERROR "x86_recomp.10.cpp sub_00065E00 fix could not be patched (recompiler output changed?)")
+endif()
+file(WRITE ${_g10} "${_g10_src}")
+
 # v1.0.23: boot-gate probe (GALLEON-GATE-FIXES): where the launch payload's marker restore
 set(_g53 ${REPO}/generated/game/x86_recomp.53.cpp)
 file(READ ${_g53} _g53_src)
