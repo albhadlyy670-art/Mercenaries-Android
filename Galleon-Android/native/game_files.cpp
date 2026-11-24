@@ -274,10 +274,36 @@ int Search(GameFiles& game) {
 
 }  // namespace
 
+// v1.0.106: auto-import save files from the bundled SAVE folder into the game's UDATA path
+// so GameFAQs saves placed in <storage>/SAVE/ are available in-game at E:\UDATA\41540004\
+void ImportSaves() {
+    namespace fs = std::filesystem;
+    const char* ext = SDL_GetAndroidExternalStoragePath();
+    if (!ext) ext = SDL_GetAndroidInternalStoragePath();
+    if (!ext) return;
+    fs::path src = fs::path(ext) / "SAVE";
+    std::error_code ec;
+    if (!fs::is_directory(src, ec)) return;
+    fs::path dst = fs::path(ext) / "hdd" / "E" / "UDATA" / "41540004";
+    fs::create_directories(dst, ec);
+    for (auto& e : fs::directory_iterator(src, ec)) {
+        if (!e.is_regular_file(ec)) continue;
+        fs::path d = dst / e.path().filename();
+        if (!fs::exists(d, ec)) {
+            std::error_code ce;
+            fs::copy_file(e.path(), d, fs::copy_options::none, ce);
+            if (!ce) LOGR("save: imported %s", e.path().filename().string().c_str());
+        }
+    }
+}
+
 bool FindGame(GameFiles& game) {
     for (;;) {
         int found = Search(game);
-        if (found) return found > 0;
+        if (found) {
+            ImportSaves();
+            return found > 0;
+        }
         WaitForGame();
     }
 }
