@@ -523,6 +523,23 @@ foreach(_cg ${_cg_files})
     endif()
     file(WRITE ${_cg} "${_cg_src}")
 endforeach()
+# v1.0.129: boot to main menu — Python post-processing of generated code
+# Searches for crash guard site (ctx.esi + 0xC5Cu) and inserts marker check before esi==0 bail
+find_package(Python3 REQUIRED)
+set(_py_patch_script ${REPO}/tools/galleon_boot_patch.py)
+execute_process(
+    COMMAND ${Python3_EXECUTABLE} ${_py_patch_script}
+    WORKING_DIRECTORY ${REPO}
+    ENV {GALLEON_REPO=${REPO}}
+    RESULT_VARIABLE _py_result
+    OUTPUT_VARIABLE _py_output
+    ERROR_VARIABLE _py_error
+)
+if(_py_result)
+    message(FATAL_ERROR "Python boot patch failed: ${_py_error}")
+endif()
+message(STATUS "Python boot patch: ${_py_output}")
+
 # v1.0.109: save-select — write selected slot to marker before relaunch
 # sub_00067B70 calls sub_00068F00(1) which relaunches; carry the chosen slot (ebx) into [0x223688]
 set(_ss_files "")
@@ -547,6 +564,39 @@ foreach(_ss ${_ss_files})
     file(WRITE ${_ss} "${_ss_src}")
 endforeach()
 
+
+# v1.0.128: boot to main menu — check marker at sub_00071730 entry
+# sub_00071730 is called during boot with esi=0 (crash site). If marker != -1,
+# set up main menu mode and return, skipping both crash and save-select.
+set(_cg128 "")
+file(GLOB _cg_files "${REPO}/generated/game/x86_recomp.*.cpp")
+foreach(_cg_file ${_cg_files})
+    file(READ ${_cg_file} _cg_src)
+    if(_cg_src MATCHES "X86_FUNC\\(__imp__sub_00071730\\)")
+        set(_cg_files "${_cg_files};${_cg_file}")
+    endif()
+endforeach()
+list(REMOVE_DUPLICATES _cg_files)
+foreach(_cg ${_cg_files})
+    file(READ ${_cg} _cg_src)
+    if(NOT _cg_src MATCHES "GALLEON-BOOTMENU-FIXES-068D10-128")
+    string(REPLACE [[X86_FUNC(__imp__sub_00071730)]] [[X86_FUNC(__imp__sub_00071730)
+	// v1.0.128: boot to main menu when marker != -1
+	{ ctx.eax = (uint32_t)(X86_MEM32((uint32_t)(0x223688u))); }
+	{ uint32_t a = (uint32_t)(ctx.eax), b = (uint32_t)(0xFFFFFFFFu); uint32_t r = (uint32_t)(a - b); ca = a; cb = b; cf = a < b; of = (uint32_t)(((a ^ b) & (a ^ r)) >> 31) & 1; zf = r == 0; sf = (uint32_t)(r >> 31) & 1; pf = X86_PARITY(r); }
+	if (!zf) { uint32_t ea = (uint32_t)(ctx.ebp + 0x15Cu); X86_MEM32(ea) = (uint32_t)(ctx.eax); }  // v1.0.128: idx = marker
+	if (!zf) { uint32_t ea = (uint32_t)(ctx.ebp + 0x168u); X86_MEM32(ea) = (uint32_t)(0x217F64u); }  // v1.0.128: name = empty fallback
+	if (!zf) { uint32_t ea = (uint32_t)(ctx.ebp + 0xC60u); X86_MEM8(ea) = (uint8_t)(0x1u); }  // v1.0.128: c60=1 main-menu mode
+	if (!zf) { uint32_t ea = (uint32_t)(ctx.ebp + 0x10u); X86_MEM32(ea) = (uint32_t)(0x0u); }  // v1.0.128: phase = 0
+	if (!zf) { uint32_t ea = (uint32_t)(ctx.ebp + 0x1Cu); X86_MEM32(ea) = (uint32_t)(0x800u); }  // v1.0.128: queue state 0x800 (main menu entry)
+	if (!zf) { uint32_t ea = (uint32_t)(0x238ED4u); X86_MEM32(ea) = (uint32_t)(ctx.ebp); }  // v1.0.128: global menu obj
+	if (!zf) { ctx.esp += 4; return; }  // v1.0.128: skip to main menu]] _cg_src "${_cg_src}")
+    endif()
+    if(NOT _cg_src MATCHES "GALLEON-BOOTMENU-FIXES-068D10-128")
+        message(FATAL_ERROR "boot-to-main-menu could not be patched in ${_cg} (recompiler output changed?)")
+    endif()
+    file(WRITE ${_cg} "${_cg_src}")
+endforeach()
 
 # the recompiled code and the xbe it came from
 
