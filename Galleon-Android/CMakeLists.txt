@@ -523,6 +523,20 @@ foreach(_cg ${_cg_files})
     endif()
     file(WRITE ${_cg} "${_cg_src}")
 endforeach()
+# v1.0.132: boot to main menu — Python post-processing of generated code
+find_package(Python3 REQUIRED)
+execute_process(
+    COMMAND ${Python3_EXECUTABLE} ${REPO}/tools/galleon_boot_patch.py
+    WORKING_DIRECTORY ${REPO}
+    RESULT_VARIABLE _py_result
+    OUTPUT_VARIABLE _py_output
+    ERROR_VARIABLE _py_error
+)
+if(_py_result)
+    message(FATAL_ERROR "Python boot patch failed: ${_py_error}")
+endif()
+message(STATUS "Python boot patch: ${_py_output}")
+
 # v1.0.109: save-select — write selected slot to marker before relaunch
 # sub_00067B70 calls sub_00068F00(1) which relaunches; carry the chosen slot (ebx) into [0x223688]
 set(_ss_files "")
