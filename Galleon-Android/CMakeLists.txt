@@ -771,9 +771,9 @@ endif()
 file(WRITE ${_g55} "${_g55_src}")
 endif()
 
-# v1.0.97: Patch 8 (_g11) - guard esi at sub_00071730 function entry in ANY partition
-# sub_00071730 resets esi to 0 internally via mov esi,[eax+0x168]=[0x2AC4]=0
-# -> crash at [esi+0xC5C]. Guard at entry, after internal esi reset, AND at the crash write site.
+# v1.0.98: Patch 8 (_g11) - seed [0x2AC4] at sub_00071730 entry so internal mov esi,[eax+0x168] doesn't zero esi
+# sub_00071730 does mov eax,0x295C then mov esi,[eax+0x168]=[0x2AC4]=0 -> esi=0 -> crash at [esi+0xC5C].
+# Fix: at function entry, copy global menu obj [0x238ED4] into [0x2AC4] so the internal read gets a valid pointer.
 # Search all partition files for sub_00071730 definition (partition number varies by build).
 set(_g11_files "")
 file(GLOB _g11_glob "${REPO}/generated/game/x86_recomp.*.cpp")
@@ -786,7 +786,6 @@ endforeach()
 list(REMOVE_DUPLICATES _g11_files)
 foreach(_g11 ${_g11_files})
     file(READ ${_g11} _g11_src)
-    # Patch 8: guard esi at function entry
     if(NOT _g11_src MATCHES "GALLEON-LOADSAVE-FIXES-068D10-8")
     string(REPLACE [[X86_FUNC(__imp__sub_00071730) {
 	X86_LOAD_FLAGS();
@@ -795,35 +794,11 @@ foreach(_g11 ${_g11_files})
 	X86_LOAD_FLAGS();
 	uint32_t ca = 0, cb = 0;
 	(void)ca; (void)cb;
-	// [GALLEON-LOADSAVE-FIXES-068D10-8] guard esi at sub_00071730 entry: esi = menu obj or ebp
-	{if (ctx.esi == 0) { uint32_t _g = X86_MEM32((uint32_t)(0x238ED4u)); ctx.esi = (uint32_t)(_g ? _g : ctx.ebp); }}
-	{if (ctx.esi == 0) { ctx.esp += 4; return; }}]] _g11_src "${_g11_src}")
+	// [GALLEON-LOADSAVE-FIXES-068D10-8] seed [0x2AC4] with menu obj so mov esi,[eax+0x168] reads valid ptr
+	{ uint32_t _m = X86_MEM32((uint32_t)(0x238ED4u)); if (_m) X86_MEM32((uint32_t)(0x2AC4u)) = _m; }}]] _g11_src "${_g11_src}")
     endif()
     if(NOT _g11_src MATCHES "GALLEON-LOADSAVE-FIXES-068D10-8")
-        message(FATAL_ERROR "sub_00071730 entry guard could not be patched in ${_g11} (recompiler output changed?)")
-    endif()
-    # Patch 8b: guard esi after mov esi,[eax+0x168] inside sub_00071730 (this zeros esi to 0)
-    # Generated code statements are tab-indented; pattern must include the tab.
-    if(NOT _g11_src MATCHES "GALLEON-LOADSAVE-FIXES-068D10-8b")
-    string(REPLACE [[	{ uint32_t ea = (uint32_t)(ctx.eax + 0x168u); ctx.esi = (uint32_t)(X86_MEM32(ea)); }]] [[
-	{ uint32_t ea = (uint32_t)(ctx.eax + 0x168u); ctx.esi = (uint32_t)(X86_MEM32(ea)); }
-	// [GALLEON-LOADSAVE-FIXES-068D10-8b] guard esi after mov esi,[eax+0x168] (reads [0x2AC4]=0 -> esi=0)
-	{if (ctx.esi == 0) { uint32_t _g3 = X86_MEM32((uint32_t)(0x238ED4u)); ctx.esi = (uint32_t)(_g3 ? _g3 : ctx.ebp); }}
-	{if (ctx.esi == 0) { ctx.esp += 4; return; }}]] _g11_src "${_g11_src}")
-    endif()
-    if(NOT _g11_src MATCHES "GALLEON-LOADSAVE-FIXES-068D10-8b")
-        message(FATAL_ERROR "sub_00071730 esi-reset guard could not be patched in ${_g11} (recompiler output changed?)")
-    endif()
-    # Patch 8c: guard before mov [esi+0xC5C], eax — the actual crash site (esi=0 -> [0xC5C] SIGSEGV)
-    if(NOT _g11_src MATCHES "GALLEON-LOADSAVE-FIXES-068D10-8c")
-    string(REPLACE [[	{ uint32_t ea = (uint32_t)(ctx.esi + 0xC5Cu); X86_MEM32(ea) = (uint32_t)(ctx.eax); }]] [[
-	// [GALLEON-LOADSAVE-FIXES-068D10-8c] crash guard: bail if esi is 0 before [esi+0xC5C] write
-	{if (ctx.esi == 0) { uint32_t _g4 = X86_MEM32((uint32_t)(0x238ED4u)); ctx.esi = (uint32_t)(_g4 ? _g4 : ctx.ebp); }}
-	{if (ctx.esi == 0) { ctx.esp += 4; return; }}
-	{ uint32_t ea = (uint32_t)(ctx.esi + 0xC5Cu); X86_MEM32(ea) = (uint32_t)(ctx.eax); }]] _g11_src "${_g11_src}")
-    endif()
-    if(NOT _g11_src MATCHES "GALLEON-LOADSAVE-FIXES-068D10-8c")
-        message(FATAL_ERROR "sub_00071730 crash-site guard could not be patched in ${_g11} (recompiler output changed?)")
+        message(FATAL_ERROR "sub_00071730 entry seed could not be patched in ${_g11} (recompiler output changed?)")
     endif()
     file(WRITE ${_g11} "${_g11_src}")
 endforeach()
