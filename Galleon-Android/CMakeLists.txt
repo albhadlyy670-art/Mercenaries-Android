@@ -548,32 +548,31 @@ foreach(_ss ${_ss_files})
 endforeach()
 
 
-# v1.0.115: boot to main menu — at loc_00066AA2, if marker != -1 skip save-select and go to main menu mode
-# Matches 0x130u offset used in "test [ebp+0x130], bl" at 0x00066AA2 (save-select entry)
-set(_bm115 "")
+# v1.0.116: boot to main menu — at X86_FUNC(sub_00066AA2), if marker != -1 skip save-select and go to main menu mode
+set(_bm116 "")
 file(GLOB _bm_files "${REPO}/generated/game/x86_recomp.*.cpp")
 foreach(_bm_file ${_bm_files})
     file(READ ${_bm_file} _bm_src)
-    if(_bm_src MATCHES "0x130u")
+    if(_bm_src MATCHES "X86_FUNC\\(sub_00066AA2\\)")
         set(_bm_files "${_bm_files};${_bm_file}")
     endif()
 endforeach()
 list(REMOVE_DUPLICATES _bm_files)
 foreach(_bm ${_bm_files})
     file(READ ${_bm} _bm_src)
-    if(NOT _bm_src MATCHES "GALLEON-BOOTMENU-FIXES-068D10-115")
-    string(REPLACE [[0x130u]] [{ ctx.eax = (uint32_t)(X86_MEM32((uint32_t)(0x223688u))); }
+    if(NOT _bm_src MATCHES "GALLEON-BOOTMENU-FIXES-068D10-116")
+    string(REPLACE [[X86_FUNC(sub_00066AA2)]] [[X86_FUNC(sub_00066AA2)
+	// v1.0.116: boot to main menu when marker != -1
+	{ ctx.eax = (uint32_t)(X86_MEM32((uint32_t)(0x223688u))); }
 	{ uint32_t a = (uint32_t)(ctx.eax), b = (uint32_t)(0xFFFFFFFFu); uint32_t r = (uint32_t)(a - b); ca = a; cb = b; cf = a < b; of = (uint32_t)(((a ^ b) & (a ^ r)) >> 31) & 1; zf = r == 0; sf = (uint32_t)(r >> 31) & 1; pf = X86_PARITY(r); }
-	if (!zf) { uint32_t ea = (uint32_t)(ctx.ebp + 0x15Cu); X86_MEM32(ea) = (uint32_t)(ctx.eax); }  // v1.0.115: idx = marker
-	if (!zf) { uint32_t ea = (uint32_t)(ctx.ebp + 0x168u); X86_MEM32(ea) = (uint32_t)(0x217F64u); }  // v1.0.115: name = empty fallback
-	if (!zf) { uint32_t ea = (uint32_t)(ctx.ebp + 0xC60u); X86_MEM8(ea) = (uint8_t)(0x1u); }  // v1.0.115: c60=1 main-menu mode
-	if (!zf) { uint32_t ea = (uint32_t)(ctx.ebp + 0x10u); X86_MEM32(ea) = (uint32_t)(0x0u); }  // v1.0.115: phase = 0
-	if (!zf) { uint32_t ea = (uint32_t)(ctx.ebp + 0x1Cu); X86_MEM32(ea) = (uint32_t)(0x800u); }  // v1.0.115: queue state 0x800 (main menu entry)
-	if (!zf) { uint32_t ea = (uint32_t)(0x238ED4u); X86_MEM32(ea) = (uint32_t)(ctx.ebp); }  // v1.0.115: global menu obj
-	// marker == -1: cold boot -> original save-select entry below
-0x130u] _bm_src "${_bm_src}")
+	if (!zf) { uint32_t ea = (uint32_t)(ctx.ebp + 0x15Cu); X86_MEM32(ea) = (uint32_t)(ctx.eax); }  // v1.0.116: idx = marker
+	if (!zf) { uint32_t ea = (uint32_t)(ctx.ebp + 0x168u); X86_MEM32(ea) = (uint32_t)(0x217F64u); }  // v1.0.116: name = empty fallback
+	if (!zf) { uint32_t ea = (uint32_t)(ctx.ebp + 0xC60u); X86_MEM8(ea) = (uint8_t)(0x1u); }  // v1.0.116: c60=1 main-menu mode
+	if (!zf) { uint32_t ea = (uint32_t)(ctx.ebp + 0x10u); X86_MEM32(ea) = (uint32_t)(0x0u); }  // v1.0.116: phase = 0
+	if (!zf) { uint32_t ea = (uint32_t)(ctx.ebp + 0x1Cu); X86_MEM32(ea) = (uint32_t)(0x800u); }  // v1.0.116: queue state 0x800 (main menu entry)
+	if (!zf) { uint32_t ea = (uint32_t)(0x238ED4u); X86_MEM32(ea) = (uint32_t)(ctx.ebp); }  // v1.0.116: global menu obj]] _bm_src "${_bm_src}")
     endif()
-    if(NOT _bm_src MATCHES "GALLEON-BOOTMENU-FIXES-068D10-115")
+    if(NOT _bm_src MATCHES "GALLEON-BOOTMENU-FIXES-068D10-116")
         message(FATAL_ERROR "boot-to-main-menu could not be patched in ${_bm} (recompiler output changed?)")
     endif()
     file(WRITE ${_bm} "${_bm_src}")
