@@ -525,16 +525,26 @@ foreach(_cg ${_cg_files})
 endforeach()
 # v1.0.109: save-select — write selected slot to marker before relaunch
 # sub_00067B70 calls sub_00068F00(1) which relaunches; carry the chosen slot (ebx) into [0x223688]
-set(_ss109 ${REPO}/generated/game/x86_recomp.10.cpp)
-file(READ ${_ss109} _ss109_src)
-if(NOT _ss109_src MATCHES "GALLEON-SAVESELECT-FIXES-068D10-109")
-string(REPLACE [[	// 00067C09 call 0x00068F00]] [[	{ uint32_t ea = (uint32_t)(0x223688u); X86_MEM32(ea) = (uint32_t)(ctx.ebx); }  // v1.0.109: save-select writes selected slot (ebx) to marker [0x223688]
-	// 00067C09 call 0x00068F00]] _ss109_src "${_ss109_src}")
-endif()
-if(NOT _ss109_src MATCHES "GALLEON-SAVESELECT-FIXES-068D10-109")
-    message(FATAL_ERROR "x86_recomp.10.cpp save-select marker write could not be patched (recompiler output changed?)")
-endif()
-file(WRITE ${_ss109} "${_ss109_src}")
+set(_ss_glob "")
+file(GLOB _ss_files "${REPO}/generated/game/x86_recomp.*.cpp")
+foreach(_ss_file ${_ss_files})
+    file(READ ${_ss_file} _ss_src)
+    if(_ss_src MATCHES "0x00068F00")
+        set(_ss_glob "${_ss_glob};${_ss_file}")
+    endif()
+endforeach()
+list(REMOVE_DUPLICATES _ss_glob)
+foreach(_ss ${_ss_glob})
+    file(READ ${_ss} _ss_src)
+    if(NOT _ss_src MATCHES "GALLEON-SAVESELECT-FIXES-068D10-109")
+    string(REPLACE [[0x00068F00]] [{ uint32_t ea = (uint32_t)(0x223688u); X86_MEM32(ea) = (uint32_t)(ctx.ebx); }  // v1.0.109: save-select writes selected slot (ebx) to marker [0x223688]
+0x00068F00] _ss_src "${_ss_src}")
+    endif()
+    if(NOT _ss_src MATCHES "GALLEON-SAVESELECT-FIXES-068D10-109")
+        message(FATAL_ERROR "save-select marker write could not be patched in ${_ss} (recompiler output changed?)")
+    endif()
+    file(WRITE ${_ss} "${_ss_src}")
+endforeach()
 
 # the recompiled code and the xbe it came from
 
