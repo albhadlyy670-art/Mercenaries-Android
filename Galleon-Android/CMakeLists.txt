@@ -523,6 +523,31 @@ foreach(_cg ${_cg_files})
     endif()
     file(WRITE ${_cg} "${_cg_src}")
 endforeach()
+# v1.0.138: intercept __imp__HalReturnToFirmware to prevent relaunch and go to main menu
+file(GLOB _hr_files "${REPO}/generated/game/x86_recomp.*.cpp")
+foreach(_hr ${_hr_files})
+    file(READ ${_hr} _hr_src)
+    if(_hr_src MATCHES "__imp__HalReturnToFirmware" AND NOT _hr_src MATCHES "GALLEON-NO-RELAUNCH-138")
+        string(REGEX REPLACE
+            "(\{[^\n]*__imp__HalReturnToFirmware[^\n]*\})"
+            "// [GALLEON-NO-RELAUNCH-138] skip HalReturnToFirmware(2) relaunch and go to main menu
+	{
+		uint32_t menu = X86_MEM32((uint32_t)(0x238ED4u));
+		if (menu > 0x10000u && menu < 0x10000000u) {
+			X86_MEM32(menu + 0x15Cu) = (uint32_t)(0x0u);
+			X86_MEM32(menu + 0x168u) = (uint32_t)(0x217F64u);
+			X86_MEM8(menu + 0xC60u) = (uint8_t)(0x1u);
+			X86_MEM32(menu + 0x10u) = (uint32_t)(0x0u);
+			X86_MEM32(menu + 0x1Cu) = (uint32_t)(0x800u);
+		}
+	}
+	ctx.esp += 4; return;
+	\\1"
+            _hr_src "${_hr_src}")
+        file(WRITE ${_hr} "${_hr_src}")
+    endif()
+endforeach()
+
 # v1.0.109: save-select — write selected slot to marker before relaunch
 # sub_00067B70 calls sub_00068F00(1) which relaunches; carry the chosen slot (ebx) into [0x223688]
 set(_ss_files "")
