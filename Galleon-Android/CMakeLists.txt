@@ -548,8 +548,6 @@ foreach(_ss ${_ss_files})
 endforeach()
 
 
-
-
 # the recompiled code and the xbe it came from
 
 set(XBE_GENERATED ${REPO}/generated/game CACHE PATH "the recompiled code of default.xbe")
@@ -559,31 +557,6 @@ set(XBE ${XBE_IMAGE})
 if(NOT EXISTS ${GEN}/x86_func_mapping.cpp OR NOT EXISTS ${XBE})
     message(FATAL_ERROR "No recompiled code: put the game in assets/ or iso/ and run build.bat, it writes generated/game")
 endif()
-file(STRINGS ${REPO}/config/game.toml GAME_PARTITIONS REGEX "^partitions# v1.0.123: boot to main menu — at X86_FUNC(sub_00068F00), write marker + main menu mode
-# sub_00068F00 is the relaunch function called from save-select. We write the marker
-# so that after save-select, the game boots to main menu instead of save-select.
-# Marker is initialized to -1 (no slot) so cold boot goes to save-select.
-set(_bm123 "")
-file(GLOB _bm_files "${REPO}/generated/game/x86_recomp.*.cpp")
-foreach(_bm_file ${_bm_files})
-    file(READ ${_bm_file} _bm_src)
-    if(_bm_src MATCHES "X86_FUNC\\(sub_00068F00\\)")
-        set(_bm_files "${_bm_files};${_bm_file}")
-    endif()
-endforeach()
-list(REMOVE_DUPLICATES _bm_files)
-foreach(_bm ${_bm_files})
-    file(READ ${_bm} _bm_src)
-    if(NOT _bm_src MATCHES "GALLEON-BOOTMENU-FIXES-068D10-123")
-    string(REPLACE [[X86_FUNC(sub_00068F00)]] [[X86_FUNC(sub_00068F00)
-	// v1.0.123: save-select writes slot to marker before relaunch
-	{ uint32_t ea = (uint32_t)(0x223688u); X86_MEM32(ea) = (uint32_t)(ctx.ebx); }  // v1.0.123: save-select writes selected slot (ebx) to marker [0x223688]
-	{ uint32_t ea = (uint32_t)(0x238ED4u); X86_MEM32(ea) = (uint32_t)(ctx.ebp); }  // v1.0.123: global menu obj = current frame]] _bm_src "${_bm_src}")
-    endif()
-    if(NOT _bm_src MATCHES "GALLEON-BOOTMENU-FIXES-068D10-123")
-        message(FATAL_ERROR "boot-to-main-menu could not be patched in ${_bm} (recompiler output changed?)")
-    endif()
-    file(WRITE ${_bm} "${_bm_src}")
 endforeach()
 
  *=")
