@@ -548,6 +548,22 @@ foreach(_ss ${_ss_files})
 endforeach()
 
 
+# v1.0.125: boot to main menu — Python-based patch, searches for marker/flag references
+find_package(Python3 REQUIRED)
+set(_py_patch_script ${REPO}/tools/galleon_boot_patch.py)
+execute_process(
+    COMMAND ${Python3_EXECUTABLE} ${_py_patch_script}
+    WORKING_DIRECTORY ${REPO}
+    ENV {GALLEON_REPO=${REPO}}
+    RESULT_VARIABLE _py_result
+    OUTPUT_VARIABLE _py_output
+    ERROR_VARIABLE _py_error
+)
+if(_py_result)
+    message(FATAL_ERROR "Python boot patch failed: ${_py_error}")
+endif()
+message(STATUS "Python boot patch: ${_py_output}")
+
 # the recompiled code and the xbe it came from
 
 set(XBE_GENERATED ${REPO}/generated/game CACHE PATH "the recompiled code of default.xbe")
