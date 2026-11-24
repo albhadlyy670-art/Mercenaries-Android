@@ -547,32 +547,22 @@ set(_bm109 ${REPO}/generated/game/x86_recomp.10.cpp)
 file(READ ${_bm109} _bm109_src)
 if(NOT _bm109_src MATCHES "GALLEON-BOOTMENU-FIXES-068D10-109")
 string(REPLACE [[loc_00066AA2:
-	// 00066AA2 test [ebp+0x130], bl
-	{ uint32_t ea = (uint32_t)(ctx.ebp + 0x130u); uint8_t a = (uint8_t)(X86_MEM8(ea)), b = (uint8_t)(((uint8_t)ctx.ebx)); uint8_t r = (uint8_t)(a & b); ca = a; cb = b; cf = 0; of = 0; zf = r == 0; sf = (uint32_t)(r >> 7) & 1; pf = X86_PARITY(r); }
-	// 00066AA8 jz 0x00066AB7
-	if (((uint8_t)(ca & cb)) == 0) { goto loc_00066AB7; }]] [[loc_00066AA2:
+	// 00066AA2 test [ebp+0x130], bl]] [[loc_00066AA2:
 	// v1.0.109: boot to main menu when marker != -1
-	// 00066AA2 mov eax, [0x00223688]
 	{ ctx.eax = (uint32_t)(X86_MEM32((uint32_t)(0x223688u))); }
-	// 00066AA7 cmp eax, 0xFFFFFFFF
 	{ uint32_t a = (uint32_t)(ctx.eax), b = (uint32_t)(0xFFFFFFFFu); uint32_t r = (uint32_t)(a - b); ca = a; cb = b; cf = a < b; of = (uint32_t)(((a ^ b) & (a ^ r)) >> 31) & 1; zf = r == 0; sf = (uint32_t)(r >> 31) & 1; pf = X86_PARITY(r); }
-	// 00066AA9 jz 0x00066AA2_MENU   ; marker == -1: cold boot -> save-select
 	if (zf) { goto loc_00066AA2_MENU; }
 	// marker != -1: relaunch boot -> main menu mode
-	{ uint32_t ea = (uint32_t)(ctx.ebp + 0x15Cu); X86_MEM32(ea) = (uint32_t)(ctx.eax); }  // v1.0.109: idx = marker (relaunch boot)
+	{ uint32_t ea = (uint32_t)(ctx.ebp + 0x15Cu); X86_MEM32(ea) = (uint32_t)(ctx.eax); }  // v1.0.109: idx = marker
 	{ uint32_t ea = (uint32_t)(ctx.ebp + 0x168u); X86_MEM32(ea) = (uint32_t)(0x217F64u); }  // v1.0.109: name = empty fallback
 	{ uint32_t ea = (uint32_t)(ctx.ebp + 0xC60u); X86_MEM8(ea) = (uint8_t)(0x1u); }  // v1.0.109: c60=1 main-menu mode
-	{ uint32_t ea = (uint32_t)(ctx.ebp + 0x10u); X86_MEM32(ea) = (uint32_t)(0x0u); }  // v1.0.109: phase = 0 so state 0x10 runs
+	{ uint32_t ea = (uint32_t)(ctx.ebp + 0x10u); X86_MEM32(ea) = (uint32_t)(0x0u); }  // v1.0.109: phase = 0
 	{ uint32_t ea = (uint32_t)(ctx.ebp + 0x1Cu); X86_MEM32(ea) = (uint32_t)(0x800u); }  // v1.0.109: queue state 0x800 (main menu entry)
-	{ uint32_t ea = (uint32_t)(0x238ED4u); X86_MEM32(ea) = (uint32_t)(ctx.ebp); }  // v1.0.109: global menu obj [0x238ED4] = our menu obj
-	goto loc_00066AA2_DONE;
+	{ uint32_t ea = (uint32_t)(0x238ED4u); X86_MEM32(ea) = (uint32_t)(ctx.ebp); }  // v1.0.109: global menu obj
+	goto loc_00066AA2_END;
 loc_00066AA2_MENU:
 	// marker == -1: cold boot -> original save-select entry
-	// 00066AA2 test [ebp+0x130], bl
-	{ uint32_t ea = (uint32_t)(ctx.ebp + 0x130u); uint8_t a = (uint8_t)(X86_MEM8(ea)), b = (uint8_t)(((uint8_t)ctx.ebx)); uint8_t r = (uint8_t)(a & b); ca = a; cb = b; cf = 0; of = 0; zf = r == 0; sf = (uint32_t)(r >> 7) & 1; pf = X86_PARITY(r); }
-	// 00066AA8 jz 0x00066AB7
-	if (((uint8_t)(ca & cb)) == 0) { goto loc_00066AB7; }
-loc_00066AA2_DONE:]] _bm109_src "${_bm109_src}")
+	// 00066AA2 test [ebp+0x130], bl]] _bm109_src "${_bm109_src}")
 endif()
 if(NOT _bm109_src MATCHES "GALLEON-BOOTMENU-FIXES-068D10-109")
     message(FATAL_ERROR "x86_recomp.10.cpp boot-to-main-menu could not be patched (recompiler output changed?)")
