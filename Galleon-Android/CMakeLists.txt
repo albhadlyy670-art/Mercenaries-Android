@@ -523,13 +523,14 @@ foreach(_cg ${_cg_files})
     endif()
     file(WRITE ${_cg} "${_cg_src}")
 endforeach()
-# v1.0.133: boot to main menu — pure CMake post-processing at crash guard site
-foreach(_bm133 ${_cg_files})
-    file(READ ${_bm133} _bm133_src)
-    if(_bm133_src MATCHES "GALLEON-CRASH-GUARD" AND NOT _bm133_src MATCHES "GALLEON-BOOTMENU-133")
-        string(REPLACE
-            "// [GALLEON-CRASH-GUARD] bail if esi is 0 before [esi+0xC5C] write (SIGSEGV prevention)"
-            "// [GALLEON-BOOTMENU-133] boot to main menu when marker != -1
+# v1.0.134: boot to main menu — match unique [ebp+0x130] (0x130u) at loc_00066AA2
+file(GLOB _bm134_files "${REPO}/generated/game/x86_recomp.*.cpp")
+foreach(_bm134 ${_bm134_files})
+    file(READ ${_bm134} _bm134_src)
+    if(_bm134_src MATCHES "0x130u" AND NOT _bm134_src MATCHES "GALLEON-BOOTMENU-134")
+        string(REGEX REPLACE
+            "(\{[^\n]*0x130u[^\n]*\})"
+            "// [GALLEON-BOOTMENU-134] boot to main menu when marker != -1
 	{ ctx.eax = (uint32_t)(X86_MEM32((uint32_t)(0x223688u))); }
 	{ uint32_t a = (uint32_t)(ctx.eax), b = (uint32_t)(0xFFFFFFFFu); uint32_t r = (uint32_t)(a - b); ca = a; cb = b; cf = a < b; of = (uint32_t)(((a ^ b) & (a ^ r)) >> 31) & 1; zf = r == 0; sf = (uint32_t)(r >> 31) & 1; pf = X86_PARITY(r); }
 	if (!zf) { uint32_t ea = (uint32_t)(0x223688u); X86_MEM32(ea) = (uint32_t)(0xFFFFFFFFu); }
@@ -540,9 +541,9 @@ foreach(_bm133 ${_cg_files})
 	if (!zf) { uint32_t ea = (uint32_t)(ctx.ebp + 0x1Cu); X86_MEM32(ea) = (uint32_t)(0x800u); }
 	if (!zf) { uint32_t ea = (uint32_t)(0x238ED4u); X86_MEM32(ea) = (uint32_t)(ctx.ebp); }
 	if (!zf) { ctx.esp += 4; return; }
-	// [GALLEON-CRASH-GUARD] bail if esi is 0 before [esi+0xC5C] write (SIGSEGV prevention)"
-            _bm133_src "${_bm133_src}")
-        file(WRITE ${_bm133} "${_bm133_src}")
+	\\1"
+            _bm134_src "${_bm134_src}")
+        file(WRITE ${_bm134} "${_bm134_src}")
     endif()
 endforeach()
 
