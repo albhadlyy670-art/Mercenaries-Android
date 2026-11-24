@@ -560,6 +560,18 @@ endif()
 endforeach()
 
  *=")
+string(REGEX MATCH "[0-9]+" GAME_PARTITIONS "${GAME_# the recompiled code and the xbe it came from
+
+set(XBE_GENERATED ${REPO}/generated/game CACHE PATH "the recompiled code of default.xbe")
+set(XBE_IMAGE ${REPO}/assets/default.xbe CACHE FILEPATH "the xbe it was recompiled from")
+set(GEN ${XBE_GENERATED})
+set(XBE ${XBE_IMAGE})
+if(NOT EXISTS ${GEN}/x86_func_mapping.cpp OR NOT EXISTS ${XBE})
+    message(FATAL_ERROR "No recompiled code: put the game in assets/ or iso/ and run build.bat, it writes generated/game")
+endif()
+endforeach()
+
+ *=")
 string(REGEX MATCH "[0-9]+" GAME_PARTITIONS "${GAME_# v1.0.126: boot to main menu — at X86_FUNC(sub_00068CD0), check marker and set main menu mode
 # sub_00068CD0 creates/refreshes save slot — may exist in generated code
 set(_bm126 "")
