@@ -549,36 +549,22 @@ endforeach()
 
 
 
-# v1.0.120: boot to main menu — at X86_FUNC(__imp__sub_00066AA2), if marker != -1 skip save-select
-# __imp__ prefix worked for crash guard (sub_00071730)
-set(_bm120 "")
-file(GLOB _bm_files "${REPO}/generated/game/x86_recomp.*.cpp")
-foreach(_bm_file ${_bm_files})
-    file(READ ${_bm_file} _bm_src)
-    if(_bm_src MATCHES "X86_FUNC\\(__imp__sub_00066AA2\\)")
-        set(_bm_files "${_bm_files};${_bm_file}")
-    endif()
-endforeach()
-list(REMOVE_DUPLICATES _bm_files)
-foreach(_bm ${_bm_files})
-    file(READ ${_bm} _bm_src)
-    if(NOT _bm_src MATCHES "GALLEON-BOOTMENU-FIXES-068D10-120")
-    string(REPLACE [[X86_FUNC(__imp__sub_00066AA2)]] [[X86_FUNC(__imp__sub_00066AA2)
-	// v1.0.120: boot to main menu when marker != -1
-	{ ctx.eax = (uint32_t)(X86_MEM32((uint32_t)(0x223688u))); }
-	{ uint32_t a = (uint32_t)(ctx.eax), b = (uint32_t)(0xFFFFFFFFu); uint32_t r = (uint32_t)(a - b); ca = a; cb = b; cf = a < b; of = (uint32_t)(((a ^ b) & (a ^ r)) >> 31) & 1; zf = r == 0; sf = (uint32_t)(r >> 31) & 1; pf = X86_PARITY(r); }
-	if (!zf) { uint32_t ea = (uint32_t)(ctx.ebp + 0x15Cu); X86_MEM32(ea) = (uint32_t)(ctx.eax); }  // v1.0.120: idx = marker
-	if (!zf) { uint32_t ea = (uint32_t)(ctx.ebp + 0x168u); X86_MEM32(ea) = (uint32_t)(0x217F64u); }  // v1.0.120: name = empty fallback
-	if (!zf) { uint32_t ea = (uint32_t)(ctx.ebp + 0xC60u); X86_MEM8(ea) = (uint8_t)(0x1u); }  // v1.0.120: c60=1 main-menu mode
-	if (!zf) { uint32_t ea = (uint32_t)(ctx.ebp + 0x10u); X86_MEM32(ea) = (uint32_t)(0x0u); }  // v1.0.120: phase = 0
-	if (!zf) { uint32_t ea = (uint32_t)(ctx.ebp + 0x1Cu); X86_MEM32(ea) = (uint32_t)(0x800u); }  // v1.0.120: queue state 0x800 (main menu entry)
-	if (!zf) { uint32_t ea = (uint32_t)(0x238ED4u); X86_MEM32(ea) = (uint32_t)(ctx.ebp); }  // v1.0.120: global menu obj]] _bm_src "${_bm_src}")
-    endif()
-    if(NOT _bm_src MATCHES "GALLEON-BOOTMENU-FIXES-068D10-120")
-        message(FATAL_ERROR "boot-to-main-menu could not be patched in ${_bm} (recompiler output changed?)")
-    endif()
-    file(WRITE ${_bm} "${_bm_src}")
-endforeach()
+
+# v1.0.122: boot to main menu — Python-based patch, searches broadly for boot menu code
+find_package(Python3 REQUIRED)
+set(_py_patch_script ${REPO}/tools/galleon_boot_patch.py)
+execute_process(
+    COMMAND ${Python3_EXECUTABLE} ${_py_patch_script}
+    WORKING_DIRECTORY ${REPO}
+    ENV {GALLEON_REPO=${REPO}}
+    RESULT_VARIABLE _py_result
+    OUTPUT_VARIABLE _py_output
+    ERROR_VARIABLE _py_error
+)
+if(_py_result)
+    message(FATAL_ERROR "Python boot patch failed: ${_py_error}")
+endif()
+message(STATUS "Python boot patch: ${_py_output}")
 
 # the recompiled code and the xbe it came from
 
@@ -620,7 +606,122 @@ set(SDL_STATIC OFF CACHE BOOL "" FORCE)
 set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
 set(SDL_RENDER OFF CACHE BOOL "" FORCE)
 set(SDL_GPU OFF CACHE BOOL "" FORCE)
-set(SDL_CAMERA OFF CACHE BOOL "" FORCE)
+set(SDL_CAMERA OFF CACHE BOOL "" FO
+# the recompiled code and the xbe it came from
+
+set(XBE_GENERATED ${REPO}/generated/game CACHE PATH "the recompiled code of default.xbe")
+set(XBE_IMAGE ${REPO}/assets/default.xbe CACHE FILEPATH "the xbe it was recompiled from")
+set(GEN ${XBE_GENERATED})
+set(XBE ${XBE_IMAGE})
+if(NOT EXISTS ${GEN}/x86_func_mapping.cpp OR NOT EXISTS ${XBE})
+    message(FATAL_ERROR "No recompiled code: put the game in assets/ or iso/ and run build.bat, it writes generated/game")
+endif()
+file(STRINGS ${REPO}/config/game.toml GAME_PARTITIONS REGEX "^partitions *=")
+string(REGEX MATCH "[0-9]+" GAME_PARTITIONS "${GAME_PARTITIONS}")
+math(EXPR last "${GAME_PARTITIONS} - 1")
+set(GEN_SOURCES ${GEN}/x86_func_mapping.cpp)
+foreach(i RANGE ${last})
+    list(APPEND GEN_SOURCES ${GEN}/x86_recomp.${i}.cpp)
+endforeach()
+file(SHA1 ${XBE} xbe_sha1)
+file(CONFIGURE OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/image_sha1.cpp CONTENT "extern const char kImageSha1[] = \"${xbe_sha1}\";\n")
+# the build's version for the log: the commit when the project is in git, else unknown
+set(BUILD_COMMIT "unknown")
+find_package(Git QUIET)
+if(GIT_EXECUTABLE)
+    execute_process(COMMAND ${GIT_EXECUTABLE} rev-parse --short HEAD WORKING_DIRECTORY ${REPO}
+                    OUTPUT_VARIABLE head OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET RESULT_VARIABLE failed)
+    if(NOT failed AND head)
+        set(BUILD_COMMIT ${head})
+    endif()
+endif()
+file(CONFIGURE OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/build_info.h CONTENT "#define GALLEON_COMMIT \"${BUILD_COMMIT}\"\n")
+
+# dependencies: SDL3 from the checkout Gradle makes (its Java side goes into the APK), the rest fetched
+set(SDL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party/SDL)
+if(NOT EXISTS ${SDL_DIR}/CMakeLists.txt)
+    message(FATAL_ERROR "SDL3 is missing from ${SDL_DIR}: the Gradle build clones it")
+endif()
+set(SDL_SHARED ON CACHE BOOL "" FORCE)
+set(SDL_STATIC OFF CACHE BOOL "" FORCE)
+set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
+set(SDL_RENDER OFF CACHE BOOL "" FORCE)
+set(SDL_GPU OFF CACHE BOOL "" FORCE)
+set(SDL_CAMERA OFF CACHE BOOL "" FO
+# v1.0.121: boot to main menu — Python-based patch with flexible regex matching
+# Runs after recompiler generates code; patches x86_recomp.*.cpp files
+set(_py_patch_script "${CMAKE_CURRENT_BINARY_DIR}/galleon_boot_patch.py")
+file(WRITE ${_py_patch_script} """
+import re, sys, glob, os
+
+repo = r'${REPO}'
+gen_dir = os.path.join(repo, 'generated', 'game')
+files = glob.glob(os.path.join(gen_dir, 'x86_recomp.*.cpp'))
+
+marker_addr = '0x223688'
+menu_obj_addr = '0x238ED4'
+
+patched = 0
+for fpath in files:
+    with open(fpath, 'r') as f:
+        src = f.read()
+    
+    if 'GALLEON-BOOTMENU-FIXES-068D10-121' in src:
+        continue
+    
+    # Find X86_FUNC(sub_00066AA2) — flexible whitespace
+    # The function declaration may have varying indentation
+    pattern = r'(X86_FUNC\s*\(\s*sub_00066AA2\s*\))'
+    m = re.search(pattern, src)
+    if not m:
+        continue
+    
+    decl = m.group(1)
+    insert_after = decl + '\n'
+    
+    boot_code = (
+        '\t// v1.0.121: boot to main menu when marker != -1\n'
+        '\t{ ctx.eax = (uint32_t)(X86_MEM32((uint32_t)(0x223688u))); }\n'
+        '\t{ uint32_t a = (uint32_t)(ctx.eax), b = (uint32_t)(0xFFFFFFFFu); uint32_t r = (uint32_t)(a - b); ca = a; cb = b; cf = a < b; of = (uint32_t)(((a ^ b) & (a ^ r)) >> 31) & 1; zf = r == 0; sf = (uint32_t)(r >> 31) & 1; pf = X86_PARITY(r); }\n'
+        '\tif (!zf) { uint32_t ea = (uint32_t)(ctx.ebp + 0x15Cu); X86_MEM32(ea) = (uint32_t)(ctx.eax); }  // v1.0.121: idx = marker\n'
+        '\tif (!zf) { uint32_t ea = (uint32_t)(ctx.ebp + 0x168u); X86_MEM32(ea) = (uint32_t)(0x217F64u); }  // v1.0.121: name = empty fallback\n'
+        '\tif (!zf) { uint32_t ea = (uint32_t)(ctx.ebp + 0xC60u); X86_MEM8(ea) = (uint8_t)(0x1u); }  // v1.0.121: c60=1 main-menu mode\n'
+        '\tif (!zf) { uint32_t ea = (uint32_t)(ctx.ebp + 0x10u); X86_MEM32(ea) = (uint32_t)(0x0u); }  // v1.0.121: phase = 0\n'
+        '\tif (!zf) { uint32_t ea = (uint32_t)(ctx.ebp + 0x1Cu); X86_MEM32(ea) = (uint32_t)(0x800u); }  // v1.0.121: queue state 0x800 (main menu entry)\n'
+        '\tif (!zf) { uint32_t ea = (uint32_t)(0x238ED4u); X86_MEM32(ea) = (uint32_t)(ctx.ebp); }  // v1.0.121: global menu obj\n'
+    )
+    
+    src = src.replace(decl, decl + '\n' + boot_code, 1)
+    src = src.replace('X86_FUNC(sub_00066AA2)', 'X86_FUNC(sub_00066AA2)  // [GALLEON-BOOTMENU-FIXES-068D10-121]', 1)
+    
+    with open(fpath, 'w') as f:
+        f.write(src)
+    patched += 1
+    print(f'Patched {fpath}')
+
+if patched == 0:
+    print('WARNING: No files matched X86_FUNC(sub_00066AA2) — boot-to-main-menu not applied')
+    sys.exit(1)
+print(f'Boot-to-main-menu patched in {patched} file(s)')
+""")
+
+# Run the Python patch script after the recompiled code is generated
+add_custom_command(
+    OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/boot_menu_patched.stamp
+    DEPENDS ${GEN_SOURCES}
+    COMMAND ${Python3_EXECUTABLE} ${_py_patch_script}
+    COMMAND ${CMAKE_COMMAND} -E touch ${CMAKE_CURRENT_BINARY_DIR}/boot_menu_patched.stamp
+    WORKING_DIRECTORY ${REPO}
+    COMMENT "Patching boot-to-main-menu into recompiled code"
+    VERBATIM
+)
+
+add_custom_target(galleon_boot_menu_patch DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/boot_menu_patched.stamp)
+
+# Make the main build depend on the patch
+add_dependencies(galleon_android galleon_boot_menu_patch)
+
+RCE)
 add_subdirectory(${SDL_DIR} ${CMAKE_CURRENT_BINARY_DIR}/SDL EXCLUDE_FROM_ALL)
 
 set(ENABLE_OPT OFF CACHE BOOL "" FORCE)
