@@ -15,6 +15,8 @@
 #include <dlfcn.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <dirent.h>
+#include <sys/stat.h>
 
 #include <cstdio>
 
@@ -627,20 +629,35 @@ int main(int, char**) {
 
     // v1.0.101: auto-import save files from the bundled SAVE folder into the game's UDATA path
     // so GameFAQs saves placed in <storage>/SAVE/ are available in-game at E:\UDATA\41540004\
-    std::error_code ec;
-    std::filesystem::path save_src = app::ExeDir() / "SAVE";
-    std::filesystem::path save_dst = app::ExeDir() / "hdd" / "E" / "UDATA" / "41540004";
-    if (std::filesystem::is_directory(save_src, ec)) {
-        std::filesystem::create_directories(save_dst, ec);
-        for (auto& e : std::filesystem::directory_iterator(save_src, ec)) {
-            if (!e.is_regular_file(ec)) continue;
-            std::filesystem::path dst = save_dst / e.path().filename();
-            if (!std::filesystem::exists(dst, ec)) {
-                std::error_code copy_ec;
-                std::filesystem::copy_file(e.path(), dst, std::filesystem::copy_options::none, copy_ec);
-                if (!copy_ec) LOGR("save: imported %s -> %s", e.path().filename().string().c_str(), dst.string().c_str());
-                else LOGW("save: cannot import %s: %s", e.path().filename().string().c_str(), copy_ec.message().c_str());
+    {
+        char src_path[512];
+        snprintf(src_path, sizeof(src_path), "%s/SAVE", app::ExeDir().string().c_str());
+        DIR* dir = opendir(src_path);
+        if (dir) {
+            char dst_dir[512];
+            snprintf(dst_dir, sizeof(dst_dir), "%s/hdd/E/UDATA/41540004", app::ExeDir().string().c_str());
+            mkdir(dst_dir, 0755);
+            struct dirent* entry;
+            while ((entry = readdir(dir)) != nullptr) {
+                if (entry->d_name[0] == '.') continue;
+                char full_src[512], full_dst[512];
+                snprintf(full_src, sizeof(full_src), "%s/%s", src_path, entry->d_name);
+                snprintf(full_dst, sizeof(full_dst), "%s/%s", dst_dir, entry->d_name);
+                FILE* fsrc = fopen(full_src, "rb");
+                if (!fsrc) continue;
+                FILE* fdst = fopen(full_dst, "rb");
+                if (fdst) { fclose(fdst); continue; }  // already exists
+                fdst = fopen(full_dst, "wb");
+                if (!fdst) { fclose(fsrc); continue; }
+                char buf[4096];
+                size_t n;
+                while ((n = fread(buf, 1, sizeof(buf), fsrc)) > 0)
+                    fwrite(buf, 1, n, fdst);
+                fclose(fsrc);
+                fclose(fdst);
+                LOGR("save: imported %s", entry->d_name);
             }
+            closedir(dir);
         }
     }
 
