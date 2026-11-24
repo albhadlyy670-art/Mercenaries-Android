@@ -274,19 +274,10 @@ int Search(GameFiles& game) {
 
 }  // namespace
 
-// v1.0.106: auto-import save files from the bundled SAVE folder into the game's UDATA path
-// so GameFAQs saves placed in <storage>/SAVE/ are available in-game at E:\UDATA\41540004\
-void ImportSaves() {
-    LOGR("save: import check");
-}
-
 bool FindGame(GameFiles& game) {
     for (;;) {
         int found = Search(game);
-        if (found) {
-            ImportSaves();
-            return found > 0;
-        }
+        if (found) return found > 0;
         WaitForGame();
     }
 }
