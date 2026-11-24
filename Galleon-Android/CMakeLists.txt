@@ -523,19 +523,28 @@ foreach(_cg ${_cg_files})
     endif()
     file(WRITE ${_cg} "${_cg_src}")
 endforeach()
-# v1.0.132: boot to main menu — Python post-processing of generated code
-find_package(Python3 REQUIRED)
-execute_process(
-    COMMAND ${Python3_EXECUTABLE} ${REPO}/tools/galleon_boot_patch.py
-    WORKING_DIRECTORY ${REPO}
-    RESULT_VARIABLE _py_result
-    OUTPUT_VARIABLE _py_output
-    ERROR_VARIABLE _py_error
-)
-if(_py_result)
-    message(FATAL_ERROR "Python boot patch failed: ${_py_error}")
-endif()
-message(STATUS "Python boot patch: ${_py_output}")
+# v1.0.133: boot to main menu — pure CMake post-processing at crash guard site
+foreach(_bm133 ${_cg_files})
+    file(READ ${_bm133} _bm133_src)
+    if(_bm133_src MATCHES "GALLEON-CRASH-GUARD" AND NOT _bm133_src MATCHES "GALLEON-BOOTMENU-133")
+        string(REPLACE
+            "// [GALLEON-CRASH-GUARD] bail if esi is 0 before [esi+0xC5C] write (SIGSEGV prevention)"
+            "// [GALLEON-BOOTMENU-133] boot to main menu when marker != -1
+	{ ctx.eax = (uint32_t)(X86_MEM32((uint32_t)(0x223688u))); }
+	{ uint32_t a = (uint32_t)(ctx.eax), b = (uint32_t)(0xFFFFFFFFu); uint32_t r = (uint32_t)(a - b); ca = a; cb = b; cf = a < b; of = (uint32_t)(((a ^ b) & (a ^ r)) >> 31) & 1; zf = r == 0; sf = (uint32_t)(r >> 31) & 1; pf = X86_PARITY(r); }
+	if (!zf) { uint32_t ea = (uint32_t)(0x223688u); X86_MEM32(ea) = (uint32_t)(0xFFFFFFFFu); }
+	if (!zf) { uint32_t ea = (uint32_t)(ctx.ebp + 0x15Cu); X86_MEM32(ea) = (uint32_t)(ctx.eax); }
+	if (!zf) { uint32_t ea = (uint32_t)(ctx.ebp + 0x168u); X86_MEM32(ea) = (uint32_t)(0x217F64u); }
+	if (!zf) { uint32_t ea = (uint32_t)(ctx.ebp + 0xC60u); X86_MEM8(ea) = (uint8_t)(0x1u); }
+	if (!zf) { uint32_t ea = (uint32_t)(ctx.ebp + 0x10u); X86_MEM32(ea) = (uint32_t)(0x0u); }
+	if (!zf) { uint32_t ea = (uint32_t)(ctx.ebp + 0x1Cu); X86_MEM32(ea) = (uint32_t)(0x800u); }
+	if (!zf) { uint32_t ea = (uint32_t)(0x238ED4u); X86_MEM32(ea) = (uint32_t)(ctx.ebp); }
+	if (!zf) { ctx.esp += 4; return; }
+	// [GALLEON-CRASH-GUARD] bail if esi is 0 before [esi+0xC5C] write (SIGSEGV prevention)"
+            _bm133_src "${_bm133_src}")
+        file(WRITE ${_bm133} "${_bm133_src}")
+    endif()
+endforeach()
 
 # v1.0.109: save-select — write selected slot to marker before relaunch
 # sub_00067B70 calls sub_00068F00(1) which relaunches; carry the chosen slot (ebx) into [0x223688]
