@@ -548,22 +548,6 @@ foreach(_ss ${_ss_files})
 endforeach()
 
 
-# v1.0.125: boot to main menu — Python-based patch, searches for marker/flag references
-find_package(Python3 REQUIRED)
-set(_py_patch_script ${REPO}/tools/galleon_boot_patch.py)
-execute_process(
-    COMMAND ${Python3_EXECUTABLE} ${_py_patch_script}
-    WORKING_DIRECTORY ${REPO}
-    ENV {GALLEON_REPO=${REPO}}
-    RESULT_VARIABLE _py_result
-    OUTPUT_VARIABLE _py_output
-    ERROR_VARIABLE _py_error
-)
-if(_py_result)
-    message(FATAL_ERROR "Python boot patch failed: ${_py_error}")
-endif()
-message(STATUS "Python boot patch: ${_py_output}")
-
 # the recompiled code and the xbe it came from
 
 set(XBE_GENERATED ${REPO}/generated/game CACHE PATH "the recompiled code of default.xbe")
@@ -576,7 +560,38 @@ endif()
 endforeach()
 
  *=")
-string(REGEX MATCH "[0-9]+" GAME_PARTITIONS "${GAME_PARTITIONS}")
+string(REGEX MATCH "[0-9]+" GAME_PARTITIONS "${GAME_# v1.0.126: boot to main menu — at X86_FUNC(sub_00068CD0), check marker and set main menu mode
+# sub_00068CD0 creates/refreshes save slot — may exist in generated code
+set(_bm126 "")
+file(GLOB _bm_files "${REPO}/generated/game/x86_recomp.*.cpp")
+foreach(_bm_file ${_bm_files})
+    file(READ ${_bm_file} _bm_src)
+    if(_bm_src MATCHES "X86_FUNC\\(sub_00068CD0\\)")
+        set(_bm_files "${_bm_files};${_bm_file}")
+    endif()
+endforeach()
+list(REMOVE_DUPLICATES _bm_files)
+foreach(_bm ${_bm_files})
+    file(READ ${_bm} _bm_src)
+    if(NOT _bm_src MATCHES "GALLEON-BOOTMENU-FIXES-068D10-126")
+    string(REPLACE [[X86_FUNC(sub_00068CD0)]] [[X86_FUNC(sub_00068CD0)
+	// v1.0.126: boot to main menu when marker != -1
+	{ ctx.eax = (uint32_t)(X86_MEM32((uint32_t)(0x223688u))); }
+	{ uint32_t a = (uint32_t)(ctx.eax), b = (uint32_t)(0xFFFFFFFFu); uint32_t r = (uint32_t)(a - b); ca = a; cb = b; cf = a < b; of = (uint32_t)(((a ^ b) & (a ^ r)) >> 31) & 1; zf = r == 0; sf = (uint32_t)(r >> 31) & 1; pf = X86_PARITY(r); }
+	if (!zf) { uint32_t ea = (uint32_t)(ctx.ebp + 0x15Cu); X86_MEM32(ea) = (uint32_t)(ctx.eax); }  // v1.0.126: idx = marker
+	if (!zf) { uint32_t ea = (uint32_t)(ctx.ebp + 0x168u); X86_MEM32(ea) = (uint32_t)(0x217F64u); }  // v1.0.126: name = empty fallback
+	if (!zf) { uint32_t ea = (uint32_t)(ctx.ebp + 0xC60u); X86_MEM8(ea) = (uint8_t)(0x1u); }  // v1.0.126: c60=1 main-menu mode
+	if (!zf) { uint32_t ea = (uint32_t)(ctx.ebp + 0x10u); X86_MEM32(ea) = (uint32_t)(0x0u); }  // v1.0.126: phase = 0
+	if (!zf) { uint32_t ea = (uint32_t)(ctx.ebp + 0x1Cu); X86_MEM32(ea) = (uint32_t)(0x800u); }  // v1.0.126: queue state 0x800 (main menu entry)
+	if (!zf) { uint32_t ea = (uint32_t)(0x238ED4u); X86_MEM32(ea) = (uint32_t)(ctx.ebp); }  // v1.0.126: global menu obj]] _bm_src "${_bm_src}")
+    endif()
+    if(NOT _bm_src MATCHES "GALLEON-BOOTMENU-FIXES-068D10-126")
+        message(FATAL_ERROR "boot-to-main-menu could not be patched in ${_bm} (recompiler output changed?)")
+    endif()
+    file(WRITE ${_bm} "${_bm_src}")
+endforeach()
+
+PARTITIONS}")
 math(EXPR last "${GAME_PARTITIONS} - 1")
 set(GEN_SOURCES ${GEN}/x86_func_mapping.cpp)
 foreach(i RANGE ${last})
