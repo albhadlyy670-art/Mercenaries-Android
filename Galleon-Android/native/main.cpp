@@ -15,8 +15,6 @@
 #include <dlfcn.h>
 #include <fcntl.h>
 #include <unistd.h>
-#include <dirent.h>
-#include <sys/stat.h>
 
 #include <cstdio>
 
@@ -625,40 +623,6 @@ int main(int, char**) {
     for (const char* drive : {"V:", "W:", "S:"}) {
         std::string link = std::string("\\??\\") + drive;
         kernel::CreateSymbolicLink(link, "\\Device\\Harddisk0\\Partition1");
-    }
-
-    // v1.0.101: auto-import save files from the bundled SAVE folder into the game's UDATA path
-    // so GameFAQs saves placed in <storage>/SAVE/ are available in-game at E:\UDATA\41540004\
-    {
-        char src_path[512];
-        std::snprintf(src_path, sizeof(src_path), "%s/SAVE", app::ExeDir().string().c_str());
-        DIR* dir = opendir(src_path);
-        if (dir) {
-            char dst_dir[512];
-            std::snprintf(dst_dir, sizeof(dst_dir), "%s/hdd/E/UDATA/41540004", app::ExeDir().string().c_str());
-            mkdir(dst_dir, 0755);
-            struct dirent* entry;
-            while ((entry = readdir(dir)) != nullptr) {
-                if (entry->d_name[0] == '.') continue;
-                char full_src[512], full_dst[512];
-                std::snprintf(full_src, sizeof(full_src), "%s/%s", src_path, entry->d_name);
-                std::snprintf(full_dst, sizeof(full_dst), "%s/%s", dst_dir, entry->d_name);
-                FILE* fsrc = fopen(full_src, "rb");
-                if (!fsrc) continue;
-                FILE* fdst = fopen(full_dst, "rb");
-                if (fdst) { fclose(fdst); continue; }  // already exists
-                fdst = fopen(full_dst, "wb");
-                if (!fdst) { fclose(fsrc); continue; }
-                char buf[4096];
-                size_t n;
-                while ((n = fread(buf, 1, sizeof(buf), fsrc)) > 0)
-                    fwrite(buf, 1, n, fdst);
-                fclose(fsrc);
-                fclose(fdst);
-                LOGR("save: imported %s", entry->d_name);
-            }
-            closedir(dir);
-        }
     }
 
     for (;;) {
