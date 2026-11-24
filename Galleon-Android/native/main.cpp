@@ -627,18 +627,17 @@ int main(int, char**) {
 
     // v1.0.101: auto-import save files from the bundled SAVE folder into the game's UDATA path
     // so GameFAQs saves placed in <storage>/SAVE/ are available in-game at E:\UDATA\41540004\
-    namespace fs = std::filesystem;
-    fs::path save_src = app::ExeDir() / "SAVE";
-    fs::path save_dst = app::ExeDir() / "hdd" / "E" / "UDATA" / "41540004";
     std::error_code ec;
-    if (fs::is_directory(save_src, ec)) {
-        fs::create_directories(save_dst, ec);
-        for (auto& e : fs::directory_iterator(save_src, ec)) {
+    std::filesystem::path save_src = app::ExeDir() / "SAVE";
+    std::filesystem::path save_dst = app::ExeDir() / "hdd" / "E" / "UDATA" / "41540004";
+    if (std::filesystem::is_directory(save_src, ec)) {
+        std::filesystem::create_directories(save_dst, ec);
+        for (auto& e : std::filesystem::directory_iterator(save_src, ec)) {
             if (!e.is_regular_file(ec)) continue;
-            fs::path dst = save_dst / e.path().filename();
-            if (!fs::exists(dst, ec)) {
+            std::filesystem::path dst = save_dst / e.path().filename();
+            if (!std::filesystem::exists(dst, ec)) {
                 std::error_code copy_ec;
-                fs::copy_file(e.path(), dst, fs::copy_options::none, copy_ec);
+                std::filesystem::copy_file(e.path(), dst, std::filesystem::copy_options::none, copy_ec);
                 if (!copy_ec) LOGR("save: imported %s -> %s", e.path().filename().string().c_str(), dst.string().c_str());
                 else LOGW("save: cannot import %s: %s", e.path().filename().string().c_str(), copy_ec.message().c_str());
             }
