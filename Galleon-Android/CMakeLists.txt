@@ -818,6 +818,23 @@ if(NOT _g13_src MATCHES "GALLEON-LOADSAVE-FIXES-068D10-9")
 endif()
 file(WRITE ${_g13} "${_g13_src}")
 endif()
+# v1.0.99: Patch 10 (_g14) - auto-create and auto-select save slot A at boot
+# If no save slot exists when the game checks (sub_00068C30 returns 0), force slot A
+# to be selected ([0x223688] = 0) and pretend it exists (eax = 1). This prevents the
+# crash at [esi+0xC5C] when no save slot A is available.
+set(_g14 ${REPO}/generated/game/x86_recomp.10.cpp)
+file(READ ${_g14} _g14_src)
+if(NOT _g14_src MATCHES "GALLEON-AUTOSAVE-FIXES-068D10-10")
+string(REPLACE [[	X86_PUSH32(0x635A9u); sub_00068C30(ctx, base);
+]] [[	X86_PUSH32(0x635A9u); sub_00068C30(ctx, base);
+// [GALLEON-AUTOSAVE-FIXES-068D10-10] if save slot doesn't exist, force slot A selected
+	{if (ctx.eax == 0) { uint32_t _ea = (uint32_t)(0x223688u); X86_MEM32(_ea) = 0; ctx.eax = 1; }}
+]] _g14_src "${_g14_src}")
+endif()
+if(NOT _g14_src MATCHES "GALLEON-AUTOSAVE-FIXES-068D10-10")
+    message(FATAL_ERROR "x86_recomp.10.cpp autosave slot A guard could not be patched (recompiler output changed?)")
+endif()
+file(WRITE ${_g14} "${_g14_src}")
 
 # v1.0.32: skip sub_001C3EA8 empty-name processing in sub_00067DE0 (crash-13)
 set(_g12 ${REPO}/generated/game/x86_recomp.10.cpp)
