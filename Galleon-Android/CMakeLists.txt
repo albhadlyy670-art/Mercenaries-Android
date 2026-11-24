@@ -523,29 +523,6 @@ foreach(_cg ${_cg_files})
     endif()
     file(WRITE ${_cg} "${_cg_src}")
 endforeach()
-# v1.0.135: boot to main menu — match (ctx.ebp + 0x130u) with heap-pointer guard
-file(GLOB _bm135_files "${REPO}/generated/game/x86_recomp.*.cpp")
-foreach(_bm135 ${_bm135_files})
-    file(READ ${_bm135} _bm135_src)
-    if(_bm135_src MATCHES "ctx\.ebp \+ 0x130u" AND NOT _bm135_src MATCHES "GALLEON-BOOTMENU-135")
-        string(REGEX REPLACE
-            "(\{[^\n]*ctx\.ebp \+ 0x130u[^\n]*\})"
-            "// [GALLEON-BOOTMENU-135] boot to main menu when marker != -1 and ebp is menu obj
-	if (ctx.ebp < 0x10000000u) {
-		{ uint32_t ea = (uint32_t)(ctx.ebp + 0x15Cu); X86_MEM32(ea) = (uint32_t)(0x0u); }
-		{ uint32_t ea = (uint32_t)(ctx.ebp + 0x168u); X86_MEM32(ea) = (uint32_t)(0x217F64u); }
-		{ uint32_t ea = (uint32_t)(ctx.ebp + 0xC60u); X86_MEM8(ea) = (uint8_t)(0x1u); }
-		{ uint32_t ea = (uint32_t)(ctx.ebp + 0x10u); X86_MEM32(ea) = (uint32_t)(0x0u); }
-		{ uint32_t ea = (uint32_t)(ctx.ebp + 0x1Cu); X86_MEM32(ea) = (uint32_t)(0x800u); }
-		{ uint32_t ea = (uint32_t)(0x238ED4u); X86_MEM32(ea) = (uint32_t)(ctx.ebp); }
-		ctx.esp += 4; return;
-	}
-	\\1"
-            _bm135_src "${_bm135_src}")
-        file(WRITE ${_bm135} "${_bm135_src}")
-    endif()
-endforeach()
-
 # v1.0.109: save-select — write selected slot to marker before relaunch
 # sub_00067B70 calls sub_00068F00(1) which relaunches; carry the chosen slot (ebx) into [0x223688]
 set(_ss_files "")
@@ -561,8 +538,20 @@ foreach(_ss ${_ss_files})
     file(READ ${_ss} _ss_src)
     if(NOT _ss_src MATCHES "GALLEON-SAVESELECT-FIXES-068D10-109")
     string(REPLACE [[X86_FUNC(sub_00068F00)]] [[X86_FUNC(sub_00068F00)
-	// v1.0.109: save-select writes selected slot (ebx) to marker [0x223688] before relaunch
-	{ uint32_t ea = (uint32_t)(0x223688u); X86_MEM32(ea) = (uint32_t)(ctx.ebx); }]] _ss_src "${_ss_src}")
+	// v1.0.137: save-select — prevent relaunch, set main-menu mode directly
+	{ uint32_t ea = (uint32_t)(0x223688u); X86_MEM32(ea) = (uint32_t)(ctx.ebx); }
+	{
+		uint32_t menu = X86_MEM32((uint32_t)(0x238ED4u));
+		if (menu == 0u && ctx.esi > 0x10000u && ctx.esi < 0x10000000u) menu = ctx.esi;
+		if (menu > 0x10000u && menu < 0x10000000u) {
+			X86_MEM32(menu + 0x15Cu) = (uint32_t)(ctx.ebx);
+			X86_MEM32(menu + 0x168u) = (uint32_t)(0x217F64u);
+			X86_MEM8(menu + 0xC60u) = (uint8_t)(0x1u);
+			X86_MEM32(menu + 0x10u) = (uint32_t)(0x0u);
+			X86_MEM32(menu + 0x1Cu) = (uint32_t)(0x800u);
+		}
+	}
+	ctx.esp += 4; return;]] _ss_src "${_ss_src}")
     endif()
     if(NOT _ss_src MATCHES "GALLEON-SAVESELECT-FIXES-068D10-109")
         message(FATAL_ERROR "save-select marker write could not be patched in ${_ss} (recompiler output changed?)")
