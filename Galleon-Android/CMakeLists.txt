@@ -525,15 +525,10 @@ foreach(_cg ${_cg_files})
 endforeach()
 # v1.0.109: save-select — write selected slot to marker before relaunch
 # sub_00067B70 calls sub_00068F00(1) which relaunches; carry the chosen slot (ebx) into [0x223688]
-# so the boot path can go straight to the main menu instead of save-select.
 set(_ss109 ${REPO}/generated/game/x86_recomp.10.cpp)
 file(READ ${_ss109} _ss109_src)
 if(NOT _ss109_src MATCHES "GALLEON-SAVESELECT-FIXES-068D10-109")
-string(REPLACE [[	// 00067C07 push 0x01
-	{ uint32_t v = (uint32_t)(0x1u); X86_PUSH32(v); }
-	// 00067C09 call 0x00068F00]] [[	// 00067C07 push 0x01
-	{ uint32_t ea = (uint32_t)(0x223688u); X86_MEM32(ea) = (uint32_t)(ctx.ebx); }  // v1.0.109: save-select writes selected slot (ebx) to marker [0x223688]
-	{ uint32_t v = (uint32_t)(0x1u); X86_PUSH32(v); }
+string(REPLACE [[	// 00067C09 call 0x00068F00]] [[	{ uint32_t ea = (uint32_t)(0x223688u); X86_MEM32(ea) = (uint32_t)(ctx.ebx); }  // v1.0.109: save-select writes selected slot (ebx) to marker [0x223688]
 	// 00067C09 call 0x00068F00]] _ss109_src "${_ss109_src}")
 endif()
 if(NOT _ss109_src MATCHES "GALLEON-SAVESELECT-FIXES-068D10-109")
