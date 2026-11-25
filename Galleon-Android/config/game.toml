@@ -19,7 +19,6 @@ trace = []
 
 # extra entry points
 [functions]
-extra = [0x1FA680]
 
 # functions the host replaces or calls by name, 0 where the image has none
 [symbols]
