@@ -568,6 +568,31 @@ foreach(_hr ${_hr_files})
     endif()
 endforeach()
 
+# v1.0.149: after XLaunchNewImage returns to 0x68ED0, set main-menu mode and return
+file(GLOB _bm149_files "${REPO}/generated/game/x86_recomp.*.cpp")
+foreach(_bm149 ${_bm149_files})
+    file(READ ${_bm149} _bm149_src)
+    if(_bm149_src MATCHES "0x68ED0" AND NOT _bm149_src MATCHES "GALLEON-BOOTMENU-149")
+        string(REGEX REPLACE
+            "(\{[^\n]*0x68ED0[^\n]*\})"
+            "// [GALLEON-BOOTMENU-149] set main-menu mode after XLaunchNewImage returns
+	{
+		uint32_t menu = X86_MEM32((uint32_t)(0x238ED4u));
+		if (menu > 0x10000u && menu < 0x10000000u) {
+			X86_MEM32(menu + 0x15Cu) = (uint32_t)(0x0u);
+			X86_MEM32(menu + 0x168u) = (uint32_t)(0x217F64u);
+			X86_MEM8(menu + 0xC60u) = (uint8_t)(0x1u);
+			X86_MEM32(menu + 0x10u) = (uint32_t)(0x0u);
+			X86_MEM32(menu + 0x1Cu) = (uint32_t)(0x800u);
+		}
+	}
+	ctx.esp += 4; return;
+	\\1"
+            _bm149_src "${_bm149_src}")
+        file(WRITE ${_bm149} "${_bm149_src}")
+    endif()
+endforeach()
+
 # v1.0.109: save-select — write selected slot to marker before relaunch
 # sub_00067B70 calls sub_00068F00(1) which relaunches; carry the chosen slot (ebx) into [0x223688]
 set(_ss_files "")
