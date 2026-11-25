@@ -613,9 +613,11 @@ set(_fm164 "${REPO}/generated/game/x86_func_mapping.cpp")
 if(EXISTS ${_fm164})
     file(READ ${_fm164} _fm164_src)
     if(NOT _fm164_src MATCHES "0x001FA680")
-        string(REGEX REPLACE
-            "(\{\s*0x[0-9a-fA-F]+)"
-            "{ 0x001FA680u, +[](X86Context& ctx, uint32_t) { ctx.eax = 0u; ctx.esp += 4; } },\n	\\1"
+        string(REPLACE
+            "X86_FUNC_MAP_BEGIN"
+            "static void galleon_noop_1fa680(X86Context& ctx, uint32_t) { ctx.eax = 0u; ctx.esp += 4; }
+X86_FUNC_MAP_BEGIN
+	{ 0x001FA680u, galleon_noop_1fa680 },"
             _fm164_src "${_fm164_src}")
         file(WRITE ${_fm164} "${_fm164_src}")
     endif()
