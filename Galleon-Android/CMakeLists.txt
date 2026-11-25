@@ -545,14 +545,14 @@ foreach(_bm140 ${_bm140_files})
     endif()
 endforeach()
 
-# v1.0.138: intercept __imp__HalReturnToFirmware to prevent relaunch and go to main menu
+# v1.0.143: replace __imp__HalReturnToFirmware(...) call so relaunch never executes
 file(GLOB _hr_files "${REPO}/generated/game/x86_recomp.*.cpp")
 foreach(_hr ${_hr_files})
     file(READ ${_hr} _hr_src)
-    if(_hr_src MATCHES "__imp__HalReturnToFirmware" AND NOT _hr_src MATCHES "GALLEON-NO-RELAUNCH-138")
+    if(_hr_src MATCHES "__imp__HalReturnToFirmware" AND NOT _hr_src MATCHES "GALLEON-NO-RELAUNCH-143")
         string(REGEX REPLACE
-            "(\{[^\n]*__imp__HalReturnToFirmware[^\n]*\})"
-            "// [GALLEON-NO-RELAUNCH-138] skip HalReturnToFirmware(2) relaunch and go to main menu
+            "(__imp__HalReturnToFirmware[^;]*;)"
+            "// [GALLEON-NO-RELAUNCH-143] skip HalReturnToFirmware(2)
 	{
 		uint32_t menu = X86_MEM32((uint32_t)(0x238ED4u));
 		if (menu > 0x10000u && menu < 0x10000000u) {
@@ -562,9 +562,7 @@ foreach(_hr ${_hr_files})
 			X86_MEM32(menu + 0x10u) = (uint32_t)(0x0u);
 			X86_MEM32(menu + 0x1Cu) = (uint32_t)(0x800u);
 		}
-	}
-	ctx.esp += 4; return;
-	\\1"
+	}"
             _hr_src "${_hr_src}")
         file(WRITE ${_hr} "${_hr_src}")
     endif()
