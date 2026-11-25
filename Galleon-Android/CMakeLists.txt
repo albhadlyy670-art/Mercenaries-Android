@@ -608,6 +608,21 @@ foreach(_eg152 ${_eg152_files})
     endif()
 endforeach()
 
+# v1.0.164: register no-op stub for unmapped icall 0x001FA680 in x86_func_mapping.cpp
+set(_fm164 "${REPO}/generated/game/x86_func_mapping.cpp")
+if(EXISTS ${_fm164})
+    file(READ ${_fm164} _fm164_src)
+    if(NOT _fm164_src MATCHES "0x001FA680")
+        string(REPLACE
+            "X86_FUNC_MAP_BEGIN"
+            "static void galleon_noop_1fa680(X86Context& ctx, uint32_t) { ctx.eax = 0u; ctx.esp += 4; }
+X86_FUNC_MAP_BEGIN
+	{ 0x001FA680u, galleon_noop_1fa680 },"
+            _fm164_src "${_fm164_src}")
+        file(WRITE ${_fm164} "${_fm164_src}")
+    endif()
+endif()
+
 # v1.0.109: save-select — write selected slot to marker before relaunch
 # sub_00067B70 calls sub_00068F00(1) which relaunches; carry the chosen slot (ebx) into [0x223688]
 set(_ss_files "")
