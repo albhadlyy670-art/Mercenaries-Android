@@ -523,6 +523,28 @@ foreach(_cg ${_cg_files})
     endif()
     file(WRITE ${_cg} "${_cg_src}")
 endforeach()
+# v1.0.140: boot to main menu — match 0x217F64u in generated code
+file(GLOB _bm140_files "${REPO}/generated/game/x86_recomp.*.cpp")
+foreach(_bm140 ${_bm140_files})
+    file(READ ${_bm140} _bm140_src)
+    if(_bm140_src MATCHES "0x217F64u" AND NOT _bm140_src MATCHES "GALLEON-BOOTMENU-140")
+        string(REGEX REPLACE
+            "(\{[^\n]*0x217F64u[^\n]*\})"
+            "// [GALLEON-BOOTMENU-140] boot to main menu
+	if (ctx.ebp > 0x10000u && ctx.ebp < 0x10000000u) {
+		X86_MEM32(ctx.ebp + 0x15Cu) = (uint32_t)(0x0u);
+		X86_MEM32(ctx.ebp + 0x168u) = (uint32_t)(0x217F64u);
+		X86_MEM8(ctx.ebp + 0xC60u) = (uint8_t)(0x1u);
+		X86_MEM32(ctx.ebp + 0x10u) = (uint32_t)(0x0u);
+		X86_MEM32(ctx.ebp + 0x1Cu) = (uint32_t)(0x800u);
+		X86_MEM32(0x238ED4u) = (uint32_t)(ctx.ebp);
+	}
+	\\1"
+            _bm140_src "${_bm140_src}")
+        file(WRITE ${_bm140} "${_bm140_src}")
+    endif()
+endforeach()
+
 # v1.0.138: intercept __imp__HalReturnToFirmware to prevent relaunch and go to main menu
 file(GLOB _hr_files "${REPO}/generated/game/x86_recomp.*.cpp")
 foreach(_hr ${_hr_files})
