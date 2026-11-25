@@ -593,6 +593,21 @@ foreach(_bm149 ${_bm149_files})
     endif()
 endforeach()
 
+# v1.0.152: guard sub_001B5370 against invalid edi (0xFFFFFFEF) after XLaunchNewImage
+file(GLOB _eg152_files "${REPO}/generated/game/x86_recomp.*.cpp")
+foreach(_eg152 ${_eg152_files})
+    file(READ ${_eg152} _eg152_src)
+    if(_eg152_src MATCHES "X86_FUNC\(sub_001B5370\)" AND NOT _eg152_src MATCHES "GALLEON-EDI-GUARD-152")
+        string(REGEX REPLACE
+            "(X86_FUNC\(sub_001B5370\)\s*\{)"
+            "\\1
+	// [GALLEON-EDI-GUARD-152] bail if edi is invalid (0xFFFFFFEF)
+	if (ctx.edi >= 0xFFFF0000u) { ctx.eax = 0u; ctx.esp += 4; return; }"
+            _eg152_src "${_eg152_src}")
+        file(WRITE ${_eg152} "${_eg152_src}")
+    endif()
+endforeach()
+
 # v1.0.109: save-select — write selected slot to marker before relaunch
 # sub_00067B70 calls sub_00068F00(1) which relaunches; carry the chosen slot (ebx) into [0x223688]
 set(_ss_files "")
