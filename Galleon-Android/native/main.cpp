@@ -633,6 +633,7 @@ int main(int, char**) {
     // resolves to nothing and fails (the file layer only maps D: and the harddisk partitions).
     kernel::CreateSymbolicLink("\\??\\T:", "\\Device\\Harddisk0\\Partition1\\TDATA");
     kernel::CreateSymbolicLink("\\??\\U:", "\\Device\\Harddisk0\\Partition1\\UDATA");
+    kernel::CreateSymbolicLink("\\Device\\Harddisk0\\Partition0", "\\Device\\Harddisk0\\Partition1");
     for (const char* drive : {"V:", "W:", "S:"}) {
         std::string link = std::string("\\??\\") + drive;
         kernel::CreateSymbolicLink(link, "\\Device\\Harddisk0\\Partition1");
