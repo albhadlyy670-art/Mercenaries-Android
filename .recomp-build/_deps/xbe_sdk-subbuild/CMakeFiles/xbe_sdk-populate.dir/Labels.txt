@@ -1,0 +1,14 @@
+# Target labels
+ xbe_sdk-populate
+# Source files and their labels
+/home/user/Mercenaries-Android/.recomp-build/_deps/xbe_sdk-subbuild/CMakeFiles/xbe_sdk-populate
+/home/user/Mercenaries-Android/.recomp-build/_deps/xbe_sdk-subbuild/CMakeFiles/xbe_sdk-populate.rule
+/home/user/Mercenaries-Android/.recomp-build/_deps/xbe_sdk-subbuild/CMakeFiles/xbe_sdk-populate-complete.rule
+/home/user/Mercenaries-Android/.recomp-build/_deps/xbe_sdk-subbuild/xbe_sdk-populate-prefix/src/xbe_sdk-populate-stamp/xbe_sdk-populate-build.rule
+/home/user/Mercenaries-Android/.recomp-build/_deps/xbe_sdk-subbuild/xbe_sdk-populate-prefix/src/xbe_sdk-populate-stamp/xbe_sdk-populate-configure.rule
+/home/user/Mercenaries-Android/.recomp-build/_deps/xbe_sdk-subbuild/xbe_sdk-populate-prefix/src/xbe_sdk-populate-stamp/xbe_sdk-populate-download.rule
+/home/user/Mercenaries-Android/.recomp-build/_deps/xbe_sdk-subbuild/xbe_sdk-populate-prefix/src/xbe_sdk-populate-stamp/xbe_sdk-populate-install.rule
+/home/user/Mercenaries-Android/.recomp-build/_deps/xbe_sdk-subbuild/xbe_sdk-populate-prefix/src/xbe_sdk-populate-stamp/xbe_sdk-populate-mkdir.rule
+/home/user/Mercenaries-Android/.recomp-build/_deps/xbe_sdk-subbuild/xbe_sdk-populate-prefix/src/xbe_sdk-populate-stamp/xbe_sdk-populate-patch.rule
+/home/user/Mercenaries-Android/.recomp-build/_deps/xbe_sdk-subbuild/xbe_sdk-populate-prefix/src/xbe_sdk-populate-stamp/xbe_sdk-populate-test.rule
+/home/user/Mercenaries-Android/.recomp-build/_deps/xbe_sdk-subbuild/xbe_sdk-populate-prefix/src/xbe_sdk-populate-stamp/xbe_sdk-populate-update.rule

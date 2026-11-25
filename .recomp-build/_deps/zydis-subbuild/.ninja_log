@@ -1,0 +1,21 @@
+# ninja log v7
+1	17	1795340084234911501	zydis-populate-prefix/src/zydis-populate-stamp/zydis-populate-mkdir	265dfd45282d5105
+1	17	1795340084234911501	/home/user/Mercenaries-Android/.recomp-build/_deps/zydis-subbuild/zydis-populate-prefix/src/zydis-populate-stamp/zydis-populate-mkdir	265dfd45282d5105
+17	14504	1795340098723033250	zydis-populate-prefix/src/zydis-populate-stamp/zydis-populate-download	a286d4440a896be4
+17	14504	1795340098723033250	/home/user/Mercenaries-Android/.recomp-build/_deps/zydis-subbuild/zydis-populate-prefix/src/zydis-populate-stamp/zydis-populate-download	a286d4440a896be4
+14504	14521	1795340098727033284	zydis-populate-prefix/src/zydis-populate-stamp/zydis-populate-update	79eb1eec8c77ae14
+14504	14521	1795340098727033284	/home/user/Mercenaries-Android/.recomp-build/_deps/zydis-subbuild/zydis-populate-prefix/src/zydis-populate-stamp/zydis-populate-update	79eb1eec8c77ae14
+14521	14532	1795340098755033519	zydis-populate-prefix/src/zydis-populate-stamp/zydis-populate-patch	4e45cff961a30029
+14521	14532	1795340098755033519	/home/user/Mercenaries-Android/.recomp-build/_deps/zydis-subbuild/zydis-populate-prefix/src/zydis-populate-stamp/zydis-populate-patch	4e45cff961a30029
+14532	14543	1795340098763033587	zydis-populate-prefix/src/zydis-populate-stamp/zydis-populate-configure	a87e4eb9fd66933a
+14532	14543	1795340098763033587	/home/user/Mercenaries-Android/.recomp-build/_deps/zydis-subbuild/zydis-populate-prefix/src/zydis-populate-stamp/zydis-populate-configure	a87e4eb9fd66933a
+14543	14554	1795340098775033687	zydis-populate-prefix/src/zydis-populate-stamp/zydis-populate-build	8d55d043d05104bb
+14543	14554	1795340098775033687	/home/user/Mercenaries-Android/.recomp-build/_deps/zydis-subbuild/zydis-populate-prefix/src/zydis-populate-stamp/zydis-populate-build	8d55d043d05104bb
+14554	14566	1795340098787033788	zydis-populate-prefix/src/zydis-populate-stamp/zydis-populate-install	fe21ef3e80d6785b
+14554	14566	1795340098787033788	/home/user/Mercenaries-Android/.recomp-build/_deps/zydis-subbuild/zydis-populate-prefix/src/zydis-populate-stamp/zydis-populate-install	fe21ef3e80d6785b
+14566	14579	1795340098799033889	zydis-populate-prefix/src/zydis-populate-stamp/zydis-populate-test	ec485b6d08f118c5
+14566	14579	1795340098799033889	/home/user/Mercenaries-Android/.recomp-build/_deps/zydis-subbuild/zydis-populate-prefix/src/zydis-populate-stamp/zydis-populate-test	ec485b6d08f118c5
+14579	14595	1795340098815034023	CMakeFiles/zydis-populate-complete	c45140f0a03431d1
+14579	14595	1795340098815034023	zydis-populate-prefix/src/zydis-populate-stamp/zydis-populate-done	c45140f0a03431d1
+14579	14595	1795340098815034023	/home/user/Mercenaries-Android/.recomp-build/_deps/zydis-subbuild/CMakeFiles/zydis-populate-complete	c45140f0a03431d1
+14579	14595	1795340098815034023	/home/user/Mercenaries-Android/.recomp-build/_deps/zydis-subbuild/zydis-populate-prefix/src/zydis-populate-stamp/zydis-populate-done	c45140f0a03431d1

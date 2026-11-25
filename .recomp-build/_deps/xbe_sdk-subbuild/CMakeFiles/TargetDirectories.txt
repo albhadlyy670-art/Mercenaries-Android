@@ -1,0 +1,3 @@
+/home/user/Mercenaries-Android/.recomp-build/_deps/xbe_sdk-subbuild/CMakeFiles/xbe_sdk-populate.dir
+/home/user/Mercenaries-Android/.recomp-build/_deps/xbe_sdk-subbuild/CMakeFiles/edit_cache.dir
+/home/user/Mercenaries-Android/.recomp-build/_deps/xbe_sdk-subbuild/CMakeFiles/rebuild_cache.dir

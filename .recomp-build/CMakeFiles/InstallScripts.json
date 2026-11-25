@@ -1,0 +1,10 @@
+{
+	"InstallScripts" : 
+	[
+		"/home/user/Mercenaries-Android/.recomp-build/cmake_install.cmake",
+		"/home/user/Mercenaries-Android/.recomp-build/_deps/zydis-build/cmake_install.cmake",
+		"/home/user/Mercenaries-Android/.recomp-build/_deps/zydis-build/zycore/cmake_install.cmake",
+		"/home/user/Mercenaries-Android/.recomp-build/_deps/tomlplusplus-build/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

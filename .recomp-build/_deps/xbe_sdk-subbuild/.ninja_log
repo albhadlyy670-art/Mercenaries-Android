@@ -1,0 +1,21 @@
+# ninja log v7
+0	14	1795340083122902159	xbe_sdk-populate-prefix/src/xbe_sdk-populate-stamp/xbe_sdk-populate-mkdir	6ebdc9ed566dac08
+0	14	1795340083122902159	/home/user/Mercenaries-Android/.recomp-build/_deps/xbe_sdk-subbuild/xbe_sdk-populate-prefix/src/xbe_sdk-populate-stamp/xbe_sdk-populate-mkdir	6ebdc9ed566dac08
+15	883	1795340083990909450	xbe_sdk-populate-prefix/src/xbe_sdk-populate-stamp/xbe_sdk-populate-download	4082eb36f0c6339e
+15	883	1795340083990909450	/home/user/Mercenaries-Android/.recomp-build/_deps/xbe_sdk-subbuild/xbe_sdk-populate-prefix/src/xbe_sdk-populate-stamp/xbe_sdk-populate-download	4082eb36f0c6339e
+883	905	1795340083990909450	xbe_sdk-populate-prefix/src/xbe_sdk-populate-stamp/xbe_sdk-populate-update	22e5facd0de61073
+883	905	1795340083990909450	/home/user/Mercenaries-Android/.recomp-build/_deps/xbe_sdk-subbuild/xbe_sdk-populate-prefix/src/xbe_sdk-populate-stamp/xbe_sdk-populate-update	22e5facd0de61073
+905	922	1795340084030909786	xbe_sdk-populate-prefix/src/xbe_sdk-populate-stamp/xbe_sdk-populate-patch	7b5b8916efbcfbd9
+905	922	1795340084030909786	/home/user/Mercenaries-Android/.recomp-build/_deps/xbe_sdk-subbuild/xbe_sdk-populate-prefix/src/xbe_sdk-populate-stamp/xbe_sdk-populate-patch	7b5b8916efbcfbd9
+922	939	1795340084046909921	xbe_sdk-populate-prefix/src/xbe_sdk-populate-stamp/xbe_sdk-populate-configure	56e65d599d0bcabb
+922	939	1795340084046909921	/home/user/Mercenaries-Android/.recomp-build/_deps/xbe_sdk-subbuild/xbe_sdk-populate-prefix/src/xbe_sdk-populate-stamp/xbe_sdk-populate-configure	56e65d599d0bcabb
+939	955	1795340084062910055	xbe_sdk-populate-prefix/src/xbe_sdk-populate-stamp/xbe_sdk-populate-build	a5a6379df3040750
+939	955	1795340084062910055	/home/user/Mercenaries-Android/.recomp-build/_deps/xbe_sdk-subbuild/xbe_sdk-populate-prefix/src/xbe_sdk-populate-stamp/xbe_sdk-populate-build	a5a6379df3040750
+955	972	1795340084078910190	xbe_sdk-populate-prefix/src/xbe_sdk-populate-stamp/xbe_sdk-populate-install	dc1c490b7daef175
+955	972	1795340084078910190	/home/user/Mercenaries-Android/.recomp-build/_deps/xbe_sdk-subbuild/xbe_sdk-populate-prefix/src/xbe_sdk-populate-stamp/xbe_sdk-populate-install	dc1c490b7daef175
+972	988	1795340084094910325	xbe_sdk-populate-prefix/src/xbe_sdk-populate-stamp/xbe_sdk-populate-test	5a9feb9d5be2afc
+972	988	1795340084094910325	/home/user/Mercenaries-Android/.recomp-build/_deps/xbe_sdk-subbuild/xbe_sdk-populate-prefix/src/xbe_sdk-populate-stamp/xbe_sdk-populate-test	5a9feb9d5be2afc
+989	1012	1795340084118910526	CMakeFiles/xbe_sdk-populate-complete	c85c5883ee511961
+989	1012	1795340084118910526	xbe_sdk-populate-prefix/src/xbe_sdk-populate-stamp/xbe_sdk-populate-done	c85c5883ee511961
+989	1012	1795340084118910526	/home/user/Mercenaries-Android/.recomp-build/_deps/xbe_sdk-subbuild/CMakeFiles/xbe_sdk-populate-complete	c85c5883ee511961
+989	1012	1795340084118910526	/home/user/Mercenaries-Android/.recomp-build/_deps/xbe_sdk-subbuild/xbe_sdk-populate-prefix/src/xbe_sdk-populate-stamp/xbe_sdk-populate-done	c85c5883ee511961

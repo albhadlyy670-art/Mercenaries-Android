@@ -1,0 +1,46 @@
+{
+	"sources" : 
+	[
+		{
+			"file" : "/home/user/Mercenaries-Android/.recomp-build/_deps/zydis-subbuild/CMakeFiles/zydis-populate"
+		},
+		{
+			"file" : "/home/user/Mercenaries-Android/.recomp-build/_deps/zydis-subbuild/CMakeFiles/zydis-populate.rule"
+		},
+		{
+			"file" : "/home/user/Mercenaries-Android/.recomp-build/_deps/zydis-subbuild/CMakeFiles/zydis-populate-complete.rule"
+		},
+		{
+			"file" : "/home/user/Mercenaries-Android/.recomp-build/_deps/zydis-subbuild/zydis-populate-prefix/src/zydis-populate-stamp/zydis-populate-build.rule"
+		},
+		{
+			"file" : "/home/user/Mercenaries-Android/.recomp-build/_deps/zydis-subbuild/zydis-populate-prefix/src/zydis-populate-stamp/zydis-populate-configure.rule"
+		},
+		{
+			"file" : "/home/user/Mercenaries-Android/.recomp-build/_deps/zydis-subbuild/zydis-populate-prefix/src/zydis-populate-stamp/zydis-populate-download.rule"
+		},
+		{
+			"file" : "/home/user/Mercenaries-Android/.recomp-build/_deps/zydis-subbuild/zydis-populate-prefix/src/zydis-populate-stamp/zydis-populate-install.rule"
+		},
+		{
+			"file" : "/home/user/Mercenaries-Android/.recomp-build/_deps/zydis-subbuild/zydis-populate-prefix/src/zydis-populate-stamp/zydis-populate-mkdir.rule"
+		},
+		{
+			"file" : "/home/user/Mercenaries-Android/.recomp-build/_deps/zydis-subbuild/zydis-populate-prefix/src/zydis-populate-stamp/zydis-populate-patch.rule"
+		},
+		{
+			"file" : "/home/user/Mercenaries-Android/.recomp-build/_deps/zydis-subbuild/zydis-populate-prefix/src/zydis-populate-stamp/zydis-populate-test.rule"
+		},
+		{
+			"file" : "/home/user/Mercenaries-Android/.recomp-build/_deps/zydis-subbuild/zydis-populate-prefix/src/zydis-populate-stamp/zydis-populate-update.rule"
+		}
+	],
+	"target" : 
+	{
+		"labels" : 
+		[
+			"zydis-populate"
+		],
+		"name" : "zydis-populate"
+	}
+}

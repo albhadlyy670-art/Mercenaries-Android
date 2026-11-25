@@ -1,0 +1,7 @@
+{
+	"InstallScripts" : 
+	[
+		"/home/user/Mercenaries-Android/.recomp-build/_deps/xbe_sdk-subbuild/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

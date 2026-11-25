@@ -1,0 +1,3 @@
+/home/user/Mercenaries-Android/.recomp-build/_deps/zydis-subbuild/CMakeFiles/zydis-populate.dir
+/home/user/Mercenaries-Android/.recomp-build/_deps/zydis-subbuild/CMakeFiles/edit_cache.dir
+/home/user/Mercenaries-Android/.recomp-build/_deps/zydis-subbuild/CMakeFiles/rebuild_cache.dir

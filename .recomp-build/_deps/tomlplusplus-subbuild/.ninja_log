@@ -1,0 +1,21 @@
+# ninja log v7
+1	12	1795340099055036041	tomlplusplus-populate-prefix/src/tomlplusplus-populate-stamp/tomlplusplus-populate-mkdir	ef1eb2caa44aacb8
+1	12	1795340099055036041	/home/user/Mercenaries-Android/.recomp-build/_deps/tomlplusplus-subbuild/tomlplusplus-populate-prefix/src/tomlplusplus-populate-stamp/tomlplusplus-populate-mkdir	ef1eb2caa44aacb8
+12	3764	1795340102807067572	tomlplusplus-populate-prefix/src/tomlplusplus-populate-stamp/tomlplusplus-populate-download	c4d1c498600b0c59
+12	3764	1795340102807067572	/home/user/Mercenaries-Android/.recomp-build/_deps/tomlplusplus-subbuild/tomlplusplus-populate-prefix/src/tomlplusplus-populate-stamp/tomlplusplus-populate-download	c4d1c498600b0c59
+3764	3788	1795340102807067572	tomlplusplus-populate-prefix/src/tomlplusplus-populate-stamp/tomlplusplus-populate-update	bf9e113f1509c992
+3764	3788	1795340102807067572	/home/user/Mercenaries-Android/.recomp-build/_deps/tomlplusplus-subbuild/tomlplusplus-populate-prefix/src/tomlplusplus-populate-stamp/tomlplusplus-populate-update	bf9e113f1509c992
+3788	3800	1795340102843067875	tomlplusplus-populate-prefix/src/tomlplusplus-populate-stamp/tomlplusplus-populate-patch	60954a5d35db0957
+3788	3800	1795340102843067875	/home/user/Mercenaries-Android/.recomp-build/_deps/tomlplusplus-subbuild/tomlplusplus-populate-prefix/src/tomlplusplus-populate-stamp/tomlplusplus-populate-patch	60954a5d35db0957
+3800	3812	1795340102855067975	tomlplusplus-populate-prefix/src/tomlplusplus-populate-stamp/tomlplusplus-populate-configure	f6b3942028e43031
+3800	3812	1795340102855067975	/home/user/Mercenaries-Android/.recomp-build/_deps/tomlplusplus-subbuild/tomlplusplus-populate-prefix/src/tomlplusplus-populate-stamp/tomlplusplus-populate-configure	f6b3942028e43031
+3813	3825	1795340102867068076	tomlplusplus-populate-prefix/src/tomlplusplus-populate-stamp/tomlplusplus-populate-build	17ddc480a88df9ea
+3813	3825	1795340102867068076	/home/user/Mercenaries-Android/.recomp-build/_deps/tomlplusplus-subbuild/tomlplusplus-populate-prefix/src/tomlplusplus-populate-stamp/tomlplusplus-populate-build	17ddc480a88df9ea
+3825	3841	1795340102883068211	tomlplusplus-populate-prefix/src/tomlplusplus-populate-stamp/tomlplusplus-populate-install	413c5bc0fb20dd5c
+3825	3841	1795340102883068211	/home/user/Mercenaries-Android/.recomp-build/_deps/tomlplusplus-subbuild/tomlplusplus-populate-prefix/src/tomlplusplus-populate-stamp/tomlplusplus-populate-install	413c5bc0fb20dd5c
+3841	3854	1795340102895068311	tomlplusplus-populate-prefix/src/tomlplusplus-populate-stamp/tomlplusplus-populate-test	102aa932d65b817d
+3841	3854	1795340102895068311	/home/user/Mercenaries-Android/.recomp-build/_deps/tomlplusplus-subbuild/tomlplusplus-populate-prefix/src/tomlplusplus-populate-stamp/tomlplusplus-populate-test	102aa932d65b817d
+3854	3871	1795340102915068480	CMakeFiles/tomlplusplus-populate-complete	dc0fc26f61501bfe
+3854	3871	1795340102915068480	tomlplusplus-populate-prefix/src/tomlplusplus-populate-stamp/tomlplusplus-populate-done	dc0fc26f61501bfe
+3854	3871	1795340102915068480	/home/user/Mercenaries-Android/.recomp-build/_deps/tomlplusplus-subbuild/CMakeFiles/tomlplusplus-populate-complete	dc0fc26f61501bfe
+3854	3871	1795340102915068480	/home/user/Mercenaries-Android/.recomp-build/_deps/tomlplusplus-subbuild/tomlplusplus-populate-prefix/src/tomlplusplus-populate-stamp/tomlplusplus-populate-done	dc0fc26f61501bfe

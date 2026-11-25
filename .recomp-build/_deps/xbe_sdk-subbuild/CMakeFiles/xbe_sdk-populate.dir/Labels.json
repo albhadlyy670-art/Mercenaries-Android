@@ -1,0 +1,46 @@
+{
+	"sources" : 
+	[
+		{
+			"file" : "/home/user/Mercenaries-Android/.recomp-build/_deps/xbe_sdk-subbuild/CMakeFiles/xbe_sdk-populate"
+		},
+		{
+			"file" : "/home/user/Mercenaries-Android/.recomp-build/_deps/xbe_sdk-subbuild/CMakeFiles/xbe_sdk-populate.rule"
+		},
+		{
+			"file" : "/home/user/Mercenaries-Android/.recomp-build/_deps/xbe_sdk-subbuild/CMakeFiles/xbe_sdk-populate-complete.rule"
+		},
+		{
+			"file" : "/home/user/Mercenaries-Android/.recomp-build/_deps/xbe_sdk-subbuild/xbe_sdk-populate-prefix/src/xbe_sdk-populate-stamp/xbe_sdk-populate-build.rule"
+		},
+		{
+			"file" : "/home/user/Mercenaries-Android/.recomp-build/_deps/xbe_sdk-subbuild/xbe_sdk-populate-prefix/src/xbe_sdk-populate-stamp/xbe_sdk-populate-configure.rule"
+		},
+		{
+			"file" : "/home/user/Mercenaries-Android/.recomp-build/_deps/xbe_sdk-subbuild/xbe_sdk-populate-prefix/src/xbe_sdk-populate-stamp/xbe_sdk-populate-download.rule"
+		},
+		{
+			"file" : "/home/user/Mercenaries-Android/.recomp-build/_deps/xbe_sdk-subbuild/xbe_sdk-populate-prefix/src/xbe_sdk-populate-stamp/xbe_sdk-populate-install.rule"
+		},
+		{
+			"file" : "/home/user/Mercenaries-Android/.recomp-build/_deps/xbe_sdk-subbuild/xbe_sdk-populate-prefix/src/xbe_sdk-populate-stamp/xbe_sdk-populate-mkdir.rule"
+		},
+		{
+			"file" : "/home/user/Mercenaries-Android/.recomp-build/_deps/xbe_sdk-subbuild/xbe_sdk-populate-prefix/src/xbe_sdk-populate-stamp/xbe_sdk-populate-patch.rule"
+		},
+		{
+			"file" : "/home/user/Mercenaries-Android/.recomp-build/_deps/xbe_sdk-subbuild/xbe_sdk-populate-prefix/src/xbe_sdk-populate-stamp/xbe_sdk-populate-test.rule"
+		},
+		{
+			"file" : "/home/user/Mercenaries-Android/.recomp-build/_deps/xbe_sdk-subbuild/xbe_sdk-populate-prefix/src/xbe_sdk-populate-stamp/xbe_sdk-populate-update.rule"
+		}
+	],
+	"target" : 
+	{
+		"labels" : 
+		[
+			"xbe_sdk-populate"
+		],
+		"name" : "xbe_sdk-populate"
+	}
+}
