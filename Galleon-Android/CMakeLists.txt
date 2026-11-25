@@ -597,9 +597,9 @@ endforeach()
 file(GLOB _eg152_files "${REPO}/generated/game/x86_recomp.*.cpp")
 foreach(_eg152 ${_eg152_files})
     file(READ ${_eg152} _eg152_src)
-    if(_eg152_src MATCHES "sub_001B5370" AND NOT _eg152_src MATCHES "GALLEON-EDI-GUARD-152")
+    if(_eg152_src MATCHES "X86_FUNC\(sub_001B5370\)" AND NOT _eg152_src MATCHES "GALLEON-EDI-GUARD-152")
         string(REGEX REPLACE
-            "(X86_FUNC\([^)]*sub_001B5370\)\s*\{)"
+            "(X86_FUNC\(sub_001B5370\)\s*\{)"
             "\\1
 	// [GALLEON-EDI-GUARD-152] bail if edi is invalid (0xFFFFFFEF)
 	if (ctx.edi >= 0xFFFF0000u) { ctx.eax = 0u; ctx.esp += 4; return; }"
