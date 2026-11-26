@@ -608,6 +608,21 @@ foreach(_eg152 ${_eg152_files})
     endif()
 endforeach()
 
+# v1.0.173: guard sub_001C3EB4 against invalid edi (0xFFFFFFEF)
+file(GLOB _eg173_files "${REPO}/generated/game/x86_recomp.*.cpp")
+foreach(_eg173 ${_eg173_files})
+    file(READ ${_eg173} _eg173_src)
+    if(_eg173_src MATCHES "X86_FUNC\(sub_001C3EB4\)" AND NOT _eg173_src MATCHES "GALLEON-EDI-GUARD-173")
+        string(REGEX REPLACE
+            "(X86_FUNC\(sub_001C3EB4\)\s*\{)"
+            "\\1
+	// [GALLEON-EDI-GUARD-173] bail if edi is invalid (0xFFFFFFEF)
+	if (ctx.edi >= 0xFFFF0000u) { ctx.eax = 0u; ctx.esp += 4; return; }"
+            _eg173_src "${_eg173_src}")
+        file(WRITE ${_eg173} "${_eg173_src}")
+    endif()
+endforeach()
+
 # v1.0.109: save-select — write selected slot to marker before relaunch
 # sub_00067B70 calls sub_00068F00(1) which relaunches; carry the chosen slot (ebx) into [0x223688]
 set(_ss_files "")
