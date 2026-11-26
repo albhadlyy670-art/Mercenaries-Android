@@ -457,7 +457,7 @@ string(REPLACE [[	// 001B58ED mov [ebp], eax
 	{ uint32_t ea = (uint32_t)(galleon_out5); X86_MEM32(ea) = (uint32_t)(ctx.eax); }
 	{ char galleon_name[24]; int galleon_i; for (galleon_i = 0; galleon_i < 23; galleon_i++) { galleon_name[galleon_i] = (char)X86_MEM8((uint32_t)(ctx.esp + 0x14u) + (uint32_t)galleon_i); if (!galleon_name[galleon_i]) break; } galleon_name[galleon_i] = 0; LOGR("save: obj=%08X -> out=%08X name=%s", ctx.eax, galleon_out5, galleon_name); }  // GALLEON-RECOMP-FIXES]] _g53_src "${_g53_src}")
 if(NOT _g53_src MATCHES "GALLEON-RECOMP-FIXES")
-    message(STATUS "x86_recomp.53.cpp could not be patched (recompiler output changed?)")
+    message(FATAL_ERROR "x86_recomp.53.cpp could not be patched (recompiler output changed?)")
 endif()
 file(WRITE ${_g53} "${_g53_src}")
 endif()
@@ -476,7 +476,7 @@ string(REPLACE [[	// 001D88F5 mov dword ptr [0x001E6FC8], 0x00
 	// 001D88F5 mov dword ptr [0x001E6FC8], 0x00
 	{ uint32_t ea = (uint32_t)(0x1E6FC8u); X86_MEM32(ea) = (uint32_t)(0x0u); }]] _g58_src "${_g58_src}")
 if(NOT _g58_src MATCHES "GALLEON-RECOMP-FIXES")
-    message(STATUS "x86_recomp.58.cpp could not be patched (recompiler output changed?)")
+    message(FATAL_ERROR "x86_recomp.58.cpp could not be patched (recompiler output changed?)")
 endif()
 file(WRITE ${_g58} "${_g58_src}")
 endif()
@@ -494,7 +494,7 @@ string(REPLACE [[	// 001E25E2 mov ebp, eax
 	{ ctx.ebp = (uint32_t)(ctx.eax); }
 	LOGR("mu: parse ctx=%08X mgr=%08X", ctx.ebp, X86_MEM32((uint32_t)(0x1E6FC8u)));  // GALLEON-RECOMP-FIXES]] _g59_src "${_g59_src}")
 if(NOT _g59_src MATCHES "GALLEON-RECOMP-FIXES")
-    message(STATUS "x86_recomp.59.cpp could not be patched (recompiler output changed?)")
+    message(FATAL_ERROR "x86_recomp.59.cpp could not be patched (recompiler output changed?)")
 endif()
 file(WRITE ${_g59} "${_g59_src}")
 endif()
@@ -607,21 +607,6 @@ foreach(_eg152 ${_eg152_files})
         file(WRITE ${_eg152} "${_eg152_src}")
     endif()
 endforeach()
-
-# v1.0.164: register no-op stub for unmapped icall 0x001FA680 in x86_func_mapping.cpp
-set(_fm164 "${REPO}/generated/game/x86_func_mapping.cpp")
-if(EXISTS ${_fm164})
-    file(READ ${_fm164} _fm164_src)
-    if(NOT _fm164_src MATCHES "0x001FA680")
-        string(REPLACE
-            "X86_FUNC_MAP_BEGIN"
-            "static void galleon_noop_1fa680(X86Context& ctx, uint32_t) { ctx.eax = 0u; ctx.esp += 4; }
-X86_FUNC_MAP_BEGIN
-	{ 0x001FA680u, galleon_noop_1fa680 },"
-            _fm164_src "${_fm164_src}")
-        file(WRITE ${_fm164} "${_fm164_src}")
-    endif()
-endif()
 
 # v1.0.109: save-select — write selected slot to marker before relaunch
 # sub_00067B70 calls sub_00068F00(1) which relaunches; carry the chosen slot (ebx) into [0x223688]

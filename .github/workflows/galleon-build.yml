@@ -46,7 +46,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p Galleon-Android/assets
-          cp "ME3XBE/default.xbe" Galleon-Android/assets/default.xbe
+          cp "Galleon xbe/default.xbe" Galleon-Android/assets/default.xbe
           sha1sum Galleon-Android/assets/default.xbe
 
       - name: Release key
