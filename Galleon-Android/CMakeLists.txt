@@ -612,12 +612,12 @@ endforeach()
 file(GLOB _eg173_files "${REPO}/generated/game/x86_recomp.*.cpp")
 foreach(_eg173 ${_eg173_files})
     file(READ ${_eg173} _eg173_src)
-    if(_eg173_src MATCHES "X86_FUNC\(sub_001C3EB4\)" AND NOT _eg173_src MATCHES "GALLEON-EDI-GUARD-173")
+    if(_eg173_src MATCHES "ctx\.edi \+ 5u" AND NOT _eg173_src MATCHES "GALLEON-EDI-GUARD-173")
         string(REGEX REPLACE
-            "(X86_FUNC\(sub_001C3EB4\)\s*\{)"
-            "\\1
-	// [GALLEON-EDI-GUARD-173] bail if edi is invalid (0xFFFFFFEF)
-	if (ctx.edi >= 0xFFFF0000u) { ctx.eax = 0u; ctx.esp += 4; return; }"
+            "(\{[^\n]*ctx\.edi \+ 5u[^\n]*\})"
+            "// [GALLEON-EDI-GUARD-173] bail if edi is invalid (0xFFFFFFEF)
+	if (ctx.edi >= 0xFFFF0000u) { ctx.eax = 0u; ctx.esp += 4; return; }
+	\\1"
             _eg173_src "${_eg173_src}")
         file(WRITE ${_eg173} "${_eg173_src}")
     endif()
