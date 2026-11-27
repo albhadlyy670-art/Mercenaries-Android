@@ -766,3 +766,22 @@ foreach(_mm_src IN LISTS RECOMP_SRCS)
         file(WRITE "${_mm_src}" "${_mm_txt}")
     endif()
 endforeach()
+
+# [GALLEON-HAL-RET-187] return 1 in-process from __imp__HalReturnToFirmware instead of relaunching
+foreach(_hr_src IN LISTS RECOMP_SRCS)
+    file(READ "${_hr_src}" _hr_txt)
+    if(_hr_txt MATCHES "X86_FUNC\\(__imp__HalReturnToFirmware\\)")
+        string(REPLACE [[X86_FUNC(__imp__HalReturnToFirmware)]] [[X86_FUNC(__imp__HalReturnToFirmware)
+    ctx.eax = 1u; ctx.esp += 8u; return;]] _hr_txt "${_hr_txt}")
+        file(WRITE "${_hr_src}" "${_hr_txt}")
+    endif()
+endforeach()
+
+# [GALLEON-EDI-GUARD-173] guard ctx.edi + 5u in sub_001C3EB4 against 0xFFFFFFEF -> 0x1fffffff4
+foreach(_eg_src IN LISTS RECOMP_SRCS)
+    file(READ "${_eg_src}" _eg_txt)
+    if(_eg_txt MATCHES "ctx\.edi \+ 5u")
+        string(REGEX REPLACE "([^\n]*ctx\.edi \+ 5u[^\n]*)" "if (ctx.edi >= 0xFFFFFF00u) { ctx.eax = 0u; return; }\n\1" _eg_txt "${_eg_txt}")
+        file(WRITE "${_eg_src}" "${_eg_txt}")
+    endif()
+endforeach()
