@@ -527,6 +527,7 @@ void Dispatch(const SDL_Event& e) {
 // fresh process for it and the boot picks the launch data page back up from launch.bin.
 namespace kernel {
 bool GalleonRelaunchHook(const char* exe) {
+    (void)exe; return true; // v1.0.184: stay in-process (no restart)
     LOGR("app: relaunch requested (%s) — restarting the app the Android way", exe ? exe : "?");
     {
         auto lb = app::ExeDir() / "hdd" / "launch.bin";
