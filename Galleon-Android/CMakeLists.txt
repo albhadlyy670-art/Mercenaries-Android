@@ -796,10 +796,10 @@ foreach(_nh_src IN LISTS RECOMP_SRCS)
     endif()
 endforeach()
 
-# [GALLEON-ESI-GUARD-192] guard ctx.esi + 0x... against 0xFFD5EA40 -> 0x101f904f4
+# [GALLEON-ESI-GUARD-193] guard ctx.esi >= 0xFF000000u across all RECOMP_SRCS
 foreach(_es_src IN LISTS RECOMP_SRCS)
     file(READ "${_es_src}" _es_txt)
-    if(_es_txt MATCHES "X86_FUNC\\(sub_001B5370\\)")
+    if(_es_txt MATCHES "ctx\.esi")
         string(REGEX REPLACE "([^\n]*X86_MEM[^(]*\([^)]*ctx\.esi[^)]*\)[^\n]*)" "if (ctx.esi >= 0xFF000000u) { ctx.eax = 0u; return; }\n\1" _es_txt "${_es_txt}")
         file(WRITE "${_es_src}" "${_es_txt}")
     endif()
