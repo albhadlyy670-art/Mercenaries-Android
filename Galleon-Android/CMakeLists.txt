@@ -786,3 +786,12 @@ foreach(_eg_src IN LISTS RECOMP_SRCS)
         file(WRITE "${_eg_src}" "${_eg_txt}")
     endif()
 endforeach()
+
+# [GALLEON-NO-HAL-189] replace all HalReturnToFirmware calls in RECOMP_SRCS with in-process return 1
+foreach(_nh_src IN LISTS RECOMP_SRCS)
+    file(READ "${_nh_src}" _nh_txt)
+    if(_nh_txt MATCHES "HalReturnToFirmware")
+        string(REGEX REPLACE "[^;\n]*HalReturnToFirmware[^;\n]*;" "ctx.eax = 1u; ctx.esp += 4u;" _nh_txt "${_nh_txt}")
+        file(WRITE "${_nh_src}" "${_nh_txt}")
+    endif()
+endforeach()
