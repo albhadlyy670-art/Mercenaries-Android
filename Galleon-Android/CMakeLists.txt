@@ -652,6 +652,7 @@ foreach(_ss ${_ss_files})
     file(READ ${_ss} _ss_src)
     if(NOT _ss_src MATCHES "GALLEON-SAVESELECT-FIXES-068D10-109")
     string(REPLACE [[X86_FUNC(sub_00068F00)]] [[X86_FUNC(sub_00068F00)
+    ctx.eax = 1u; ctx.esp += 8u; return;
 	// v1.0.137: save-select — prevent relaunch, set main-menu mode directly
 	{ uint32_t ea = (uint32_t)(0x223688u); X86_MEM32(ea) = (uint32_t)(ctx.ebx); }
 	{
