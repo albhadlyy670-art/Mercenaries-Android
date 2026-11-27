@@ -533,10 +533,10 @@ bool GalleonRelaunchHook(const char* exe) {
         if (FILE* lf = fopen(lb.c_str(), "r+b")) {
             uint32_t v = 0;
             if (fseek(lf, 0x400, SEEK_SET) == 0 && fread(&v, 4, 1, lf) == 1 && v == 0xFFFFFFFFu) {
-                uint32_t zero = 0;
+                uint32_t zero = 1;
                 fseek(lf, 0x400, SEEK_SET);
                 fwrite(&zero, 4, 1, lf);
-                LOGR("app: relaunch: patched launch.bin data0 FFFFFFFF -> 0");
+                LOGR("app: relaunch: patched launch.bin data0 FFFFFFFF -> 1");
             }
             fclose(lf);
         }
