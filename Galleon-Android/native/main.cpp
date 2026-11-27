@@ -584,6 +584,8 @@ bool GalleonRelaunchHook(const char* exe) {
 }
 }  // namespace kernel
 
+bool g_galleon_relaunch_from_save = false;
+
 int main(int, char**) {
     LogToLogcat();
     InstallCrashHandler();
@@ -597,19 +599,20 @@ int main(int, char**) {
     }
     logx::Init((app::ExeDir() / "logs").string(), app::kGame.log,
                std::filesystem::exists(app::ExeDir() / "hdd" / "launch.bin"));  // v1.0.18: a relaunch appends
-    static bool g_relaunch_from_save = false;
+    extern bool g_galleon_relaunch_from_save;
+    g_galleon_relaunch_from_save = false;
     if (std::filesystem::exists(app::ExeDir() / "hdd" / "launch.bin")) {
         LOGR("app: relaunched — this log continues the previous run");
         if (FILE* lf = fopen((app::ExeDir() / "hdd" / "launch.bin").c_str(), "rb")) {
             uint32_t v = 0xFFFFFFFFu;
             if (fseek(lf, 0x400, SEEK_SET) == 0 && fread(&v, 4, 1, lf) == 1 && v == 0u) {
-                g_relaunch_from_save = true;
+                g_galleon_relaunch_from_save = true;
                 LOGR("app: relaunched from save-select (data0 == 0)");
             }
             fclose(lf);
         }
     }
-    (void)g_relaunch_from_save;
+
     app::Load();
     if (app::kGame.init) app::kGame.init();
     app::LogSystem();

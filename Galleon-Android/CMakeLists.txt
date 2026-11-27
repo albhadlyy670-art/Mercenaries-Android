@@ -514,6 +514,8 @@ foreach(_cg ${_cg_files})
     file(READ ${_cg} _cg_src)
     if(NOT _cg_src MATCHES "GALLEON-CRASH-GUARD")
     string(REPLACE [[	{ uint32_t ea = (uint32_t)(ctx.esi + 0xC5Cu); X86_MEM32(ea) = (uint32_t)(ctx.eax); }]] [[
+	// [GALLEON-RELAUNCH-MAINMENU-179] if relaunched from save-select, set main-menu mode
+	{ extern bool g_galleon_relaunch_from_save; if (g_galleon_relaunch_from_save) { g_galleon_relaunch_from_save = false; X86_MEM32(0x223688u) = 0u; uint32_t m = X86_MEM32(0x238ED4u); if (m > 0x10000u && m < 0x10000000u) { X86_MEM32(m + 0x15Cu) = 0u; X86_MEM32(m + 0x168u) = 0x217F64u; X86_MEM8(m + 0xC60u) = 1u; X86_MEM32(m + 0x10u) = 0u; X86_MEM32(m + 0x1Cu) = 0x800u; } } }
 	// [GALLEON-CRASH-GUARD] bail if esi is 0 before [esi+0xC5C] write (SIGSEGV prevention)
 	{if (ctx.esi == 0) { ctx.esp += 4; return; }}
 	{ uint32_t ea = (uint32_t)(ctx.esi + 0xC5Cu); X86_MEM32(ea) = (uint32_t)(ctx.eax); }]] _cg_src "${_cg_src}")
