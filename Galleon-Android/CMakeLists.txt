@@ -790,7 +790,7 @@ FetchContent_MakeAvailable(glslang tomlplusplus imgui)
 # the SDK's runtime but its Windows parts, and those the game replaces (src/sound, src/d3d)
 file(GLOB RUNTIME_SOURCES ${SDK}/runtime/*/*.cpp)
 list(FILTER RUNTIME_SOURCES EXCLUDE REGEX
-     "/runtime/app/|/core/input\\.cpp$|/gpu/(d3d12|render_thread)\\.cpp$|/audio/xaudio2\\.cpp$|/xdk/(dsound|d3d8)\\.cpp$")
+     "/runtime/app/|/core/input\\.cpp$|/gpu/(d3d12|render_thread|shaders)\\.cpp$|/audio/xaudio2\\.cpp$|/xdk/(dsound|d3d8)\\.cpp$")
 # the host's game-side sources: its sound and Direct3D 8 reimplementations, the settings panel and the port's options
 file(GLOB GAME_HOST_SOURCES CONFIGURE_DEPENDS ${GAME}/*/*.cpp)
 file(GLOB ANDROID_SOURCES CONFIGURE_DEPENDS ${NATIVE}/*.cpp)

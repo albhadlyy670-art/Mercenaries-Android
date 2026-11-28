@@ -1094,7 +1094,7 @@ private:
     VkPipeline FullScreenPipeline(const char* hlsl, const char* ps_entry, VkFormat color, VkFormat depth, bool over);
     VkPipeline EnsurePipeline(const PsoKey& k, VkShaderModule vs, VkShaderModule ps);
     VkSampler Sampler(const VkSamplerCreateInfo& ci);
-    VkSampler StageSampler(const State& s, int i, const DrawTextures& stages, bool clamp);
+    VkSampler StageSampler(const State& s, int i, const DrawTextures& stages, bool clamp, bool fixed);
 
     // targets
     Target* FindTarget(const Surface& s, bool depth);
@@ -2334,7 +2334,7 @@ VkBorderColor Border(uint32_t argb) {
     return sum >= 384 ? VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE : VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK;
 }
 
-VkSampler VulkanBackend::StageSampler(const State& s, int i, const DrawTextures& stages, bool clamp) {
+VkSampler VulkanBackend::StageSampler(const State& s, int i, const DrawTextures& stages, bool clamp, bool fixed) {
     VkSamplerCreateInfo sd{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
     const auto& t = s.tss[size_t(i)];
     uint32_t mag = t[kTssMagFilter], min = t[kTssMinFilter], mip = t[kTssMipFilter];
@@ -2353,8 +2353,12 @@ VkSampler VulkanBackend::StageSampler(const State& s, int i, const DrawTextures&
         sd.maxAnisotropy = std::min(float(an), props_.limits.maxSamplerAnisotropy);
     }
     uint32_t u = t[kTssAddressU], v = t[kTssAddressV];
-    sd.addressModeU = Address(clamp && u == kTaddressWrap ? kTaddressClamp : u);
-    sd.addressModeV = Address(clamp && v == kTaddressWrap ? kTaddressClamp : v);
+    // fixed function texgen and texture transforms can push coordinates outside 0..1 even when every static
+    // uv the mesh carries is inside it; only rewrite wrap to clamp when the stage really uses the mesh's uv
+    // (Galleon's reflection-mapped trim reads coordinates the vertex data never holds)
+    bool gen = (t[kTssTexCoordIndex] >> 16 & 7) != 0 || (t[kTssTextureTransformFlags] & 7) != 0;
+    sd.addressModeU = Address(clamp && !(fixed && gen) && u == kTaddressWrap ? kTaddressClamp : u);
+    sd.addressModeV = Address(clamp && !(fixed && gen) && v == kTaddressWrap ? kTaddressClamp : v);
     sd.addressModeW = Address(t[kTssAddressW]);
     float limit = props_.limits.maxSamplerLodBias;
     sd.mipLodBias = std::clamp(Bits(t[kTssMipLodBias]), -limit, limit);
@@ -2894,8 +2898,10 @@ void VulkanBackend::Draw(const State& s, uint32_t prim, uint32_t start, uint32_t
         std::memcpy(ib.cpu, a.index_src, ibytes);
     }
     bool clamp = AnyStageWraps(s) && UnitTexcoords(a);
+    // Galleon builds no vertex programs, so fixed is simply not pretransformed (upstream: also false for program shaders)
+    bool fixed = !a.pretransformed;
     VkSampler samplers[4];
-    for (int i = 0; i < 4; i++) samplers[i] = StageSampler(s, i, stages, clamp);
+    for (int i = 0; i < 4; i++) samplers[i] = StageSampler(s, i, stages, clamp, fixed);
     VkDescriptorSet set = Set(stages.view, samplers);
 
     // the rendering
