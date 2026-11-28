@@ -1220,6 +1220,7 @@ private:
     uint32_t guest_w_ = 640, guest_h_ = 480;
     float scale_ = 1.0f;
     Assembled asm_;
+    State debug_state_;  // RENDER DEBUG: the forced copy Draw works on while debug_render_mode is set
     std::unordered_map<uint32_t, Late> late_;
     std::mutex late_lock_;
     std::atomic<uint64_t> presents_seen_{0};
@@ -2832,8 +2833,26 @@ bool VulkanBackend::GlowComposite(const State& s, const DrawTextures& stages) co
     return false;
 }
 
-void VulkanBackend::Draw(const State& s, uint32_t prim, uint32_t start, uint32_t count, const uint8_t* indices) {
-    if (DepthCopy(s)) return;
+void VulkanBackend::Draw(const State& in, uint32_t prim, uint32_t start, uint32_t count, const uint8_t* indices) {
+    if (DepthCopy(in)) return;
+    // RENDER DEBUG (graphics menu, temporary): fixed-function kill switches, to bisect the white blowout on
+    // Galleon's characters — each mode forces one part of the state off for every draw
+    uint32_t dbg = game::Opt().debug_render_mode;
+    if (dbg) {
+        debug_state_ = in;
+        if (dbg == 1) debug_state_.rs[kRsSpecularEnable] = 0;  // NO SPECULAR
+        if (dbg == 4) debug_state_.rs[kRsLighting] = 0;        // NO LIGHTING
+        for (int i = 0; i < 4; i++) {
+            auto& t = debug_state_.tss[size_t(i)];
+            bool kill = dbg == 3 && i > 0;                                        // STAGE 0 ONLY
+            if (dbg == 2 && (t[kTssTexCoordIndex] >> 16 & 7)) kill = true;        // NO TEXGEN STAGES
+            if (kill) {
+                t[kTssColorOp] = 1;  // D3DTOP_DISABLE: the fixed-function cascade ends at the first disabled stage
+                t[kTssAlphaOp] = 1;
+            }
+        }
+    }
+    const State& s = dbg ? debug_state_ : in;
     Assembled& a = asm_;
     if (!Assemble(s, prim, start, count, indices, a)) return;
 

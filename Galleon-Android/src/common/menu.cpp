@@ -101,6 +101,9 @@ const char* const kAntiAliasingNames[] = {"OFF", "FXAA", "SSAA 2X"};
 constexpr uint32_t kScreenFilters[] = {0, 1, 2, 3, 4, 5, 6, 7, 8};
 const char* const kScreenFilterNames[] = {"OFF",  "CRT LIGHT", "CRT STRONG",   "SHARPEN", "VIBRANT",
                                           "NOIR", "SEPIA",     "NIGHT VISION", "VHS"};
+// game::Options::debug_render_mode values
+constexpr uint32_t kDebugRenders[] = {0, 1, 2, 3, 4};
+const char* const kDebugRenderNames[] = {"OFF", "NO SPECULAR", "NO TEXGEN STAGES", "STAGE 0 ONLY", "NO LIGHTING"};
 constexpr uint32_t kAudioOutputs[] = {audio::kOutputAuto, audio::kOutputMono, audio::kOutputStereo,
                                       audio::kOutputSurround};
 const char* const kAudioOutputNames[] = {"AUTOMATIC", "MONO", "2.0 STEREO", "5.1 SURROUND"};
@@ -245,7 +248,7 @@ enum RowId { kRenderResolution, kMaxFps, kVsync, kAniso, kSensitivity,
              kCheckUpdates, kTouchSensitivity, kLeftDeadzone, kRightDeadzone, kLeftSensitivity, kRightSensitivity,
              kScreenFilter, kGyroInvertX, kGyroInvertY, kTouchSkin, kCredit, kBloom,
              kFog, kAntiAliasing, kHdr, kTouchStick, kDynamicRes, kDynamicTarget, kDynamicMin,
-             kDynamicMax, kDynamicHold, kAutoUpdate };
+             kDynamicMax, kDynamicHold, kAutoUpdate, kDebugRender };
 
 using rows::Kind;
 using rows::Row;
@@ -269,6 +272,8 @@ constexpr Row kGraphicsRows[] = {
     {Kind::Value, kFog, "FOG"},
     {Kind::Value, kAntiAliasing, "ANTI-ALIASING"},
     {Kind::Value, kHdr, "HDR"},
+    {Kind::Heading, -1, "DIAGNOSTICS (TEMPORARY)"},
+    {Kind::Value, kDebugRender, "RENDER DEBUG"},
 };
 
 constexpr Row kTouchRows[] = {
@@ -413,6 +418,10 @@ bool StepDisplayRow(int id, int step, Settings& s, char (&text)[64]) {
         case kScreenFilter:
             std::snprintf(text, sizeof(text), "%s",
                           kScreenFilterNames[StepTable(kScreenFilters, o.screen_filter, step)]);
+            return true;
+        case kDebugRender:
+            std::snprintf(text, sizeof(text), "%s",
+                          kDebugRenderNames[StepTable(kDebugRenders, o.debug_render_mode, step)]);
             return true;
         case kMaxFps: {
             uint32_t cap = kFpsCaps[StepTable(kFpsCaps, s.fps_cap, step)];
@@ -611,6 +620,7 @@ void RestoreDefaults(int page) {
     o.dynamic_min_percent = fresh.dynamic_min_percent;
     o.dynamic_max_percent = fresh.dynamic_max_percent;
     o.dynamic_hold = fresh.dynamic_hold;
+    o.debug_render_mode = fresh.debug_render_mode;
     o.audio_output = fresh.audio_output;
     o.language = keep.language;
     o.keys = keep.keys;

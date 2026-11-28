@@ -38,6 +38,9 @@ struct Options {
     float left_sensitivity = 1.0f;
     float right_sensitivity = 1.0f;
     uint32_t audio_output = 0;  // audio::kOutputAuto, kOutputStereo, kOutputSurround or kOutputMono
+    // RENDER DEBUG (temporary, for the white-blowout hunt): 0 off, 1 no specular, 2 no texgen stages,
+    // 3 texture stage 0 only, 4 no lighting
+    uint32_t debug_render_mode = 0;
     std::string language = "int";  // one of kLanguages
     std::map<std::string, std::string> keys;  // action id to key names, absent is the default
 };
