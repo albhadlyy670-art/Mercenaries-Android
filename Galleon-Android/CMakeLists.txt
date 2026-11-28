@@ -776,3 +776,12 @@ target_link_libraries(main PRIVATE SDL3::SDL3 tomlplusplus::tomlplusplus glslang
                       vulkan android log dl)
 # 16 KB pages, as Android 15 devices may have
 target_link_options(main PRIVATE -Wl,-z,max-page-size=16384)
+
+# [GALLEON-EBP-GUARD-196] guard null/low ctx.ebp (0x00000010 -> 0x100000010 SIGSEGV)
+foreach(_ep_src IN LISTS RECOMP_SRCS)
+    file(READ "${_ep_src}" _ep_txt)
+    if(_ep_txt MATCHES "ctx\.ebp")
+        string(REGEX REPLACE "([^\n]*X86_MEM[^(]*\([^)]*ctx\.ebp[^)]*\)[^\n]*)" "if (ctx.ebp <= 0x100u) { ctx.eax = 0u; return; }\n\1" _ep_txt "${_ep_txt}")
+        file(WRITE "${_ep_src}" "${_ep_txt}")
+    endif()
+endforeach()
