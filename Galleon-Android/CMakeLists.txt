@@ -187,30 +187,10 @@ string(REPLACE [[    if (f->next >= (f->entry ? f->disc_entries.size() : f->entr
         // event's signal a save listing that waits on it never wakes (the v1.0.14 freeze)
         uint32_t st = f->next == 0 ? kNoSuchFile : kNoMoreFiles;
         IoStatus(iosb, st, 0);
-        {   // GALLEON-DIAG: does the host folder really hold files the listing missed?
-            std::error_code dec;
-            unsigned host_files = 0;
-            for (auto& de : fs::directory_iterator(fs::path(f->host), dec)) { (void)de; ++host_files; }
-            LOGR("files: dir diag %s host=%s listed=%u host_files=%u next=%u", f->xbox.c_str(), fs::path(f->host).string().c_str(),
-                 (unsigned)(f->entry ? f->disc_entries.size() : f->entries.size()), host_files, (unsigned)f->next);
-        }
         LOGR("files: dir end %s => %08X", f->xbox.c_str(), st);
         Complete(event, apc, apc_ctx, iosb);
         return st;
     }]] _fc_src "${_fc_src}")
-# GALLEON-MASK: the save-folder listing came back empty (STATUS_NO_SUCH_FILE) although the folder held its files,
-# so the game's file lookup failed and it quit with "unable to load". The mask the game passes can carry a path
-# prefix or be "*.*", neither of which WildMatch accepts for a plain file name, so reduce it to its file part.
-if(NOT _fc_src MATCHES "GALLEON-MASK")
-string(REPLACE [[    std::string pat = mask ? ReadAnsiString(mask) : "*";]] [[    std::string pat = mask ? ReadAnsiString(mask) : "*";
-    {   // GALLEON-MASK
-        std::string raw_pat = pat;
-        size_t cut = pat.find_last_of("\\/");
-        if (cut != std::string::npos) pat = pat.substr(cut + 1);
-        if (pat.empty() || pat == "*.*") pat = "*";
-        if (!f->listed || (restart & 0xFF)) LOGR("files: dir mask '%s' -> '%s' for %s", raw_pat.c_str(), pat.c_str(), f->xbox.c_str());
-    }]] _fc_src "${_fc_src}")
-endif()
 string(REPLACE [[    if (len < need) return kBufferTooSmall;]] [[    if (len < need) {  // GALLEON-FILE-FIXES: a failed IRP completes like the console's
         IoStatus(iosb, kBufferTooSmall, 0);
         Complete(event, apc, apc_ctx, iosb);
@@ -672,6 +652,7 @@ foreach(_ss ${_ss_files})
     file(READ ${_ss} _ss_src)
     if(NOT _ss_src MATCHES "GALLEON-SAVESELECT-FIXES-068D10-109")
     string(REPLACE [[X86_FUNC(sub_00068F00)]] [[X86_FUNC(sub_00068F00)
+    ctx.eax = 1u; ctx.esp += 8u; return;
 	// v1.0.137: save-select — prevent relaunch, set main-menu mode directly
 	{ uint32_t ea = (uint32_t)(0x223688u); X86_MEM32(ea) = (uint32_t)(ctx.ebx); }
 	{
@@ -777,11 +758,40 @@ target_link_libraries(main PRIVATE SDL3::SDL3 tomlplusplus::tomlplusplus glslang
 # 16 KB pages, as Android 15 devices may have
 target_link_options(main PRIVATE -Wl,-z,max-page-size=16384)
 
-# [GALLEON-EBP-GUARD-196] guard null/low ctx.ebp (0x00000010 -> 0x100000010 SIGSEGV)
-foreach(_ep_src IN LISTS RECOMP_SRCS)
-    file(READ "${_ep_src}" _ep_txt)
-    if(_ep_txt MATCHES "ctx\.ebp")
-        string(REGEX REPLACE "([^\n]*X86_MEM[^(]*\([^)]*ctx\.ebp[^)]*\)[^\n]*)" "if (ctx.ebp <= 0x100u) { ctx.eax = 0u; return; }\n\1" _ep_txt "${_ep_txt}")
-        file(WRITE "${_ep_src}" "${_ep_txt}")
+# [GALLEON-RELAUNCH-MAINMENU-182] on boot after save-select relaunch, switch menu to main-menu
+foreach(_mm_src IN LISTS RECOMP_SRCS)
+    file(READ "${_mm_src}" _mm_txt)
+    if(_mm_txt MATCHES "X86_FUNC\\(sub_000667F0\\)")
+        string(REPLACE [[X86_FUNC(sub_000667F0)]] [[X86_FUNC(sub_000667F0)
+    { extern bool g_galleon_relaunch_from_save; if (g_galleon_relaunch_from_save) { g_galleon_relaunch_from_save = false; X86_MEM32(0x223688u) = 0u; uint32_t m = X86_MEM32(0x238ED4u); if (m > 0x10000u && m < 0x10000000u) { X86_MEM32(m + 0x15Cu) = 0u; X86_MEM32(m + 0x168u) = 0x217F64u; X86_MEM8(m + 0xC60u) = 1u; X86_MEM32(m + 0x10u) = 0u; X86_MEM32(m + 0x1Cu) = 0x800u; } } }]] _mm_txt "${_mm_txt}")
+        file(WRITE "${_mm_src}" "${_mm_txt}")
+    endif()
+endforeach()
+
+# [GALLEON-HAL-RET-187] return 1 in-process from __imp__HalReturnToFirmware instead of relaunching
+foreach(_hr_src IN LISTS RECOMP_SRCS)
+    file(READ "${_hr_src}" _hr_txt)
+    if(_hr_txt MATCHES "X86_FUNC\\(__imp__HalReturnToFirmware\\)")
+        string(REPLACE [[X86_FUNC(__imp__HalReturnToFirmware)]] [[X86_FUNC(__imp__HalReturnToFirmware)
+    ctx.eax = 1u; ctx.esp += 8u; return;]] _hr_txt "${_hr_txt}")
+        file(WRITE "${_hr_src}" "${_hr_txt}")
+    endif()
+endforeach()
+
+# [GALLEON-EDI-GUARD-173] guard ctx.edi + 5u in sub_001C3EB4 against 0xFFFFFFEF -> 0x1fffffff4
+foreach(_eg_src IN LISTS RECOMP_SRCS)
+    file(READ "${_eg_src}" _eg_txt)
+    if(_eg_txt MATCHES "ctx\.edi \+ 5u")
+        string(REGEX REPLACE "([^\n]*ctx\.edi \+ 5u[^\n]*)" "if (ctx.edi >= 0xFFFFFF00u) { ctx.eax = 0u; return; }\n\1" _eg_txt "${_eg_txt}")
+        file(WRITE "${_eg_src}" "${_eg_txt}")
+    endif()
+endforeach()
+
+# [GALLEON-NO-HAL-189] replace all HalReturnToFirmware calls in RECOMP_SRCS with in-process return 1
+foreach(_nh_src IN LISTS RECOMP_SRCS)
+    file(READ "${_nh_src}" _nh_txt)
+    if(_nh_txt MATCHES "HalReturnToFirmware")
+        string(REGEX REPLACE "[^;\n]*HalReturnToFirmware[^;\n]*;" "ctx.eax = 1u; ctx.esp += 4u;" _nh_txt "${_nh_txt}")
+        file(WRITE "${_nh_src}" "${_nh_txt}")
     endif()
 endforeach()
